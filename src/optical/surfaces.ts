@@ -716,49 +716,7 @@ export class OpticalSurfaceFactory {
     return R_phi.multiply(Rz);
   }
 
-  /**
-   * Simple alignment rotation (original createAlignmentRotation logic)
-   */
-  private static createSimpleAlignmentRotation(fromVec: Vector3, toVec: Vector3): Matrix4 {
-    const from = fromVec.normalize();
-    const to = toVec.normalize();
-    
-    // Calculate rotation axis (cross product)
-    const axis = new Vector3(
-      from.y * to.z - from.z * to.y,
-      from.z * to.x - from.x * to.z,
-      from.x * to.y - from.y * to.x
-    );
-    
-    // Calculate rotation angle (dot product)
-    const dot = from.x * to.x + from.y * to.y + from.z * to.z;
-    const angle = Math.acos(Math.max(-1, Math.min(1, dot))); // Clamp to avoid numerical errors
-    
-    // Handle special cases
-    if (Math.abs(angle) < 1e-6) {
-      // Vectors are already aligned
-      return new Matrix4(); // Constructor creates identity matrix
-    } else if (Math.abs(angle - Math.PI) < 1e-6) {
-      // Vectors are opposite - choose any perpendicular axis
-      let perpAxis: Vector3;
-      if (Math.abs(from.x) < 0.9) {
-        perpAxis = new Vector3(1, 0, 0);
-      } else {
-        perpAxis = new Vector3(0, 1, 0);
-      }
-      // Make perpendicular to from vector
-      const perpAxisCross = new Vector3(
-        from.y * perpAxis.z - from.z * perpAxis.y,
-        from.z * perpAxis.x - from.x * perpAxis.z,
-        from.x * perpAxis.y - from.y * perpAxis.x
-      ).normalize();
-      return this.createRotationMatrix(perpAxisCross, Math.PI);
-    } else {
-      // Normal case - rotate around cross product axis
-      const axisNormalized = axis.normalize();
-      return this.createRotationMatrix(axisNormalized, angle);
-    }
-  }
+
 
 }
 

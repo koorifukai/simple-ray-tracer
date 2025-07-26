@@ -3,7 +3,7 @@
  * Compares our optical system rendering against reference implementation results
  */
 
-import type { OpticalSystem } from '../optical/OpticalSystem';
+// import type { OpticalSystem } from '../optical/OpticalSystem';
 import type { OpticalSurface } from '../optical/surfaces';
 import { Vector3 } from '../math/Matrix4';
 
@@ -14,10 +14,7 @@ interface ExpectedSurface {
   corners: [number, number, number][];
 }
 
-interface ValidationResult {
-  passed: boolean;
-  errors: string[];
-}
+
 
 export class GroundTruthValidator {
   private static readonly TOLERANCE = 1e-6;

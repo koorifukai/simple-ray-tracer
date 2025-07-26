@@ -83,8 +83,6 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
   const [parsedData, setParsedData] = useState<any>(null);
   const [lastValidSystem, setLastValidSystem] = useState<any>(null);
   const [fontSize, setFontSize] = useState(13);
-  const [showNormals, setShowNormals] = useState(true);
-  const [showCorners, setShowCorners] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Initialize with default system
@@ -173,14 +171,6 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
     setFontSize(prev => Math.max(prev - 1, 8));
   }, []);
 
-  const toggleNormals = useCallback(() => {
-    setShowNormals(prev => !prev);
-  }, []);
-
-  const toggleCorners = useCallback(() => {
-    setShowCorners(prev => !prev);
-  }, []);
-
   return (
     <div className="app-container">
       {/* Menu Bar */}
@@ -224,22 +214,6 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
                 title="Increase font size"
               >
                 ↑
-              </button>
-            </div>
-            <div className="visualization-controls">
-              <button 
-                className={`toggle-button ${showNormals ? 'active' : ''}`}
-                onClick={toggleNormals}
-                title="Toggle surface normal vectors"
-              >
-                Normals
-              </button>
-              <button 
-                className={`toggle-button ${showCorners ? 'active' : ''}`}
-                onClick={toggleCorners}
-                title="Toggle corner markers"
-              >
-                Corners
               </button>
             </div>
           </div>
@@ -325,8 +299,6 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
                     : "Optical System Visualization"
               }
               yamlContent={isYamlValid ? yamlContent : undefined}
-              showNormals={showNormals}
-              showCorners={showCorners}
             />
           </div>
         </div>
