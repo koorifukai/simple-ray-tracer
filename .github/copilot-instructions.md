@@ -30,6 +30,7 @@ This is a TypeScript/React optical design application built with Vite. This is f
 - Use proper type imports (`import type { }`) for type-only imports
 - Dark theme throughout (optical design preference)
 - Descriptive variable names for optical concepts (surfaces, rays, materials)
+- When interacting with terminal commands, do not connect multiple commands with `&&` or `;`. Instead, run each command separately to ensure clarity and avoid confusion.
 
 ## Optical Design Concepts
 - **Surfaces**: Spherical, aspherical, plane surfaces with curvature and position

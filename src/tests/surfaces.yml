@@ -19,11 +19,11 @@ surfaces:
   - s4:
       {sid: 3, shape: spherical, radius: -200, semidia: 100, mode: refraction}
   - s5:
-      {sid: 4, shape: plano, height: 100, width: 50, mode: partial, transmission: 0.9}
+      {sid: 4, shape: plano, height: 100, width: 50, dial: 45, mode: partial, transmission: 0.9}
   - s6:
-      {sid: 5, shape: plano, height: 100, width: 100, mode: absorption}
+      {sid: 5, shape: plano, height: 100, width: 100,  mode: absorption}
   - s7:
-      {sid: 6, shape: plano, height: 100, width: 100, mode: diffuse}
+      {sid: 6, shape: plano, height: 100, width: 100, dial: 45, mode: diffuse}
   - s8:
       {sid: 7, shape: plano, height: 100, width: 100, mode: absorption}
       
@@ -52,15 +52,21 @@ optical_trains:
   - a: 
      {lid: 0}
     b:
-     {sid: 0, position: [50,0,0], angles: [-90,-45], dial: 29}
+     {sid: 0, position: [50,0,0], angles: [0,0]}
+    c:
+     {sid: 1, position: [100,0,0], angles: [0,0]}
+    d:
+     {sid: 2, position: [150,0,0], angles: [0,0]}
+    e:
+     {sid: 3, position: [200,0,0], angles: [0,0]}
     k:
-     {aid: 0, position: [250,0,-15], angles: [178,-12], dial: -21}
+     {aid: 0, position: [250,0,-15], angles: [0,0]}
     f:
-     {sid: 4, position: [350,-20,-50], angles: [0,45], dial: 133}
+     {sid: 4, position: [350,-20,-50], angles: [0,45]}
     g:
-     {sid: 5, position: [350,-20,0], angles: [125,12],  dial: -39}
+     {sid: 5, position: [350,-20,0], angles: [0,-90]}
     h:
-     {sid: 6, position: [450,-20,-50], angles: [-30,89], dial: 49}
+     {sid: 6, position: [450,-20,-50], angles: [0,45]}
     i:
-     {sid: 7, position: [450,-20,0], angles: [-135,-90], dial: 99}
+     {sid: 7, position: [450,-20,0], angles: [0,-90]}
     

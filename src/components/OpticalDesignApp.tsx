@@ -176,7 +176,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
       {/* Menu Bar */}
       <div className="menubar">
         <div className="menubar-left">
-          <h1 className="menubar-title">Optical Ray Tracer</h1>
+          <h1 className="menubar-title">Simple Ray Tracer</h1>
           <div className="menubar-buttons">
             <button className="menu-button" onClick={handleNewSystem}>
               New System
@@ -219,7 +219,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
           </div>
         </div>
         <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-          {parsedData?.assemblies?.[0] ? 'Gaussian 28 Lens System' : 'No system loaded'}
+          {parsedData?.assemblies?.[0] ? ' ' : 'No system loaded'}
         </div>
       </div>
 
@@ -293,9 +293,9 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
             <EmptyPlot3D 
               title={
                 parsedData?.assemblies?.[0] 
-                  ? `Gaussian 28 Lens System - 3D Visualization`
+                  ? `   `
                   : lastValidSystem?.assemblies?.[0] 
-                    ? `Gaussian 28 Lens System - 3D Visualization (Last Valid)`
+                    ? `  `
                     : "Optical System Visualization"
               }
               yamlContent={isYamlValid ? yamlContent : undefined}
