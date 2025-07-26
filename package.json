@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "homepage": "https://koorifukai.github.io/simple-ray-tracer",
+  "homepage": "https://koorifukai.github.io/simple_ray_tracer",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
