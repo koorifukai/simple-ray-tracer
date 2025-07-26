@@ -1,0 +1,66 @@
+display_settings:
+  figsize: [7, 7]
+  theme: dark_background
+  lens_display_theta: 10
+  lens_display_phi: 20
+  ray_display_density: 0.8
+  obj_display_density: 0.5
+  show_grid: True
+  fill_with_grey: False
+  density_for_intensity: True
+
+surfaces:
+  - s1:
+      {sid: 0, shape: plano, height: 100, width: 50, mode: refraction}
+  - s2:
+      {sid: 1, shape: cylindrical, radius: 110, height: 100, width: 50, mode: refraction}
+  - s3:
+      {sid: 2, shape: cylindrical, radius: -110, height: 50, width: 100, mode: refraction}
+  - s4:
+      {sid: 3, shape: spherical, radius: -200, semidia: 100, mode: refraction}
+  - s5:
+      {sid: 4, shape: plano, height: 100, width: 50, mode: partial, transmission: 0.9}
+  - s6:
+      {sid: 5, shape: plano, height: 100, width: 100, mode: absorption}
+  - s7:
+      {sid: 6, shape: plano, height: 100, width: 100, mode: diffuse}
+  - s8:
+      {sid: 7, shape: plano, height: 100, width: 100, mode: absorption}
+      
+    
+assemblies:
+  - aid: 0
+    #Double porro prism
+    m1: 
+      {relative: 0, shape: plano, height: 50, width: 50, mode: refraction}
+    m2: 
+      {relative: [15,0,15], shape: plano, height: 50, width: 50, angles: [0,-45], mode: reflection}
+    m3: 
+      {relative: [0,0,-45], shape: plano, height: 50, width: 50, angles: [0,45], mode: reflection}
+    m4: 
+      {relative: [-30,0,0], shape: plano, height: 50, width: 50, angles: [180,0], dial:90, mode: refraction}
+    m5: 
+      {relative: [-15,0,0], shape: plano, height: 50, width: 50, angles: [135,0], dial:90, mode: reflection}
+    m6: 
+      {relative: [0,-30,0], shape: plano, height: 50, width: 50, angles: [-135,0], dial:90, mode: reflection}
+    
+light_sources:
+  - ring:
+      {lid: 0, position: [0,-5,-5], vector: [1,0,0], number: 25, wavelength: 488, type: uniform, param: 10}
+  
+optical_trains:
+  - a: 
+     {lid: 0}
+    b:
+     {sid: 0, position: [50,0,0], angles: [-90,-45], dial: 29}
+    k:
+     {aid: 0, position: [250,0,-15], angles: [178,-12], dial: -21}
+    f:
+     {sid: 4, position: [350,-20,-50], angles: [0,45], dial: 133}
+    g:
+     {sid: 5, position: [350,-20,0], angles: [125,12],  dial: -39}
+    h:
+     {sid: 6, position: [450,-20,-50], angles: [-30,89], dial: 49}
+    i:
+     {sid: 7, position: [450,-20,0], angles: [-135,-90], dial: 99}
+    

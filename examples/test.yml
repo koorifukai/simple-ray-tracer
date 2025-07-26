@@ -1,0 +1,25 @@
+display_settings:
+  density_for_intensity: True
+  coexist: False
+surfaces:
+  - s1:
+      {sid: 0, shape: plano, height: 100, width: 50, mode: refraction}
+    
+assemblies:
+  - aid: 0
+    s1:
+      {relative: [0,0,0], shape: plano, height: 50, width: 50, mode: refraction, angles: [0,0], n2: 1.517, dial: 30}
+    s2:
+      {relative: 25, shape: plano, height: 70, width: 35, mode: reflection,  angles: [45,-45], dial: 0}
+    
+light_sources:
+  - ring:
+      {lid: 0, position: [-10,0,0], vector: [1,0,0], number: 25, wavelength: 488, type: ring, param: 9}
+  
+optical_trains:
+  - a: 
+     {lid: 0}
+    b:
+     {aid: 0, position: [20,0,0], angles: [0,0]}
+    c:
+     {sid: 0, position: [50,0,-70], angles: [0,30], dial: 30}

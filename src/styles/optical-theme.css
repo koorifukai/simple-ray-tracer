@@ -1,0 +1,286 @@
+/* Dark theme for optical design ray tracer */
+:root {
+  --bg-primary: #1a1a1a;
+  --bg-secondary: #2d2d2d;
+  --bg-tertiary: #3a3a3a;
+  --text-primary: #e0e0e0;
+  --text-secondary: #b0b0b0;
+  --text-muted: #888888;
+  --border: #404040;
+  --accent: #007acc;
+  --accent-hover: #0088ff;
+  --success: #28a745;
+  --warning: #ffc107;
+  --error: #dc3545;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  overflow-x: hidden;
+  width: 100vw;
+  height: 100vh;
+}
+
+/* Hide the Normals and Corners buttons */
+.visualization-controls {
+  display: none !important;
+}
+
+.app-container {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg-primary);
+}
+
+/* Menu Bar Styles */
+.menubar {
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 48px;
+  flex-shrink: 0;
+}
+
+.menubar-left {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.menubar-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.menubar-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.menu-button {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s ease;
+}
+
+.menu-button:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.menu-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.font-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 16px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.font-button {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 4px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+  min-width: 24px;
+  transition: all 0.2s ease;
+}
+
+.font-button:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* Main Content Area */
+.main-content {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  width: 100%;
+}
+
+.yaml-panel {
+  width: 40%;
+  min-width: 400px;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg-secondary);
+}
+
+.visualization-panel {
+  flex: 1;
+  min-width: 0;
+  background-color: var(--bg-primary);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Panel Headers */
+.panel-header {
+  background-color: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+/* YAML Editor Styles */
+.yaml-editor-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.yaml-editor {
+  flex: 1;
+  min-height: 0;
+}
+
+.yaml-status {
+  background-color: var(--bg-tertiary);
+  border-top: 1px solid var(--border);
+  padding: 4px 16px;
+  font-size: 12px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.yaml-status.error {
+  color: var(--error);
+  background-color: rgba(220, 53, 69, 0.1);
+}
+
+.yaml-status.success {
+  color: var(--success);
+}
+
+/* Visualization Area */
+.visualization-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  width: 100%;
+  position: relative;
+}
+
+.visualization-placeholder {
+  text-align: center;
+  color: var(--text-muted);
+  border: 2px dashed var(--border);
+  border-radius: 8px;
+  padding: 40px;
+  width: 90%;
+  max-width: none;
+}
+
+.plotly-container {
+  width: 100%;
+  height: 100%;
+  min-height: 400px;
+}
+
+/* Lower Panel (for future spot diagrams, etc.) */
+.lower-panel {
+  height: 0;
+  transition: height 0.3s ease;
+  border-top: 1px solid var(--border);
+  background-color: var(--bg-secondary);
+  overflow: hidden;
+}
+
+.lower-panel.expanded {
+  height: 300px;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* File input styling */
+.file-input {
+  display: none;
+}
+
+/* Monaco editor dark theme overrides */
+.monaco-editor {
+  background-color: var(--bg-secondary) !important;
+}
+
+.monaco-editor .margin {
+  background-color: var(--bg-tertiary) !important;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .main-content {
+    flex-direction: column;
+  }
+  
+  .yaml-panel {
+    width: 100%;
+    min-width: 0;
+    height: 50%;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  
+  .menubar-title {
+    font-size: 14px;
+  }
+  
+  .menu-button {
+    padding: 4px 8px;
+    font-size: 12px;
+  }
+}

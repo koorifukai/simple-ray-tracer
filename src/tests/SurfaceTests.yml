@@ -1,0 +1,43 @@
+display_settings:
+  density_for_intensity: True
+  coexist: False
+surfaces:
+  - s1:
+      {sid: 0, shape: plano, height: 10, width: 5, mode: refraction}
+  - s2:
+      {sid: 1, shape: plano, height: 5, width: 10, mode: refraction}
+assemblies:
+  - aid: 0
+    s1:
+      {relative: [20,0,0], shape: plano, height: 7, width: 5, mode: refraction, angles: [0,45], n2: 1.517, dial: 0}
+    s2:
+      {relative: [50,0,0], shape: plano, height: 7, width: 5, mode: refraction, angles: [180,-30], n2: 1.517, dial: 30}
+  - aid: 1
+    s1:
+      {relative: [20,0,0], shape: plano, height: 7, width: 5, mode: refraction, angles: [0,45], n2: 1.517, dial: 0}
+    s2:
+      {relative: [50,20,10], shape: plano, height: 7, width: 5, mode: refraction, angles: [180,-30], n2: 1.517, dial: 0}
+light_sources:
+  - ring:
+      {lid: 0, position: [-10,0,0], vector: [1,0,0], number: 1, wavelength: 488, type: ring, param: 9}
+optical_trains:
+  - a: 
+     {lid: 0}
+    b:
+     {sid: 0, position: [0,0,0], angles: [30,50]}
+    c:
+     {sid: 0, position: [10,10,0], normal: [-1,-1,-1]}
+    d:
+     {sid: 1, position: [20,0,-10], normal: [1,-1,1]}
+    e:
+     {sid: 1, position: [30,5,0], normal: [1,-1,1], dial: 30}
+    f:
+     {sid: 0, position: [40,0,-5], angles: [130,-50]}
+    g: 
+     {sid: 0, position: [50,0,-5], angles: [130,-50], dial: -30}
+    x:
+     {aid: 0, position: [0,30,0], angles: [45,-30], dial: 0}
+    y:
+     {aid: 1, position: [60,0,-20], angles: [45,-30], dial: -30}
+    z:
+     {aid: 0, position: [0,-30,-10], angles: [45,-30], dial: -30}
