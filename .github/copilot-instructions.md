@@ -32,27 +32,15 @@ This is a TypeScript/React optical design application built with Vite. This is f
 - Descriptive variable names for optical concepts (surfaces, rays, materials)
 - When interacting with terminal commands, do not connect multiple commands with `&&` or `;`. Instead, run each command separately to ensure clarity and avoid confusion.
 
+## Git
+- You do no have the permission to interact with Git commands.
+
 ## Optical Design Concepts
 - **Surfaces**: Spherical, aspherical, plane surfaces with curvature and position
 - **Materials**: Glass types with refractive index and Abbe number
 - **Ray tracing**: Snell's law, paraxial calculations, real ray tracing
 - **System definition**: YAML format for lens prescriptions
 - **Analysis**: Spot diagrams, ray fans, aberration analysis
-
-## YAML System Format
-```yaml
-name: "System Name"
-surfaces:
-  - id: "surface1"
-    type: "spherical"
-    radius: 20.0
-    position: [0, 0, 10]
-    material: "BK7"
-materials:
-  BK7:
-    nd: 1.5168
-    vd: 64.17
-```
 
 ## Performance Considerations
 - Optical ray tracing can be computationally intensive

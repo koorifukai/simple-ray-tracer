@@ -12,23 +12,24 @@ display_settings:
 
 assemblies:
   - aid: 0
+    # Simple convergent lens
     s1: 
-      {relative: 0, shape: spherical, radius: -100, semidia: 20, mode: reflection}
+      {relative: 0, shape: plano, semidia: 30, mode: refraction, n2: 1.8}
 surfaces:
   - stop:
-      {sid: 0, shape: plano, height: 50, width: 50, mode: absorption}
+      {sid: 0, shape: plano, height: 40, width: 60, mode: absorption}
 
 light_sources:
   - l1:
-      {lid: 0, position: [-10,0,0], vector: [1,0,0], number: 5, wavelength: 532, type: linear, param: 30}
+      {lid: 0, position: [-200,0,-40], vector: [1,0,0.2], number: 5, wavelength: 532, type: linear, param: 10}
 
 optical_trains:
   - b: 
      {lid: 0}
     l:
-     {aid: 0, position: [0,0,0], angles: [0,0]}
+     {aid: 0, position: [0,0,0], angles: [0,30]}
     ll:
-     {sid: 0, position: [-49,0,0], angles: [180,0]}
+     {sid: 0, position: [250,0,-40], angles: [0,0]}
 
 optimization_settings:
   iterations: 20

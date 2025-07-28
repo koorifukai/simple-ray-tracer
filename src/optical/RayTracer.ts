@@ -387,8 +387,21 @@ export class RayTracer {
    * This creates a coordinate system where the surface is at origin facing -X direction
    */
   private static getSurfaceToLocalTransform(surface: OpticalSurface): Matrix4 {
-    // Start with translation to move surface to origin
-    const translation = Matrix4.translation(-surface.position.x, -surface.position.y, -surface.position.z);
+    // For spherical surfaces: position is VERTEX, but we need CENTER at origin
+    // Center = vertex - radius * normal_direction
+    let translationPoint = surface.position;
+    
+    if (surface.shape === 'spherical' && surface.radius) {
+      const surfaceNormal = surface.normal || new Vector3(-1, 0, 0);
+      const radius = surface.radius;
+      // Calculate sphere center: vertex - radius * normal
+      const sphereCenter = surface.position.subtract(surfaceNormal.multiply(radius));
+      translationPoint = sphereCenter;
+      console.log(`Spherical surface ${surface.id}: vertex at [${surface.position.x}, ${surface.position.y}, ${surface.position.z}], center at [${sphereCenter.x}, ${sphereCenter.y}, ${sphereCenter.z}]`);
+    }
+    
+    // Start with translation to move sphere center (or surface) to origin
+    const translation = Matrix4.translation(-translationPoint.x, -translationPoint.y, -translationPoint.z);
     
     // Get surface normal (should be stored in the surface object)
     const surfaceNormal = surface.normal || new Vector3(-1, 0, 0); // Default to -X facing
@@ -459,14 +472,12 @@ export class RayTracer {
 
   /**
    * Intersect ray with spherical surface (in local coordinates)
-   * Surface center at (0,0,0) facing (-1,0,0)
    * 
-   * SPHERE INTERSECTION RULES:
-   * - Positive radius (R > 0): CONVEX surface
-   *   * Ray outside sphere: use FIRST intersection (closer)
-   *   * Ray inside sphere: ANOMALY - log warning, return invalid
-   * - Negative radius (R < 0): CONCAVE surface  
-   *   * Ray anywhere: use SECOND intersection (farther, back side)
+   * CLASSICAL SPHERE GEOMETRY:
+   * - Transformation matrix places sphere CENTER at origin [0,0,0]
+   * - Sphere equation: x² + y² + z² = R²
+   * - For CONVEX (R > 0): rays from outside, use first intersection
+   * - For CONCAVE (R < 0): rays from inside, use second intersection
    */
   private static intersectSphere(ray: Ray, surface: OpticalSurface): RayIntersection {
     const radius = surface.radius || 0;
@@ -477,17 +488,11 @@ export class RayTracer {
     console.log(`Sphere intersection - radius: ${radius} (${radius > 0 ? 'CONVEX' : 'CONCAVE'})`);
     console.log(`Local ray: position=(${ray.position.x},${ray.position.y},${ray.position.z}), direction=(${ray.direction.x},${ray.direction.y},${ray.direction.z})`);
     
+    // Ray position and direction in local coordinates (sphere center at origin)
     const O = ray.position;
     const D = ray.direction.normalize();
     
-    // Check for backstabbing (ray moving away from surface)
-    const backstabCheck = -D.dot(new Vector3(-1, 0, 0));
-    console.log(`Backstab check: ${backstabCheck} (should be > 0)`);
-    if (backstabCheck < 0) {
-      console.log(`❌ Backstabbing detected - ray moving away from surface`);
-      return { point: new Vector3(0, 0, 0), normal: new Vector3(0, 0, 1), distance: 0, isValid: false };
-    }
-
+    // === RAY-SPHERE INTERSECTION CALCULATION ===
     // Sphere equation: x² + y² + z² = R²
     // Ray equation: P = O + t*D
     // Substitute: (Ox + t*Dx)² + (Oy + t*Dy)² + (Oz + t*Dz)² = R²
@@ -510,7 +515,7 @@ export class RayTracer {
     const t2 = (-b + sqrt_discriminant) / (2 * a); // Second intersection (farther)
     console.log(`Solutions: t1=${t1} (first/closer), t2=${t2} (second/farther)`);
 
-    // Determine ray position relative to sphere
+    // === DETERMINE VALID INTERSECTION BASED ON SURFACE TYPE ===
     const rayDistanceFromCenter = O.length();
     const sphereRadius = Math.abs(radius);
     const isRayInsideSphere = rayDistanceFromCenter < sphereRadius;
@@ -549,17 +554,19 @@ export class RayTracer {
       return { point: new Vector3(0, 0, 0), normal: new Vector3(0, 0, 1), distance: 0, isValid: false };
     }
 
+    // === CALCULATE INTERSECTION POINT AND NORMAL ===
+    // Hit point in local coordinates (sphere center at origin)
     const hitPoint = O.add(D.multiply(t));
     console.log(`Hit point: (${hitPoint.x.toFixed(3)}, ${hitPoint.y.toFixed(3)}, ${hitPoint.z.toFixed(3)})`);
     
     // Calculate local normal at hit point (vector from sphere center to hit point)
-    let localNormal = hitPoint.normalize(); // For sphere centered at origin
+    let localNormal = hitPoint.normalize(); // Normal from center to hit point
     if (radius < 0) {
       localNormal = localNormal.multiply(-1); // Flip for concave surfaces
     }
     console.log(`Local normal: (${localNormal.x.toFixed(3)}, ${localNormal.y.toFixed(3)}, ${localNormal.z.toFixed(3)})`);
 
-    // Check circular aperture (semidia)
+    // Check circular aperture (semidia) using radial distance from origin
     const radialDistance = Math.sqrt(hitPoint.y * hitPoint.y + hitPoint.z * hitPoint.z);
     const aperture = surface.semidia || 10;
     console.log(`Radial distance: ${radialDistance.toFixed(3)}, semidia: ${aperture}`);
@@ -685,71 +692,106 @@ export class RayTracer {
    * Intersect ray with cylindrical surface (in local coordinates)
    * Decompose ray into XY plane (circle) and Z component (height check)
    */
+  /**
+   * Intersect ray with cylindrical surface (in local coordinates)
+   * 
+   * CYLINDRICAL GEOMETRY:
+   * - Cylinder axis along X direction, centered at origin
+   * - Height h extends ±h/2 along X-axis  
+   * - Width w extends ±w/2 along Z-axis
+   * - Radius r defines circular cross-section in YZ plane
+   * 
+   * INTERSECTION STRATEGY:
+   * 1. Check XY plane intersection with circle of radius r
+   * 2. Validate X coordinate is within width w limits  
+   * 3. Calculate Z travel distance and validate height h limits
+   */
   private static intersectCylinder(ray: Ray, surface: OpticalSurface): RayIntersection {
     const radius = Math.abs(surface.radius || 10);
     const height = surface.height || 20; // Total height of cylinder
+    const width = surface.width || 20;   // Total width of cylinder
     
-    console.log(`Cylinder intersection - radius: ${radius}, height: ${height}`);
+    console.log(`Cylinder intersection - radius: ${radius}, height: ${height}, width: ${width}`);
     console.log(`Local ray: position=(${ray.position.x},${ray.position.y},${ray.position.z}), direction=(${ray.direction.x},${ray.direction.y},${ray.direction.z})`);
     
     const O = ray.position;
-    const D = ray.direction;
+    const D = ray.direction.normalize();
 
-    // Decompose into XY plane components (ignore Z for circle intersection)
-    // Cylinder equation in XY plane: x² + y² = R²
-    const a = D.x * D.x + D.y * D.y; // XY plane direction components
-    const b = 2 * (O.x * D.x + O.y * D.y); // XY plane position·direction
-    const c = O.x * O.x + O.y * O.y - radius * radius; // XY plane distance from axis
+    // === STEP 1: XY PLANE CIRCLE INTERSECTION ===
+    // Extract XY components for circle intersection (ignore Z initially)
+    // Circle equation in XY plane: x² + y² = R²
+    const a = D.x * D.x + D.y * D.y; // XY plane direction magnitude squared
+    const b = 2 * (O.x * D.x + O.y * D.y); // XY plane: 2 * (pos·dir)
+    const c = O.x * O.x + O.y * O.y - radius * radius; // XY distance from axis - R²
 
-    console.log(`XY plane quadratic: ${a}t² + ${b}t + ${c} = 0`);
+    console.log(`XY plane circle intersection: ${a}t² + ${b}t + ${c} = 0`);
 
     if (Math.abs(a) < this.EPSILON) {
-      console.log(`Ray parallel to cylinder axis (no XY plane intersection)`);
+      console.log(`❌ Ray parallel to cylinder axis (no XY intersection)`);
       return { point: new Vector3(0, 0, 0), normal: new Vector3(0, 0, 1), distance: 0, isValid: false };
     }
 
     const discriminant = b * b - 4 * a * c;
-    console.log(`XY discriminant: ${discriminant}`);
+    console.log(`Discriminant: ${discriminant}`);
     
     if (discriminant < 0) {
-      console.log(`No XY plane intersection`);
+      console.log(`❌ No XY circle intersection`);
       return { point: new Vector3(0, 0, 0), normal: new Vector3(0, 0, 1), distance: 0, isValid: false };
     }
 
     const sqrt_discriminant = Math.sqrt(discriminant);
-    const t1 = (-b - sqrt_discriminant) / (2 * a);
-    const t2 = (-b + sqrt_discriminant) / (2 * a);
+    const t1 = (-b - sqrt_discriminant) / (2 * a); // First intersection
+    const t2 = (-b + sqrt_discriminant) / (2 * a); // Second intersection
     console.log(`XY intersection parameters: t1=${t1}, t2=${t2}`);
 
-    // Choose the first valid positive intersection
-    let t = t1 > this.EPSILON ? t1 : t2;
-    if (t <= this.EPSILON || t > this.MAX_DISTANCE) {
-      console.log(`No valid XY intersection (t=${t})`);
-      return { point: new Vector3(0, 0, 0), normal: new Vector3(0, 0, 1), distance: 0, isValid: false };
+    // === STEP 2: CHOOSE VALID INTERSECTION AND VALIDATE GEOMETRY ===
+    // Try both intersections, prefer the closer valid one
+    for (const t of [t1, t2]) {
+      if (t <= this.EPSILON || t > this.MAX_DISTANCE) {
+        console.log(`Skipping t=${t} (out of valid range)`);
+        continue;
+      }
+
+      // Calculate 3D intersection point
+      const hitPoint = O.add(D.multiply(t));
+      console.log(`Testing hit point: (${hitPoint.x.toFixed(3)}, ${hitPoint.y.toFixed(3)}, ${hitPoint.z.toFixed(3)})`);
+      
+      // === STEP 3: WIDTH VALIDATION (X-axis limits) ===
+      // Check if intersection X is within ±width/2
+      const halfWidth = width / 2;
+      if (Math.abs(hitPoint.x) > halfWidth + this.EPSILON) {
+        console.log(`❌ Hit outside width limits: |${hitPoint.x}| > ${halfWidth}`);
+        continue;
+      }
+      
+      // === STEP 4: HEIGHT VALIDATION (Z-axis limits) ===
+      // Check if intersection Z is within ±height/2
+      const halfHeight = height / 2;
+      if (Math.abs(hitPoint.z) > halfHeight + this.EPSILON) {
+        console.log(`❌ Hit outside height limits: |${hitPoint.z}| > ${halfHeight}`);
+        continue;
+      }
+
+      // === STEP 5: CALCULATE SURFACE NORMAL ===
+      // Normal is radial vector in XY plane (pointing outward from cylinder axis)
+      const radialVector = new Vector3(hitPoint.x, hitPoint.y, 0);
+      const localNormal = radialVector.normalize();
+      
+      console.log(`✅ Valid cylindrical intersection found!`);
+      console.log(`Hit point: (${hitPoint.x.toFixed(3)}, ${hitPoint.y.toFixed(3)}, ${hitPoint.z.toFixed(3)})`);
+      console.log(`Normal: (${localNormal.x.toFixed(3)}, ${localNormal.y.toFixed(3)}, ${localNormal.z.toFixed(3)})`);
+      
+      return {
+        point: hitPoint,
+        normal: localNormal,
+        distance: t,
+        isValid: true
+      };
     }
 
-    // Calculate 3D hit point
-    const hitPoint = O.add(D.multiply(t));
-    console.log(`3D hit point: (${hitPoint.x}, ${hitPoint.y}, ${hitPoint.z})`);
-    
-    // Check Z bounds (height constraint)
-    const halfHeight = height / 2;
-    if (Math.abs(hitPoint.z) > halfHeight) {
-      console.log(`Hit outside Z bounds: |${hitPoint.z}| > ${halfHeight}`);
-      return { point: new Vector3(0, 0, 0), normal: new Vector3(0, 0, 1), distance: 0, isValid: false };
-    }
-
-    // Calculate local normal (perpendicular to cylinder axis, pointing outward in XY plane)
-    const localNormal = new Vector3(hitPoint.x, hitPoint.y, 0).normalize();
-    console.log(`Local normal: (${localNormal.x}, ${localNormal.y}, ${localNormal.z})`);
-
-    console.log(`Valid cylindrical intersection found!`);
-    return {
-      point: hitPoint,
-      normal: localNormal,
-      distance: t,
-      isValid: true
-    };
+    // No valid intersection found within geometry constraints
+    console.log(`❌ No valid cylindrical intersection found`);
+    return { point: new Vector3(0, 0, 0), normal: new Vector3(0, 0, 1), distance: 0, isValid: false };
   }
 
   /**
