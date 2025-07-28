@@ -258,14 +258,14 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
                           
                           // Trace ray through optical system
                           const rayPath = RayTracer.traceRaySequential(ray, opticalSystem.surfaces);
-                          console.log(`Ray path has ${rayPath.length} segments`);
+                          console.log(`Ray path has ${rayPath.length} points`);
                           
-                          // Plot the complete ray path through all segments
+                          // Plot the complete ray path - each consecutive pair forms a line segment
                           for (let i = 0; i < rayPath.length - 1; i++) {
                             const startRay = rayPath[i];
                             const endRay = rayPath[i + 1];
                             
-                            console.log(`Segment ${i + 1}: from`, startRay.position, 'to', endRay.position);
+                            console.log(`Segment ${i + 1}: from [${startRay.position.x.toFixed(2)}, ${startRay.position.y.toFixed(2)}, ${startRay.position.z.toFixed(2)}] to [${endRay.position.x.toFixed(2)}, ${endRay.position.y.toFixed(2)}, ${endRay.position.z.toFixed(2)}]`);
                             
                             // Validate coordinates before plotting
                             const coords = [
@@ -274,7 +274,7 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
                             ];
                             
                             if (coords.some(coord => !isFinite(coord))) {
-                              console.warn(`Invalid coordinates for ray ${rayIndex} segment ${i}:`, coords);
+                              console.warn(`Invalid coordinates for ray ${rayIndex} segment ${i + 1}:`, coords);
                               continue; // Skip this segment
                             }
                             
@@ -288,7 +288,7 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
                                 color: color,
                                 width: 3 // Make thicker for easier visibility
                               },
-                              name: `${source.lid || index} Ray ${rayIndex + 1} Seg ${i + 1}`,
+                              name: `Ray ${rayIndex + 1} Seg ${i + 1}`,
                               showlegend: false,
                               hoverinfo: 'skip'
                             });

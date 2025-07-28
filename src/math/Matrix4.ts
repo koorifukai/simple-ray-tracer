@@ -115,6 +115,43 @@ export class Matrix4 {
   }
 
   /**
+   * Create rotation matrix from axis and angle (Rodrigues' formula)
+   */
+  static rotationFromAxisAngle(axis: Vector3, angle: number): Matrix4 {
+    const m = new Matrix4();
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const oneMinusCos = 1 - cos;
+    
+    const x = axis.x;
+    const y = axis.y;
+    const z = axis.z;
+    
+    // Rodrigues' rotation matrix formula
+    m.elements[0] = cos + x * x * oneMinusCos;
+    m.elements[1] = x * y * oneMinusCos - z * sin;
+    m.elements[2] = x * z * oneMinusCos + y * sin;
+    m.elements[3] = 0;
+    
+    m.elements[4] = y * x * oneMinusCos + z * sin;
+    m.elements[5] = cos + y * y * oneMinusCos;
+    m.elements[6] = y * z * oneMinusCos - x * sin;
+    m.elements[7] = 0;
+    
+    m.elements[8] = z * x * oneMinusCos - y * sin;
+    m.elements[9] = z * y * oneMinusCos + x * sin;
+    m.elements[10] = cos + z * z * oneMinusCos;
+    m.elements[11] = 0;
+    
+    m.elements[12] = 0;
+    m.elements[13] = 0;
+    m.elements[14] = 0;
+    m.elements[15] = 1;
+    
+    return m;
+  }
+
+  /**
    * Matrix multiplication (this * other)
    */
   multiply(other: Matrix4): Matrix4 {

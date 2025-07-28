@@ -1,0 +1,44 @@
+display_settings:
+  figsize: [7, 7]
+  theme: dark_background
+  lens_display_theta: 10
+  lens_display_phi: 20
+  ray_display_density: 0.8
+  obj_display_density: 0.5
+  show_grid: True
+  fill_with_grey: False
+  density_for_intensity: True
+  coexist: False
+assemblies:
+  - aid: 0
+    #triplet lens
+    s1: 
+      {relative: 0, shape: spherical, radius: 23.71, semidia: 10, mode: refraction, n2: 1.691}
+    s2:
+      {relative: 4.831, shape: spherical, radius: 7331,  semidia: 10,  mode: refraction, n1: 1.691}
+    s3:
+      {relative: 5.86, shape: spherical, radius: -24.45,  semidia: 6,  mode: refraction, n2: 1.673}
+    s4:
+      {relative: 0.975, shape: spherical, radius: 21.896,  semidia: 6,  mode: refraction, n1: 1.673}
+    s5:
+      {relative: 4.822, shape: spherical, radius: 86.759,  semidia: 8,  mode: refraction, n2: 1.691}
+    s6:
+      {relative: 3.127, shape: spherical, radius: -20.494,  semidia: 8,  mode: refraction, n1: 1.691}
+    focus:
+      {relative: 41.24, shape: plano, height: 30, width: 10, mode: absorption}
+surfaces:
+  - stop:
+      {sid: 0, shape: plano, height: 50, width: 50, mode: absorption}
+light_sources:
+  - l1:
+      {lid: 0, position: [0,0,-6], vector: [1,0,0.2], number: 8, wavelength: 633, type: linear, param: 10}
+  - l2:
+      {lid: 1, position: [0,0,-3], vector: [1,0,0.1], number: 8, wavelength: 532, type: linear, param: 10}
+  - l3:
+      {lid: 2, position: [0,0,0], vector: [1,0,0], number: 8, wavelength: 488, type: linear, param: 10}
+  
+optical_trains:
+  - b: 
+     {lid: 1}
+    l:
+     {aid: 0, position: [10,0,0], angles: [0,0]}

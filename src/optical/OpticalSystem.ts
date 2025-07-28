@@ -91,8 +91,15 @@ export class OpticalSystemParser {
 
     // FIRST PASS: Parse optical_trains to store each element's data for surface creation
     const referencedLights = new Set<string>();
-    const assemblyElements: Array<{ trainName: string; trainData: any; position: Vector3; angles: Vector3; normal?: Vector3; dial?: number }> = [];
-    const surfaceElements: Array<{ trainName: string; trainData: any; position: Vector3; angles: Vector3; normal?: Vector3; dial?: number }> = [];
+    const opticalTrainElements: Array<{ 
+      trainName: string; 
+      trainData: any; 
+      position: Vector3; 
+      angles: Vector3; 
+      normal?: Vector3; 
+      dial?: number;
+      type: 'light' | 'assembly' | 'surface';
+    }> = [];
 
     if (data.optical_trains && Array.isArray(data.optical_trains)) {
       data.optical_trains.forEach((trainGroup: any) => {
@@ -143,10 +150,11 @@ export class OpticalSystemParser {
           if (trainData.lid !== undefined) {
             referencedLights.add(trainData.lid.toString());
             console.log(`  Referenced light: lid ${trainData.lid} at position (${absolutePosition.x}, ${absolutePosition.y}, ${absolutePosition.z})`);
+            opticalTrainElements.push({ trainName, trainData, position: absolutePosition.clone(), angles, normal, dial, type: 'light' });
           }
           
           if (trainData.aid !== undefined) {
-            assemblyElements.push({ trainName, trainData, position: absolutePosition.clone(), angles, normal, dial });
+            opticalTrainElements.push({ trainName, trainData, position: absolutePosition.clone(), angles, normal, dial, type: 'assembly' });
             console.log(`  Referenced assembly: aid ${trainData.aid} at position (${absolutePosition.x}, ${absolutePosition.y}, ${absolutePosition.z})`);
             if (dial !== undefined) {
               console.log(`    Assembly dial: ${dial}°`);
@@ -154,7 +162,7 @@ export class OpticalSystemParser {
           }
           
           if (trainData.sid !== undefined) {
-            surfaceElements.push({ trainName, trainData, position: absolutePosition.clone(), angles, normal, dial });
+            opticalTrainElements.push({ trainName, trainData, position: absolutePosition.clone(), angles, normal, dial, type: 'surface' });
             console.log(`  Referenced surface: sid ${trainData.sid} at position (${absolutePosition.x}, ${absolutePosition.y}, ${absolutePosition.z})`);
             if (dial !== undefined) {
               console.log(`    Surface dial: ${dial}°`);
@@ -165,8 +173,7 @@ export class OpticalSystemParser {
     }
 
     console.log(`\n=== Reference Summary ===`);
-    console.log(`Surface elements: ${surfaceElements.length}`);
-    console.log(`Assembly elements: ${assemblyElements.length}`);
+    console.log(`Optical train elements: ${opticalTrainElements.length}`);
     console.log(`Referenced lights: [${Array.from(referencedLights).join(', ')}]`);
 
     // Parse display settings
@@ -245,77 +252,76 @@ export class OpticalSystemParser {
       });
     }
 
-    // THIRD PASS: Create surfaces from optical train elements
+    // THIRD PASS: Create surfaces from optical train elements in their original order
     console.log(`\n=== Creating surfaces from optical train elements ===`);
     
-    // Create surfaces from surface elements
-    surfaceElements.forEach((element) => {
-      const sid = element.trainData.sid.toString();
-      const template = surfaceTemplates.get(sid);
-      
-      if (!template) {
-        console.warn(`No surface template found for sid ${sid} in element "${element.trainName}"`);
-        return;
+    for (const element of opticalTrainElements) {
+      if (element.type === 'surface') {
+        const sid = element.trainData.sid.toString();
+        const template = surfaceTemplates.get(sid);
+        
+        if (!template) {
+          console.warn(`No surface template found for sid ${sid} in element "${element.trainName}"`);
+          continue;
+        }
+        
+        console.log(`Creating surface "${element.trainName}" from sid ${sid} template "${template.key}"`);
+        
+        // Merge optical train dial and normal with surface definition
+        const mergedSurfaceData = { ...template.data };
+        if (element.dial !== undefined) {
+          mergedSurfaceData.dial = element.dial; // Optical train dial overrides surface dial
+          console.log(`  Applied dial from optical train: ${element.dial}°`);
+        }
+        
+        // Apply normal from optical train if specified
+        if (element.normal) {
+          mergedSurfaceData.normal = [element.normal.x, element.normal.y, element.normal.z];
+          console.log(`  Applied normal from optical train: [${element.normal.x.toFixed(3)}, ${element.normal.y.toFixed(3)}, ${element.normal.z.toFixed(3)}]`);
+        }
+        
+        // Apply angles from optical train if specified (and no normal)
+        if (!element.normal && (element.angles.x !== 0 || element.angles.y !== 0 || element.angles.z !== 0)) {
+          mergedSurfaceData.angles = [element.angles.x, element.angles.y, element.angles.z];
+          console.log(`  Applied angles from optical train: [${element.angles.x}°, ${element.angles.y}°, ${element.angles.z}°]`);
+        }
+        
+        // Create surface with optical train position and merged data
+        const surface = Surfaces.OpticalSurfaceFactory.createSurface(
+          element.trainName, // Use train element name as unique identifier
+          mergedSurfaceData, 
+          element.position
+        );
+        
+        system.surfaces.push(surface);
+        console.log(`  Added surface "${element.trainName}" at position (${surface.position.x}, ${surface.position.y}, ${surface.position.z})`);
+      } else if (element.type === 'assembly') {
+        const aid = element.trainData.aid.toString();
+        const template = assemblyTemplates.get(aid);
+        
+        if (!template) {
+          console.warn(`No assembly template found for aid ${aid} in element "${element.trainName}"`);
+          continue;
+        }
+        
+        console.log(`Creating assembly "${element.trainName}" from aid ${aid} template`);
+        if (element.dial !== undefined) {
+          console.log(`  Assembly dial: ${element.dial}°`);
+        }
+        
+        const assemblySurfaces = Surfaces.OpticalSurfaceFactory.createAssemblySurfaces(
+          template, 
+          element.position, 
+          element.normal, 
+          element.trainName, // Use train element name as unique identifier prefix
+          element.dial       // Pass assembly-level dial for two-stage rotation
+        );
+        
+        system.surfaces.push(...assemblySurfaces);
+        console.log(`  Added ${assemblySurfaces.length} surfaces from assembly "${element.trainName}"`);
       }
-      
-      console.log(`Creating surface "${element.trainName}" from sid ${sid} template "${template.key}"`);
-      
-      // Merge optical train dial and normal with surface definition
-      const mergedSurfaceData = { ...template.data };
-      if (element.dial !== undefined) {
-        mergedSurfaceData.dial = element.dial; // Optical train dial overrides surface dial
-        console.log(`  Applied dial from optical train: ${element.dial}°`);
-      }
-      
-      // Apply normal from optical train if specified
-      if (element.normal) {
-        mergedSurfaceData.normal = [element.normal.x, element.normal.y, element.normal.z];
-        console.log(`  Applied normal from optical train: [${element.normal.x.toFixed(3)}, ${element.normal.y.toFixed(3)}, ${element.normal.z.toFixed(3)}]`);
-      }
-      
-      // Apply angles from optical train if specified (and no normal)
-      if (!element.normal && (element.angles.x !== 0 || element.angles.y !== 0 || element.angles.z !== 0)) {
-        mergedSurfaceData.angles = [element.angles.x, element.angles.y, element.angles.z];
-        console.log(`  Applied angles from optical train: [${element.angles.x}°, ${element.angles.y}°, ${element.angles.z}°]`);
-      }
-      
-      // Create surface with optical train position and merged data
-      const surface = Surfaces.OpticalSurfaceFactory.createSurface(
-        element.trainName, // Use train element name as unique identifier
-        mergedSurfaceData, 
-        element.position
-      );
-      
-      system.surfaces.push(surface);
-      console.log(`  Added surface "${element.trainName}" at position (${surface.position.x}, ${surface.position.y}, ${surface.position.z})`);
-    });
-    
-    // Create surfaces from assembly elements  
-    assemblyElements.forEach((element) => {
-      const aid = element.trainData.aid.toString();
-      const template = assemblyTemplates.get(aid);
-      
-      if (!template) {
-        console.warn(`No assembly template found for aid ${aid} in element "${element.trainName}"`);
-        return;
-      }
-      
-      console.log(`Creating assembly "${element.trainName}" from aid ${aid} template`);
-      if (element.dial !== undefined) {
-        console.log(`  Assembly dial: ${element.dial}°`);
-      }
-      
-      const assemblySurfaces = Surfaces.OpticalSurfaceFactory.createAssemblySurfaces(
-        template, 
-        element.position, 
-        element.normal, 
-        element.trainName, // Use train element name as unique identifier prefix
-        element.dial       // Pass assembly-level dial for two-stage rotation
-      );
-      
-      system.surfaces.push(...assemblySurfaces);
-      console.log(`  Added ${assemblySurfaces.length} surfaces from assembly "${element.trainName}"`);
-    });
+      // Skip 'light' type elements as they don't create surfaces
+    }
 
     return system;
   }
