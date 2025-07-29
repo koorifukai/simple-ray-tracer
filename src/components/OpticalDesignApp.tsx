@@ -5,9 +5,7 @@ import { wavelengthToRGB, rgbToCSSColor } from '../optical/wavelength';
 import * as yaml from 'js-yaml';
 
 // Default optical system YAML
-const defaultYaml = `# Gaussian 28 - Professional Lens System
-# Multi-element optical system demonstrating complex ray tracing
-
+const defaultYaml = `
 display_settings:
   show_grid: False
   density_for_intensity: True
@@ -156,12 +154,9 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
     setYamlContent(defaultYaml);
   }, []);
 
-  const handleTrace = useCallback(() => {
-    if (isYamlValid && parsedData) {
-      console.log('Tracing rays for system:', parsedData.name);
-      // TODO: Implement ray tracing logic
-    }
-  }, [isYamlValid, parsedData]);
+
+
+
 
   const increaseFontSize = useCallback(() => {
     setFontSize(prev => Math.min(prev + 1, 24));
@@ -187,17 +182,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
             <button className="menu-button" onClick={handleExport} disabled={!isYamlValid}>
               Export YAML
             </button>
-            <button 
-              className="menu-button" 
-              onClick={handleTrace} 
-              disabled={!isYamlValid}
-              style={{ 
-                backgroundColor: isYamlValid ? 'var(--success)' : undefined,
-                borderColor: isYamlValid ? 'var(--success)' : undefined 
-              }}
-            >
-              Trace Rays
-            </button>
+
             <div className="font-controls">
               Font:
               <button 
