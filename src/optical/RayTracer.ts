@@ -177,6 +177,8 @@ export class RayTracer {
     
     const rayPath: Ray[] = [ray.clone()]; // Start with initial ray
     let currentRay = ray;
+    let lastProcessedSurface: OpticalSurface | null = null;
+    let lastSurfaceWasBlocked = false;
 
     console.log(`Starting ray trace with ${surfaces.length} surfaces`);
     console.log(`Initial ray:`, { position: currentRay.position, direction: currentRay.direction });
@@ -193,11 +195,6 @@ export class RayTracer {
         hasReflected: !!result.reflected 
       });
       
-      if (result.isBlocked) {
-        console.log(`Ray blocked at surface ${i}`);
-        break;
-      }
-
       // Store intersection point in ray path with the incoming ray direction
       if (result.intersection.isValid) {
         // Create a ray at the intersection point with the incoming direction
@@ -210,37 +207,26 @@ export class RayTracer {
         );
         rayPath.push(intersectionRay);
         console.log(`Added intersection point to path:`, result.intersection.point);
+        
+        // Track the last surface and if it blocked the ray
+        lastProcessedSurface = surface;
+        lastSurfaceWasBlocked = result.isBlocked;
+      }
+
+      if (result.isBlocked) {
+        console.log(`Ray blocked at surface ${i}`);
+        break;
       }
 
       // Continue with transmitted or reflected ray and add it as the next segment
       if (result.transmitted) {
         currentRay = result.transmitted;
         console.log(`Ray transmitted, new direction:`, currentRay.direction);
-        
-        // Add the outgoing ray as the next segment starting from the intersection
-        const outgoingRay = new Ray(
-          result.intersection.point,
-          currentRay.direction, // New direction after surface interaction
-          currentRay.wavelength,
-          currentRay.lightId,
-          currentRay.intensity
-        );
-        rayPath.push(outgoingRay);
         console.log(`Added transmitted ray segment to path`);
         
       } else if (result.reflected) {
         currentRay = result.reflected;
         console.log(`Ray reflected, new direction:`, currentRay.direction);
-        
-        // Add the reflected ray as the next segment starting from the intersection
-        const outgoingRay = new Ray(
-          result.intersection.point,
-          currentRay.direction, // New direction after reflection
-          currentRay.wavelength,
-          currentRay.lightId,
-          currentRay.intensity
-        );
-        rayPath.push(outgoingRay);
         console.log(`Added reflected ray segment to path`);
         
       } else {
@@ -253,11 +239,7 @@ export class RayTracer {
     if (rayPath.length > 0) {
       const lastRay = rayPath[rayPath.length - 1];
       
-      // Check if the last surface processed was an absorption surface (detector)
-      const lastSurfaceIndex = Math.floor((rayPath.length - 2) / 2); // Convert ray path index to surface index
-      const lastSurface = lastSurfaceIndex >= 0 && lastSurfaceIndex < surfaces.length ? surfaces[lastSurfaceIndex] : null;
-      
-      if (lastSurface && lastSurface.mode === 'absorption') {
+      if (lastProcessedSurface && lastProcessedSurface.mode === 'absorption' && lastSurfaceWasBlocked) {
         console.log(`Last surface is absorption (detector) - ray path ends at surface`);
         // For absorption surfaces, the ray path already ends at the correct point
         // No need to add extension since the ray is absorbed
@@ -276,15 +258,18 @@ export class RayTracer {
         rayPath.push(finalRay);
         console.log(`Added final ray segment extending ${extensionLength} units to:`, finalPosition);
         
-        // Check if ray didn't reach the final surface and log warning
-        if (lastSurfaceIndex < surfaces.length - 1) {
-          const missedSurfaces = surfaces.length - 1 - lastSurfaceIndex;
-          this.logSurfaceWarning(
-            surfaces[surfaces.length - 1], 
-            `Ray terminated early, missed ${missedSurfaces} surface(s) including final surface`,
-            'ray_anomaly',
-            'warning'
-          );
+        // Check if ray didn't finish processing all surfaces and log warning
+        if (lastProcessedSurface) {
+          const lastProcessedIndex = surfaces.findIndex(s => s.id === lastProcessedSurface!.id);
+          if (lastProcessedIndex < surfaces.length - 1) {
+            const missedSurfaces = surfaces.length - 1 - lastProcessedIndex;
+            this.logSurfaceWarning(
+              surfaces[surfaces.length - 1], 
+              `Ray terminated early, missed ${missedSurfaces} surface(s) including final surface`,
+              'ray_anomaly',
+              'warning'
+            );
+          }
         }
       }
     }

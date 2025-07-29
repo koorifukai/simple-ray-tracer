@@ -11,18 +11,44 @@ declare const Plotly: any;
 interface EmptyPlot3DProps {
   title?: string;
   yamlContent?: string;
+  isRayTracingActive?: boolean;
+  rayTracingTrigger?: number;
 }
 
 export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({ 
   title = "Optical System Visualization",
-  yamlContent 
+  yamlContent,
+  isRayTracingActive = false,
+  rayTracingTrigger
 }) => {
   const plotRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!plotRef.current) return;
 
-    // Load Plotly dynamically
+    // If ray tracing is not active, show a static message
+    if (!isRayTracingActive) {
+      const staticHTML = `
+        <div style="
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          height: 100%;
+          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+          color: #888;
+          text-align: center;
+          flex-direction: column;
+        ">
+          <div style="font-size: 18px; margin-bottom: 10px;">⏸️ Ray Tracing Inactive</div>
+          <div style="font-size: 14px;">Click "▶ Trace Rays" to activate visualization</div>
+          <div style="font-size: 12px; margin-top: 10px; opacity: 0.7;">YAML editing mode - changes won't trigger updates</div>
+        </div>
+      `;
+      plotRef.current.innerHTML = staticHTML;
+      return;
+    }
+
+    // Load Plotly dynamically only when ray tracing is active
     const loadPlotly = async () => {
       try {
         const PlotlyModule = await import('plotly.js-dist-min');
@@ -247,6 +273,12 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
                     
                     rays.forEach((ray: Ray, rayIndex: number) => {
                       try {
+                        // Only trace rays if ray tracing is active
+                        if (!isRayTracingActive) {
+                          console.log(`Ray tracing disabled - skipping ray ${rayIndex}`);
+                          return;
+                        }
+                        
                         // Check if we have surfaces to trace through
                         if (opticalSystem && opticalSystem.surfaces && opticalSystem.surfaces.length > 0) {
                           console.log(`Optical system surfaces:`, opticalSystem.surfaces.map(s => ({
@@ -550,7 +582,7 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
         Plotly.purge(plotRef.current);
       }
     };
-  }, [title, yamlContent]);
+  }, [title, yamlContent, isRayTracingActive, rayTracingTrigger]);
 
   return (
     <div 
