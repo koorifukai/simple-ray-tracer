@@ -47,11 +47,13 @@ export interface RayTraceResult {
 export class RayTracer {
   // Logging categories
   static logConfig = {
-    general: false,
-    surface: false,
+    general: true,
+    surface: false, // Disabled verbose surface logs
     ray: true,
+    simplified: true, // For simplified ray tracing logs
+    intersection: false, // Disabled verbose intersection calculations
   };
-  static log(category: 'general'|'surface'|'ray', ...args: any[]) {
+  static log(category: 'general'|'surface'|'ray'|'simplified'|'intersection', ...args: any[]) {
     if (this.logConfig[category]) {
       console.log(...args);
     }
@@ -61,6 +63,16 @@ export class RayTracer {
   
   // Warning system for optical design issues
   private static warnings: SurfaceWarning[] = [];
+  
+  // Track first ray for simplified logging
+  private static firstRayProcessed = new Set<number>();
+
+  /**
+   * Clear first ray tracking (call at start of new ray tracing session)
+   */
+  static resetFirstRayTracking(): void {
+    this.firstRayProcessed.clear();
+  }
 
   /**
    * Get all accumulated warnings
@@ -103,20 +115,41 @@ export class RayTracer {
   /**
    * Trace a ray through a single optical surface
    */
-  static traceThroughSurface(ray: Ray, surface: OpticalSurface): RayTraceResult {
-    this.log('ray', `Tracing ray through surface ${surface.id}`);
-    this.log('ray', `Ray:`, { position: ray.position, direction: ray.direction });
-    this.log('surface', `Surface:`, { position: surface.position, shape: surface.shape, mode: surface.mode });
+  static traceThroughSurface(ray: Ray, surface: OpticalSurface, isFirstRayOfLight = false): RayTraceResult {
+    const useSimplifiedLog = isFirstRayOfLight && this.logConfig.simplified;
+    
+    if (useSimplifiedLog) {
+      this.log('simplified', `\n--- Surface: ${surface.id} ---`);
+      this.log('simplified', `World ray: (${ray.position.x.toFixed(3)}, ${ray.position.y.toFixed(3)}, ${ray.position.z.toFixed(3)}) → (${ray.direction.x.toFixed(3)}, ${ray.direction.y.toFixed(3)}, ${ray.direction.z.toFixed(3)})`);
+    } else {
+      this.log('ray', `Tracing ray through surface ${surface.id}`);
+      this.log('ray', `Ray:`, { position: ray.position, direction: ray.direction });
+      this.log('surface', `Surface:`, { position: surface.position, shape: surface.shape, mode: surface.mode });
+    }
     
     // === CLASSICAL RAY TRACING: WORLD → LOCAL → WORLD TRANSFORMATION ===
     
     // 1. Transform incoming ray from world coordinates to surface local coordinates
     const localRay = this.transformRayToLocal(ray, surface);
-    this.log('ray', `Local ray:`, { position: localRay.position, direction: localRay.direction });
+    
+    if (useSimplifiedLog) {
+      this.log('simplified', `Local ray:  (${localRay.position.x.toFixed(3)}, ${localRay.position.y.toFixed(3)}, ${localRay.position.z.toFixed(3)}) → (${localRay.direction.x.toFixed(3)}, ${localRay.direction.y.toFixed(3)}, ${localRay.direction.z.toFixed(3)})`);
+    } else {
+      this.log('ray', `Local ray:`, { position: localRay.position, direction: localRay.direction });
+    }
     
     // 2. Calculate intersection in local coordinates (where surface apex is at origin)
     const intersection = this.calculateIntersection(localRay, surface);
-    this.log('surface', `Intersection:`, intersection);
+    
+    if (useSimplifiedLog) {
+      if (intersection.isValid) {
+        this.log('simplified', `Intersection: (${intersection.point.x.toFixed(3)}, ${intersection.point.y.toFixed(3)}, ${intersection.point.z.toFixed(3)})`);
+      } else {
+        this.log('simplified', `Intersection: MISS`);
+      }
+    } else {
+      this.log('surface', `Intersection:`, intersection);
+    }
     
     // 3. Check if ray actually hits the surface geometry and aperture
     const rayHitsSurface = intersection.isValid && 
@@ -124,11 +157,15 @@ export class RayTracer {
                           this.isWithinAperture(intersection.point, surface);
     
     if (!rayHitsSurface) {
-      this.log('surface', `Ray misses surface - no interaction, continues with original trajectory`);
+      if (!useSimplifiedLog) {
+        this.log('surface', `Ray misses surface - no interaction, continues with original trajectory`);
+      }
       
       // Special case: aperture surfaces block rays that don't hit
       if (surface.mode === 'aperture') {
-        this.log('surface', `Aperture surface blocks non-intersecting rays`);
+        if (!useSimplifiedLog) {
+          this.log('surface', `Aperture surface blocks non-intersecting rays`);
+        }
         return {
           ray,
           intersection: { point: new Vector3(0,0,0), normal: new Vector3(0,0,1), distance: 0, isValid: false },
@@ -147,22 +184,32 @@ export class RayTracer {
 
     // 4. Ray hits surface - apply surface physics in local coordinates
     const result = this.applySurfacePhysics(localRay, intersection, surface);
-    this.log('surface', `Physics result:`, { 
-      blocked: result.isBlocked, 
-      hasTransmitted: !!result.transmitted,
-      hasReflected: !!result.reflected 
-    });
+    
+    if (!useSimplifiedLog) {
+      this.log('surface', `Physics result:`, { 
+        blocked: result.isBlocked, 
+        hasTransmitted: !!result.transmitted,
+        hasReflected: !!result.reflected 
+      });
+    }
     
     // 5. Transform result rays back to global coordinates
     if (result.transmitted) {
       result.transmitted = this.transformRayToGlobal(result.transmitted, surface);
-      this.log('ray', `Transmitted ray (global):`, { 
-        position: result.transmitted.position, 
-        direction: result.transmitted.direction 
-      });
+      if (useSimplifiedLog) {
+        this.log('simplified', `Output ray:  (${result.transmitted.position.x.toFixed(3)}, ${result.transmitted.position.y.toFixed(3)}, ${result.transmitted.position.z.toFixed(3)}) → (${result.transmitted.direction.x.toFixed(3)}, ${result.transmitted.direction.y.toFixed(3)}, ${result.transmitted.direction.z.toFixed(3)})`);
+      } else {
+        this.log('ray', `Transmitted ray (global):`, { 
+          position: result.transmitted.position, 
+          direction: result.transmitted.direction 
+        });
+      }
     }
     if (result.reflected) {
       result.reflected = this.transformRayToGlobal(result.reflected, surface);
+      if (useSimplifiedLog) {
+        this.log('simplified', `Output ray:  (${result.reflected.position.x.toFixed(3)}, ${result.reflected.position.y.toFixed(3)}, ${result.reflected.position.z.toFixed(3)}) → (${result.reflected.direction.x.toFixed(3)}, ${result.reflected.direction.y.toFixed(3)}, ${result.reflected.direction.z.toFixed(3)})`);
+      }
     }
 
     // Transform intersection back to global coordinates
@@ -180,26 +227,42 @@ export class RayTracer {
     // Clear warnings at the start of each ray trace
     this.clearWarnings();
     
+    // Check if this is the first ray of this light source
+    const isFirstRayOfLight = !this.firstRayProcessed.has(ray.lightId);
+    if (isFirstRayOfLight) {
+      this.firstRayProcessed.add(ray.lightId);
+    }
+    
     const rayPath: Ray[] = [ray.clone()]; // Start with initial ray
     let currentRay = ray;
 
-    this.log('general', `Starting ray trace with ${surfaces.length} surfaces`);
-    this.log('ray', `Initial ray:`, { position: currentRay.position, direction: currentRay.direction });
+    if (isFirstRayOfLight && this.logConfig.simplified) {
+      this.log('simplified', `\n=== Ray Trace: Light ${ray.lightId} ===`);
+    } else {
+      this.log('general', `Starting ray trace with ${surfaces.length} surfaces`);
+      this.log('ray', `Initial ray:`, { position: currentRay.position, direction: currentRay.direction });
+    }
 
     for (let i = 0; i < surfaces.length; i++) {
       const surface = surfaces[i];
-      this.log('general', `Processing surface ${i}: ${surface.id}, mode: ${surface.mode}, shape: ${surface.shape}`);
+      if (!isFirstRayOfLight) {
+        this.log('general', `Processing surface ${i}: ${surface.id}, mode: ${surface.mode}, shape: ${surface.shape}`);
+      }
       
-      const result = this.traceThroughSurface(currentRay, surface);
+      const result = this.traceThroughSurface(currentRay, surface, isFirstRayOfLight);
       
-      this.log('surface', `Surface ${i} result:`, { 
-        blocked: result.isBlocked, 
-        hasTransmitted: !!result.transmitted,
-        hasReflected: !!result.reflected 
-      });
+      if (!isFirstRayOfLight) {
+        this.log('surface', `Surface ${i} result:`, { 
+          blocked: result.isBlocked, 
+          hasTransmitted: !!result.transmitted,
+          hasReflected: !!result.reflected 
+        });
+      }
       
       if (result.isBlocked) {
-        this.log('ray', `Ray blocked at surface ${i}`);
+        if (!isFirstRayOfLight) {
+          this.log('ray', `Ray blocked at surface ${i}`);
+        }
         
         // For blocked rays, add the intersection point to show where the ray was blocked
         if (result.intersection.isValid) {
@@ -211,7 +274,9 @@ export class RayTracer {
             currentRay.intensity
           );
           rayPath.push(intersectionRay);
-          this.log('ray', `Added intersection point to path:`, result.intersection.point);
+          if (!isFirstRayOfLight) {
+            this.log('ray', `Added intersection point to path:`, result.intersection.point);
+          }
         }
         break;
       }
@@ -227,22 +292,30 @@ export class RayTracer {
           currentRay.intensity
         );
         rayPath.push(intersectionRay);
-        this.log('ray', `Added intersection point to path:`, result.intersection.point);
+        if (!isFirstRayOfLight) {
+          this.log('ray', `Added intersection point to path:`, result.intersection.point);
+        }
       }
 
       // Continue with transmitted or reflected ray - these start from the ray after the surface
       if (result.transmitted) {
         currentRay = result.transmitted;
-        this.log('ray', `Ray transmitted, new direction:`, currentRay.direction);
-        this.log('ray', `Added transmitted ray segment to path`);
+        if (!isFirstRayOfLight) {
+          this.log('ray', `Ray transmitted, new direction:`, currentRay.direction);
+          this.log('ray', `Added transmitted ray segment to path`);
+        }
         
       } else if (result.reflected) {
         currentRay = result.reflected;
-        this.log('ray', `Ray reflected, new direction:`, currentRay.direction);
-        this.log('ray', `Added reflected ray segment to path`);
+        if (!isFirstRayOfLight) {
+          this.log('ray', `Ray reflected, new direction:`, currentRay.direction);
+          this.log('ray', `Added reflected ray segment to path`);
+        }
         
       } else {
-        this.log('ray', `No continuing ray from surface ${i}`);
+        if (!isFirstRayOfLight) {
+          this.log('ray', `No continuing ray from surface ${i}`);
+        }
         break;
       }
     }
@@ -256,7 +329,9 @@ export class RayTracer {
       const lastProcessedSurface = surfaces[lastProcessedSurfaceIndex];
       
       if (lastProcessedSurface && lastProcessedSurface.mode === 'absorption') {
-        this.log('general', `Last surface is absorption (detector) - ray path terminates at intersection point`);
+        if (!isFirstRayOfLight) {
+          this.log('general', `Last surface is absorption (detector) - ray path terminates at intersection point`);
+        }
         // For absorption surfaces, the ray path should end exactly at the intersection point
         // The last ray in rayPath already represents the intersection point, so we're done
       } else {
@@ -272,7 +347,9 @@ export class RayTracer {
           lastRay.intensity
         );
         rayPath.push(finalRay);
-        this.log('ray', `Added final ray segment extending ${extensionLength} units to:`, finalPosition);
+        if (!isFirstRayOfLight) {
+          this.log('ray', `Added final ray segment extending ${extensionLength} units to:`, finalPosition);
+        }
         
         // Check if ray didn't reach the final surface and log warning
         if (lastProcessedSurfaceIndex < surfaces.length - 1) {
@@ -287,11 +364,13 @@ export class RayTracer {
       }
     }
 
-    console.log(`Final ray path has ${rayPath.length} points`);
+    if (!isFirstRayOfLight) {
+      console.log(`Final ray path has ${rayPath.length} points`);
+    }
     
     // Display any warnings that occurred during ray tracing
     const warnings = this.getWarnings();
-    if (warnings.length > 0) {
+    if (warnings.length > 0 && !isFirstRayOfLight) {
       this.log('general', `\n⚠️ ${warnings.length} optical design warning(s):`);
       warnings.forEach((warning, index) => {
         const icon = warning.severity === 'error' ? '❌' : warning.severity === 'warning' ? '⚠️' : 'ℹ️';
@@ -308,8 +387,6 @@ export class RayTracer {
    * Uses proper transformation matrix that aligns surface normal with [-1,0,0]
    */
   private static transformRayToLocal(ray: Ray, surface: OpticalSurface): Ray {
-    this.log('ray', `Transforming ray to local coordinates for surface ${surface.id}`);
-    
     // Get the transformation matrix that moves the surface to origin and aligns normal with [-1,0,0]
     const transform = this.getSurfaceToLocalTransform(surface);
     
@@ -319,9 +396,6 @@ export class RayTracer {
     // Transform ray direction vector (not as a point)
     const localDirection = transform.transformVectorV3(ray.direction.normalize());
     
-    this.log('ray', `World ray: origin=(${ray.position.x.toFixed(3)},${ray.position.y.toFixed(3)},${ray.position.z.toFixed(3)}), direction=(${ray.direction.x.toFixed(3)},${ray.direction.y.toFixed(3)},${ray.direction.z.toFixed(3)})`);
-    this.log('ray', `Local ray: origin=(${localOrigin.x.toFixed(3)},${localOrigin.y.toFixed(3)},${localOrigin.z.toFixed(3)}), direction=(${localDirection.x.toFixed(3)},${localDirection.y.toFixed(3)},${localDirection.z.toFixed(3)})`);
-    
     return new Ray(localOrigin, localDirection, ray.wavelength, ray.lightId, ray.intensity);
   }
 
@@ -330,8 +404,6 @@ export class RayTracer {
    * Transforms hit point and direction back to world coordinates
    */
   private static transformRayToGlobal(ray: Ray, surface: OpticalSurface): Ray {
-    this.log('ray', `Transforming ray back to global coordinates`);
-    
     // Get the inverse transformation matrix 
     const transform = this.getSurfaceToLocalTransform(surface);
     const inverseTransform = transform.inverse();
@@ -339,9 +411,6 @@ export class RayTracer {
     // Transform local ray origin and direction back to world coordinates
     const worldOrigin = inverseTransform.transformPointV3(ray.position);
     const worldDirection = inverseTransform.transformVectorV3(ray.direction.normalize());
-    
-    this.log('ray', `Local outgoing ray: origin=(${ray.position.x.toFixed(3)},${ray.position.y.toFixed(3)},${ray.position.z.toFixed(3)}), direction=(${ray.direction.x.toFixed(3)},${ray.direction.y.toFixed(3)},${ray.direction.z.toFixed(3)})`);
-    this.log('ray', `World outgoing ray: origin=(${worldOrigin.x.toFixed(3)},${worldOrigin.y.toFixed(3)},${worldOrigin.z.toFixed(3)}), direction=(${worldDirection.x.toFixed(3)},${worldDirection.y.toFixed(3)},${worldDirection.z.toFixed(3)})`);
     
     return new Ray(worldOrigin, worldDirection, ray.wavelength, ray.lightId, ray.intensity);
   }
@@ -379,7 +448,7 @@ export class RayTracer {
       // Calculate sphere center: vertex - radius * normal
       const sphereCenter = surface.position.subtract(surfaceNormal.multiply(radius));
       translationPoint = sphereCenter;
-      console.log(`Spherical surface ${surface.id}: vertex at [${surface.position.x}, ${surface.position.y}, ${surface.position.z}], center at [${sphereCenter.x}, ${sphereCenter.y}, ${sphereCenter.z}]`);
+      RayTracer.log('intersection', `Spherical surface ${surface.id}: vertex at [${surface.position.x}, ${surface.position.y}, ${surface.position.z}], center at [${sphereCenter.x}, ${sphereCenter.y}, ${sphereCenter.z}]`);
     }
     
     // Start with translation to move sphere center (or surface) to origin
@@ -467,8 +536,8 @@ export class RayTracer {
       return this.intersectPlane(ray, surface); // Treat as flat if radius ≈ 0
     }
 
-    console.log(`Sphere intersection - radius: ${radius} (${radius > 0 ? 'CONVEX' : 'CONCAVE'})`);
-    console.log(`Local ray: position=(${ray.position.x},${ray.position.y},${ray.position.z}), direction=(${ray.direction.x},${ray.direction.y},${ray.direction.z})`);
+    RayTracer.log('intersection', `Sphere intersection - radius: ${radius} (${radius > 0 ? 'CONVEX' : 'CONCAVE'})`);
+    RayTracer.log('intersection', `Local ray: position=(${ray.position.x},${ray.position.y},${ray.position.z}), direction=(${ray.direction.x},${ray.direction.y},${ray.direction.z})`);
     
     // Ray position and direction in local coordinates (sphere center at origin)
     const O = ray.position;
@@ -482,28 +551,28 @@ export class RayTracer {
     const b = 2 * O.dot(D);
     const c = O.dot(O) - radius * radius;
 
-    console.log(`Quadratic: ${a}t² + ${b}t + ${c} = 0`);
+    RayTracer.log('intersection', `Quadratic: ${a}t² + ${b}t + ${c} = 0`);
 
     const discriminant = b * b - 4 * a * c;
-    console.log(`Discriminant: ${discriminant}`);
+    RayTracer.log('intersection', `Discriminant: ${discriminant}`);
     
     if (discriminant < 0) {
-      console.log(`❌ No intersection (discriminant < 0)`);
+      RayTracer.log('intersection', `❌ No intersection (discriminant < 0)`);
       return { point: new Vector3(0, 0, 0), normal: new Vector3(0, 0, 1), distance: 0, isValid: false };
     }
 
     const sqrt_discriminant = Math.sqrt(discriminant);
     const t1 = (-b - sqrt_discriminant) / (2 * a); // First intersection (closer)
     const t2 = (-b + sqrt_discriminant) / (2 * a); // Second intersection (farther)
-    console.log(`Solutions: t1=${t1} (first/closer), t2=${t2} (second/farther)`);
+    RayTracer.log('intersection', `Solutions: t1=${t1} (first/closer), t2=${t2} (second/farther)`);
 
     // === DETERMINE VALID INTERSECTION BASED ON SURFACE TYPE ===
     const rayDistanceFromCenter = O.length();
     const sphereRadius = Math.abs(radius);
     const isRayInsideSphere = rayDistanceFromCenter < sphereRadius;
     
-    console.log(`Ray distance from center: ${rayDistanceFromCenter.toFixed(3)}, sphere radius: ${sphereRadius.toFixed(3)}`);
-    console.log(`Ray position: ${isRayInsideSphere ? 'INSIDE' : 'OUTSIDE'} sphere`);
+    RayTracer.log('intersection', `Ray distance from center: ${rayDistanceFromCenter.toFixed(3)}, sphere radius: ${sphereRadius.toFixed(3)}`);
+    RayTracer.log('intersection', `Ray position: ${isRayInsideSphere ? 'INSIDE' : 'OUTSIDE'} sphere`);
 
     // Apply sphere intersection rules
     let t: number;
@@ -511,56 +580,56 @@ export class RayTracer {
     
     if (radius > 0) {
       // POSITIVE RADIUS = CONVEX SURFACE
-      console.log(`🔵 CONVEX surface (R > 0)`);
+      RayTracer.log('intersection', `🔵 CONVEX surface (R > 0)`);
       if (isRayInsideSphere) {
         // ANOMALY: Ray inside convex sphere
         warningMessage = `⚠️ ANOMALY: Ray inside convex sphere (R=${radius.toFixed(3)}, ray at distance ${rayDistanceFromCenter.toFixed(3)})`;
-        console.log(`❌ ${warningMessage}`);
+        RayTracer.log('intersection', `❌ ${warningMessage}`);
         this.logSurfaceWarning(surface, warningMessage);
         return { point: new Vector3(0, 0, 0), normal: new Vector3(0, 0, 1), distance: 0, isValid: false };
       } else {
         // Ray outside convex sphere: use FIRST intersection
         t = t1 > this.EPSILON ? t1 : (t2 > this.EPSILON ? t2 : -1);
-        console.log(`✅ Ray outside convex sphere, using first intersection: t=${t}`);
+        RayTracer.log('intersection', `✅ Ray outside convex sphere, using first intersection: t=${t}`);
       }
     } else {
       // NEGATIVE RADIUS = CONCAVE SURFACE
-      console.log(`🔴 CONCAVE surface (R < 0)`);
+      RayTracer.log('intersection', `🔴 CONCAVE surface (R < 0)`);
       // For concave surface: always use SECOND intersection (back side)
       t = t2 > this.EPSILON ? t2 : (t1 > this.EPSILON ? t1 : -1);
-      console.log(`✅ Concave surface, using second intersection (back side): t=${t}`);
+      RayTracer.log('intersection', `✅ Concave surface, using second intersection (back side): t=${t}`);
     }
     
     if (t <= this.EPSILON || t > this.MAX_DISTANCE) {
-      console.log(`❌ No valid intersection (t=${t} not in valid range [${this.EPSILON}, ${this.MAX_DISTANCE}])`);
+      RayTracer.log('intersection', `❌ No valid intersection (t=${t} not in valid range [${this.EPSILON}, ${this.MAX_DISTANCE}])`);
       return { point: new Vector3(0, 0, 0), normal: new Vector3(0, 0, 1), distance: 0, isValid: false };
     }
 
     // === CALCULATE INTERSECTION POINT AND NORMAL ===
     // Hit point in local coordinates (sphere center at origin)
     const hitPoint = O.add(D.multiply(t));
-    console.log(`Hit point: (${hitPoint.x.toFixed(3)}, ${hitPoint.y.toFixed(3)}, ${hitPoint.z.toFixed(3)})`);
+    RayTracer.log('intersection', `Hit point: (${hitPoint.x.toFixed(3)}, ${hitPoint.y.toFixed(3)}, ${hitPoint.z.toFixed(3)})`);
     
     // Calculate local normal at hit point (vector from sphere center to hit point)
     let localNormal = hitPoint.normalize(); // Normal from center to hit point
     if (radius < 0) {
       localNormal = localNormal.multiply(-1); // Flip for concave surfaces
     }
-    console.log(`Local normal: (${localNormal.x.toFixed(3)}, ${localNormal.y.toFixed(3)}, ${localNormal.z.toFixed(3)})`);
+    RayTracer.log('intersection', `Local normal: (${localNormal.x.toFixed(3)}, ${localNormal.y.toFixed(3)}, ${localNormal.z.toFixed(3)})`);
 
     // Check circular aperture (semidia) using radial distance from origin
     const radiusSquared = hitPoint.y * hitPoint.y + hitPoint.z * hitPoint.z;
     const aperture = surface.semidia || 10;
     const apertureSquared = aperture * aperture;
-    console.log(`Radial distance²: ${radiusSquared.toFixed(6)}, semidia²: ${apertureSquared}`);
+    RayTracer.log('intersection', `Radial distance²: ${radiusSquared.toFixed(6)}, semidia²: ${apertureSquared}`);
     
     // Fix 3: For sphere, y²+z² should be smaller than semidia² (avoid sqrt)
     if (radiusSquared > apertureSquared + 1e-12) {
-      console.log(`❌ Hit outside circular aperture`);
+      RayTracer.log('intersection', `❌ Hit outside circular aperture`);
       return { point: new Vector3(0, 0, 0), normal: new Vector3(0, 0, 1), distance: 0, isValid: false };
     }
 
-    console.log(`✅ Valid spherical intersection found!`);
+    RayTracer.log('intersection', `✅ Valid spherical intersection found!`);
     return {
       point: hitPoint,
       normal: localNormal,
@@ -950,49 +1019,34 @@ export class RayTracer {
     const n1 = surface.n1 || 1.0; // Incident medium
     const n2 = surface.n2 || 1.0; // Transmitted medium
     
-    console.log(`Refraction calculation:`);
-    console.log(`  n1 (incident medium): ${n1}`);
-    console.log(`  n2 (transmitted medium): ${n2}`);
-    
     const incident = ray.direction.normalize();
     let localNormal = intersection.normal.normalize(); // Local normal at hit point
     
-    console.log(`  Incident direction:`, incident);
-    console.log(`  Local normal at hit point:`, localNormal);
-    
     // Snell's law: n1 * sin(θ1) = n2 * sin(θ2)
     const snellRatio = n1 / n2;
-    console.log(`  Snell ratio (n1/n2): ${snellRatio}`);
     
     // Calculate cosine of incident angle (dot product with normal)
     let cosIncident = -localNormal.dot(incident);
-    console.log(`  cos(incident angle): ${cosIncident}`);
     
     // If cosIncident < 0, ray is hitting from back side - flip normal
     if (cosIncident < 0) {
       localNormal = localNormal.multiply(-1);
       cosIncident = -localNormal.dot(incident);
-      console.log(`  Flipped normal for back-side hit, new cos(incident): ${cosIncident}`);
     }
     
     // Calculate incident angle
-    const incidentAngle = Math.acos(Math.max(0, Math.min(1, cosIncident))) * 180 / Math.PI;
-    console.log(`  Incident angle: ${incidentAngle.toFixed(1)}°`);
+    // Incident angle calculation removed for clean output
     
     // Check for total internal reflection
     const discriminant = 1 - snellRatio * snellRatio * (1 - cosIncident * cosIncident);
     if (discriminant < 0) {
-      console.log(`  Total internal reflection (discriminant < 0)`);
+      RayTracer.log('intersection', `  Total internal reflection (discriminant < 0)`);
       // Fall back to reflection
       return this.calculateReflection(ray, { ...intersection, normal: localNormal });
     }
     
     // Calculate cosine of refracted angle
     const cosRefracted = Math.sqrt(discriminant);
-    console.log(`  cos(refracted angle): ${cosRefracted}`);
-    
-    const refractedAngle = Math.acos(Math.max(0, Math.min(1, cosRefracted))) * 180 / Math.PI;
-    console.log(`  Refracted angle: ${refractedAngle.toFixed(1)}°`);
     
     // Calculate refracted direction using vector form of Snell's law
     // T = (n1/n2) * I + [(n1/n2) * cos(θ1) - cos(θ2)] * N

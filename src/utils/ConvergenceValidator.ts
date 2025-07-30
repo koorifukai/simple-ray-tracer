@@ -77,6 +77,9 @@ export class ConvergenceValidator {
       const rayHits: Vector3[] = [];
       let successfulTraces = 0;
       
+      // Reset first ray tracking for simplified logging
+      RayTracer.resetFirstRayTracking();
+      
       for (let i = 0; i < allRays.length; i++) {
         const ray = allRays[i];
         try {

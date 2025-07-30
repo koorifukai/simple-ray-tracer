@@ -240,9 +240,9 @@ export class OpticalSurfaceFactory {
     assemblyDial?: number
   ): OpticalSurface[] {
     
-    // PLOT VISUALIZATION OPERATIONS - START
-    console.log(`\n=== PLOT VISUALIZATION OPERATIONS START: Assembly ${assemblyId || 'unnamed'} ===`);
-    console.log(`Assembly Configuration:`);
+    // PLOT VISUALIZATION OPERATIONS - START (Hidden)
+    // console.log(`\n=== PLOT VISUALIZATION OPERATIONS START: Assembly ${assemblyId || 'unnamed'} ===`);
+    // console.log(`Assembly Configuration:`);
     console.log(`  - assemblyOffset: [${assemblyOffset.x}, ${assemblyOffset.y}, ${assemblyOffset.z}]`);
     console.log(`  - assemblyNormal: [${assemblyNormal?.x.toFixed(6)}, ${assemblyNormal?.y.toFixed(6)}, ${assemblyNormal?.z.toFixed(6)}]`);
     console.log(`  - assemblyDial: ${assemblyDial}°`);
@@ -251,32 +251,32 @@ export class OpticalSurfaceFactory {
     // console.log('=== ASSEMBLY CONSTRUCTION (Build Locally Then Place Globally) ===');
     // console.log('Stage 1: Building local assembly...');
     
-    // STAGE 1: BUILD LOCAL ASSEMBLY
+    // STAGE 1: BUILD LOCAL ASSEMBLY (Hidden)
     // Build the assembly in its own local coordinate system with proper relative positioning
-    console.log(`\nSTAGE 1: LOCAL ASSEMBLY BUILDING`);
+    // console.log(`\nSTAGE 1: LOCAL ASSEMBLY BUILDING`);
     const localSurfaces = this.buildLocalAssembly(assemblyData, assemblyId);
-    console.log(`  - Built ${localSurfaces.length} surfaces in local coordinate system`);
-    localSurfaces.forEach(surface => {
-      console.log(`    ${surface.id}: localPos=[${surface.position.x.toFixed(3)}, ${surface.position.y.toFixed(3)}, ${surface.position.z.toFixed(3)}], localDial=${(surface as any).localDialAngle ? ((surface as any).localDialAngle * 180 / Math.PI).toFixed(2) + '°' : 'none'}`);
-    });
+    // console.log(`  - Built ${localSurfaces.length} surfaces in local coordinate system`);
+    // localSurfaces.forEach(surface => {
+    //   console.log(`    ${surface.id}: localPos=[${surface.position.x.toFixed(3)}, ${surface.position.y.toFixed(3)}, ${surface.position.z.toFixed(3)}], localDial=${(surface as any).localDialAngle ? ((surface as any).localDialAngle * 180 / Math.PI).toFixed(2) + '°' : 'none'}`);
+    // });
     
     // console.log('Stage 2: Placing assembly globally...');
     
-    // STAGE 2: PLACE ASSEMBLY GLOBALLY
+    // STAGE 2: PLACE ASSEMBLY GLOBALLY (Hidden)
     // Apply assembly-level transformations uniformly to all surfaces
-    console.log(`\nSTAGE 2: GLOBAL ASSEMBLY PLACEMENT`);
+    // console.log(`\nSTAGE 2: GLOBAL ASSEMBLY PLACEMENT`);
     const globalSurfaces = this.placeAssemblyGlobally(localSurfaces, assemblyOffset, assemblyNormal, assemblyDial);
-    console.log(`  - Applied global transformations to ${globalSurfaces.length} surfaces`);
-    globalSurfaces.forEach(surface => {
-      console.log(`    ${surface.id}: globalPos=[${surface.position.x.toFixed(3)}, ${surface.position.y.toFixed(3)}, ${surface.position.z.toFixed(3)}], globalNormal=[${surface.normal?.x.toFixed(6)}, ${surface.normal?.y.toFixed(6)}, ${surface.normal?.z.toFixed(6)}]`);
-    });
+    // console.log(`  - Applied global transformations to ${globalSurfaces.length} surfaces`);
+    // globalSurfaces.forEach(surface => {
+    //   console.log(`    ${surface.id}: globalPos=[${surface.position.x.toFixed(3)}, ${surface.position.y.toFixed(3)}, ${surface.position.z.toFixed(3)}], globalNormal=[${surface.normal?.x.toFixed(6)}, ${surface.normal?.y.toFixed(6)}, ${surface.normal?.z.toFixed(6)}]`);
+    // });
     
-    console.log(`\nSTAGE 3: VISUALIZATION MESH CONNECTION PREPARATION`);
-    console.log(`  - Each surface will generate mesh via SurfaceRenderer.generatePlanarMesh()`);
-    console.log(`  - Mesh generation uses normalTransform (excludes local dial) + Rodrigues rotation`);
-    console.log(`  - Corner coordinates will be: transform WITHOUT dial → apply dial via Rodrigues → final world coordinates`);
-    console.log(`=== PLOT VISUALIZATION OPERATIONS END: Assembly ${assemblyId || 'unnamed'} ===\n`);
-    // PLOT VISUALIZATION OPERATIONS - END
+    // console.log(`\nSTAGE 3: VISUALIZATION MESH CONNECTION PREPARATION`);
+    // console.log(`  - Each surface will generate mesh via SurfaceRenderer.generatePlanarMesh()`);
+    // console.log(`  - Mesh generation uses normalTransform (excludes local dial) + Rodrigues rotation`);
+    // console.log(`  - Corner coordinates will be: transform WITHOUT dial → apply dial via Rodrigues → final world coordinates`);
+    // console.log(`=== PLOT VISUALIZATION OPERATIONS END: Assembly ${assemblyId || 'unnamed'} ===\n`);
+    // PLOT VISUALIZATION OPERATIONS - END (Hidden)
 
     // Assembly summary with key optical information
     // console.log('\n=== ASSEMBLY SUMMARY ===');
@@ -434,7 +434,7 @@ export class OpticalSurfaceFactory {
     const assemblyAxis = new Vector3(-1, 0, 0); // Default assembly axis (backward)
     const targetNormal = assemblyNormal ? assemblyNormal.normalize() : assemblyAxis;
     
-    console.log(`Assembly target normal calculation verification:`);
+    // console.log(`Assembly target normal calculation verification:`);
     console.log(`  Target normal: [${targetNormal.x.toFixed(6)}, ${targetNormal.y.toFixed(6)}, ${targetNormal.z.toFixed(6)}]`);
     console.log(`  Expected for angles [45,-30]: [-0.612372, -0.612372, -0.500000]`);
     
@@ -475,7 +475,7 @@ export class OpticalSurfaceFactory {
     // Debug: For 3D offset assemblies, print detailed matrix information
     const hasOffset = Math.abs(assemblyOffset.x) > 0.01 || Math.abs(assemblyOffset.y) > 0.01 || Math.abs(assemblyOffset.z) > 0.01;
     if (hasOffset) {
-      console.log(`\n=== Assembly with 3D offset ${JSON.stringify(assemblyOffset)} Matrix Details ===`);
+      // console.log(`\n=== Assembly with 3D offset ${JSON.stringify(assemblyOffset)} Matrix Details ===`);
       console.log('R_total matrix elements:');
       const re = R_total.elements;
       console.log(`[${re[0].toFixed(3)}, ${re[4].toFixed(3)}, ${re[8].toFixed(3)}] / [${re[1].toFixed(3)}, ${re[5].toFixed(3)}, ${re[9].toFixed(3)}] / [${re[2].toFixed(3)}, ${re[6].toFixed(3)}, ${re[10].toFixed(3)}]`);

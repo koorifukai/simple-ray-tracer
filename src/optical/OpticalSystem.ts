@@ -253,7 +253,7 @@ export class OpticalSystemParser {
     }
 
     // THIRD PASS: Create surfaces from optical train elements in their original order
-    console.log(`\n=== Creating surfaces from optical train elements ===`);
+    // === Creating surfaces from optical train elements ===
     
     for (const element of opticalTrainElements) {
       if (element.type === 'surface') {
@@ -265,7 +265,7 @@ export class OpticalSystemParser {
           continue;
         }
         
-        console.log(`Creating surface "${element.trainName}" from sid ${sid} template "${template.key}"`);
+        // console.log(`Creating surface "${element.trainName}" from sid ${sid} template "${template.key}"`);
         
         // Merge optical train dial and normal with surface definition
         const mergedSurfaceData = { ...template.data };
@@ -304,7 +304,7 @@ export class OpticalSystemParser {
           continue;
         }
         
-        console.log(`Creating assembly "${element.trainName}" from aid ${aid} template`);
+        // console.log(`Creating assembly "${element.trainName}" from aid ${aid} template`);
         if (element.dial !== undefined) {
           console.log(`  Assembly dial: ${element.dial}°`);
         }
@@ -426,6 +426,9 @@ export class OpticalSystemParser {
       
       const rays = source.generateRays(source.numberOfRays);
       console.log(`Generated ${rays.length} rays`);
+      
+      // Reset first ray tracking for simplified logging
+      RayTracer.resetFirstRayTracking();
       
       const rayPaths: Ray[][] = [];
       
