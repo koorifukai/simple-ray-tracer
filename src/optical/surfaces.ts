@@ -37,6 +37,10 @@ export interface OpticalSurface {
   transform: Matrix4;     // Local coordinate system transform (includes dial rotation for corners)
   normalTransform?: Matrix4; // Transform for normal calculation (excludes dial rotation)
   
+  // Precomputed transformation matrices for efficient ray tracing
+  forwardTransform: Matrix4;  // World → Local transform (for ray intersection calculation)
+  inverseTransform: Matrix4;  // Local → World transform (for result transformation)
+  
   // Aperture properties
   aperture?: number;      // Circular aperture radius
   semidia?: number;       // Semi-diameter (aperture radius)
@@ -78,6 +82,8 @@ export class OpticalSurfaceFactory {
       mode: surfaceData.mode || 'refraction',
       position: position.clone(),
       transform: Matrix4.translation(position.x, position.y, position.z), // Will be updated below
+      forwardTransform: new Matrix4().identity(), // Will be computed below
+      inverseTransform: new Matrix4().identity(), // Will be computed below
       opacity: 0.3 // Default transparent white
     };
 
@@ -146,7 +152,9 @@ export class OpticalSurfaceFactory {
     // DIAL ROTATION - Applied LAST (EUREKA methodology: dial comes after all other rotations)
     // IMPORTANT: Dial rotates corners/mesh around the normal, but the normal itself does NOT change
     // NOTE: For assembly members, dial is stored and applied later in the global placement phase
-    console.log(`${id}: Checking dial - surfaceData.dial=${surfaceData.dial}, isAssemblyMember=${isAssemblyMember}`);
+    // console.log(`${id}: Checking dial - surfaceData.dial=${surfaceData.dial}, isAssemblyMember=${isAssemblyMember}`);
+    
+    // console.log(`${id}: Checking dial - surfaceData.dial=${surfaceData.dial}, isAssemblyMember=${isAssemblyMember}`);
     
     // Store the pre-dial transform for normal calculation (dial doesn't affect normal)
     const normalTransform = transform.clone();
@@ -165,29 +173,36 @@ export class OpticalSurfaceFactory {
       );
       const finalNormal = new Vector3(finalNormalX, finalNormalY, finalNormalZ).normalize();
       
-      console.log(`${id}: APPLYING standalone dial rotation ${surfaceData.dial}° about final normal axis [${finalNormal.x.toFixed(3)}, ${finalNormal.y.toFixed(3)}, ${finalNormal.z.toFixed(3)}]`);
+      // console.log(`${id}: APPLYING standalone dial rotation ${surfaceData.dial}° about final normal axis [${finalNormal.x.toFixed(3)}, ${finalNormal.y.toFixed(3)}, ${finalNormal.z.toFixed(3)}]`);
       
       // Log transform matrix elements before dial
-      const beforeMatrix = transform.elements;
-      console.log(`${id}: Transform BEFORE dial: [${beforeMatrix[0].toFixed(3)}, ${beforeMatrix[1].toFixed(3)}, ${beforeMatrix[2].toFixed(3)}, ${beforeMatrix[3].toFixed(3)}] / [${beforeMatrix[4].toFixed(3)}, ${beforeMatrix[5].toFixed(3)}, ${beforeMatrix[6].toFixed(3)}, ${beforeMatrix[7].toFixed(3)}]`);
+      // const beforeMatrix = transform.elements;
+      // console.log(`${id}: Transform BEFORE dial: [${beforeMatrix[0].toFixed(3)}, ${beforeMatrix[1].toFixed(3)}, ${beforeMatrix[2].toFixed(3)}, ${beforeMatrix[3].toFixed(3)}] / [${beforeMatrix[4].toFixed(3)}, ${beforeMatrix[5].toFixed(3)}, ${beforeMatrix[6].toFixed(3)}, ${beforeMatrix[7].toFixed(3)}]`);
       
       // Apply dial rotation ONLY to corner/mesh transform, NOT to normal calculation
       const dialRotation = this.createRotationMatrix(finalNormal, dialAngleRad);
       transform = transform.multiply(dialRotation);
       
       // Log transform matrix elements after dial
-      const afterMatrix = transform.elements;
-      console.log(`${id}: Transform AFTER dial: [${afterMatrix[0].toFixed(3)}, ${afterMatrix[1].toFixed(3)}, ${afterMatrix[2].toFixed(3)}, ${afterMatrix[3].toFixed(3)}] / [${afterMatrix[4].toFixed(3)}, ${afterMatrix[5].toFixed(3)}, ${afterMatrix[6].toFixed(3)}, ${afterMatrix[7].toFixed(3)}]`);
-      console.log(`${id}: Normal preserved - using pre-dial transform for normal calculation`);
+      // const afterMatrix = transform.elements;
+      // console.log(`${id}: Transform AFTER dial: [${afterMatrix[0].toFixed(3)}, ${afterMatrix[1].toFixed(3)}, ${afterMatrix[2].toFixed(3)}, ${afterMatrix[3].toFixed(3)}] / [${afterMatrix[4].toFixed(3)}, ${afterMatrix[5].toFixed(3)}, ${afterMatrix[6].toFixed(3)}, ${afterMatrix[7].toFixed(3)}]`);
+      // console.log(`${id}: Normal preserved - using pre-dial transform for normal calculation`);
     } else if (surfaceData.dial !== undefined) {
-      console.log(`${id}: Dial ${surfaceData.dial}° will be applied later in assembly global placement`);
+      // console.log(`${id}: Dial ${surfaceData.dial}° will be applied later in assembly global placement`);
     } else {
-      console.log(`${id}: No dial rotation specified`);
+      // console.log(`${id}: No dial rotation specified`);
     }
     
     // Store BOTH transforms: post-dial for corners, pre-dial for normal
     surface.transform = transform;          // For corner calculations (includes dial)
     surface.normalTransform = normalTransform; // For normal calculations (excludes dial)
+
+    // === PRECOMPUTE RAY TRACING TRANSFORMATION MATRICES ===
+    // Calculate forward transform (World → Local) for efficient ray tracing
+    console.log(`🔧 Computing transformation matrices for surface ${surface.id}`);
+    surface.forwardTransform = this.computeForwardTransform(surface);
+    surface.inverseTransform = surface.forwardTransform.inverse();
+    console.log(`✅ Precomputed forward/inverse matrices for surface ${surface.id}`);
 
     // Aspherical properties
     if (surfaceData.conic !== undefined) {
@@ -607,6 +622,15 @@ export class OpticalSurfaceFactory {
       }
     });
 
+    // === FINAL STEP: Compute ray tracing transformation matrices for all assembly surfaces ===
+    console.log(`🔧 Computing transformation matrices for ${globalSurfaces.length} assembly surfaces`);
+    globalSurfaces.forEach(surface => {
+      console.log(`🔧 Computing matrices for assembly surface ${surface.id}`);
+      surface.forwardTransform = this.computeForwardTransform(surface);
+      surface.inverseTransform = surface.forwardTransform.inverse();
+      console.log(`✅ Precomputed forward/inverse matrices for assembly surface ${surface.id}`);
+    });
+
     return globalSurfaces;
   }
 
@@ -631,6 +655,70 @@ export class OpticalSurfaceFactory {
     matrix.set(2, 2, t * z * z + c);
 
     return matrix;
+  }
+
+  /**
+   * Compute forward transformation matrix (World → Local) for ray tracing
+   * This is the same logic as RayTracer.getSurfaceToLocalTransform but precomputed
+   */
+  static computeForwardTransform(surface: OpticalSurface): Matrix4 {
+    // For spherical surfaces: position is VERTEX, but we need CENTER at origin
+    // Center = vertex - radius * normal_direction
+    let translationPoint = surface.position;
+    
+    if (surface.shape === 'spherical' && surface.radius) {
+      const surfaceNormal = surface.normal || new Vector3(-1, 0, 0);
+      const radius = surface.radius;
+      // Calculate sphere center: vertex - radius * normal
+      const sphereCenter = surface.position.subtract(surfaceNormal.multiply(radius));
+      translationPoint = sphereCenter;
+    }
+    
+    // Start with translation to move sphere center (or surface) to origin
+    const translation = Matrix4.translation(-translationPoint.x, -translationPoint.y, -translationPoint.z);
+    
+    // Get surface normal (should be stored in the surface object)
+    const surfaceNormal = surface.normal || new Vector3(-1, 0, 0); // Default to -X facing
+    
+    // Create rotation matrix that aligns surface normal with [-1, 0, 0]
+    const targetNormal = new Vector3(-1, 0, 0);
+    const rotation = this.createRotationMatrixFromNormals(surfaceNormal, targetNormal);
+    
+    // Combined transformation: first translate, then rotate
+    return rotation.multiply(translation);
+  }
+
+  /**
+   * Create rotation matrix that rotates 'from' vector to 'to' vector
+   * Uses Rodrigues' rotation formula for arbitrary axis rotation
+   */
+  static createRotationMatrixFromNormals(from: Vector3, to: Vector3): Matrix4 {
+    const fromNorm = from.normalize();
+    const toNorm = to.normalize();
+    
+    // Check if vectors are already aligned
+    const dot = fromNorm.dot(toNorm);
+    if (Math.abs(dot - 1.0) < 1e-6) {
+      // Already aligned, return identity
+      return new Matrix4().identity();
+    }
+    
+    if (Math.abs(dot + 1.0) < 1e-6) {
+      // Vectors are opposite, rotate 180° around any perpendicular axis
+      let perpendicular: Vector3;
+      if (Math.abs(fromNorm.x) < 0.9) {
+        perpendicular = new Vector3(1, 0, 0).cross(fromNorm).normalize();
+      } else {
+        perpendicular = new Vector3(0, 1, 0).cross(fromNorm).normalize();  
+      }
+      return Matrix4.rotationFromAxisAngle(perpendicular, Math.PI);
+    }
+    
+    // General case: use Rodrigues' formula
+    const axis = fromNorm.cross(toNorm).normalize();
+    const angle = Math.acos(Math.max(-1, Math.min(1, dot)));
+    
+    return Matrix4.rotationFromAxisAngle(axis, angle);
   }
 
   /**

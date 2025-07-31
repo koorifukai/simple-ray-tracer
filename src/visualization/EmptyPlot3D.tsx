@@ -39,12 +39,12 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
         let opticalSystem = null;
         if (yamlContent) {
           try {
-            console.log('🚀 EmptyPlot3D: Starting YAML parsing...');
-            console.log('YAML content length:', yamlContent.length);
-            console.log('YAML preview:', yamlContent.substring(0, 200) + '...');
+            // console.log('🚀 EmptyPlot3D: Starting YAML parsing...');
+            // console.log('YAML content length:', yamlContent.length);
+            // console.log('YAML preview:', yamlContent.substring(0, 200) + '...');
             opticalSystem = OpticalSystemParser.parseYAML(yamlContent);
-            console.log('✅ EmptyPlot3D: Parsed optical system successfully:', opticalSystem);
-            console.log('Number of surfaces created:', opticalSystem.surfaces.length);
+            // console.log('✅ EmptyPlot3D: Parsed optical system successfully:', opticalSystem);
+            // console.log('Number of surfaces created:', opticalSystem.surfaces.length);
           } catch (error) {
             console.error('❌ EmptyPlot3D: Failed to parse optical system:', error);
           }
@@ -131,7 +131,7 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
               try {
                 // Only show corner markers for surfaces that have clearly defined corners
                 if (surface.shape === 'cylindrical' || (surface.shape === 'plano' && !surface.semidia)) {
-                  console.log(`Adding corner markers for ${surface.shape} surface ${surface.id}`);
+                  // console.log(`Adding corner markers for ${surface.shape} surface ${surface.id}`);
                   
                   let cornerX: number[], cornerY: number[], cornerZ: number[];
                   
@@ -140,36 +140,36 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
                     cornerX = (mesh as any).corners.x;
                     cornerY = (mesh as any).corners.y;
                     cornerZ = (mesh as any).corners.z;
-                    console.log(`Using ${cornerX.length} proper corners from mesh data`);
+                    // console.log(`Using ${cornerX.length} proper corners from mesh data`);
                   } else {
                     // Fallback to first 4 vertices (for compatibility)
                     cornerX = mesh.x.slice(0, 4);
                     cornerY = mesh.y.slice(0, 4);
                     cornerZ = mesh.z.slice(0, 4);
-                    console.log(`Using first 4 vertices as corners (fallback)`);
+                    // console.log(`Using first 4 vertices as corners (fallback)`);
                   }
                 
                 // COMPREHENSIVE DEBUGGING: Log everything needed to trace coordinate calculation
-                console.log(`🔍 PLOTLY VISUALIZATION: Surface ${surface.id} Corner Analysis`);
-                console.log(`================================================================`);
-                console.log(`Surface Properties:`);
-                console.log(`  ID: ${surface.id}`);
-                console.log(`  Shape: ${surface.shape}`);
-                console.log(`  Position: [${surface.position.x.toFixed(6)}, ${surface.position.y.toFixed(6)}, ${surface.position.z.toFixed(6)}]`);
-                console.log(`  Normal: [${surface.normal?.x.toFixed(6)}, ${surface.normal?.y.toFixed(6)}, ${surface.normal?.z.toFixed(6)}]`);
-                console.log(`  LocalDialAngle: ${(surface as any).localDialAngle} radians = ${(surface as any).localDialAngle ? ((surface as any).localDialAngle * 180 / Math.PI).toFixed(2) + '°' : 'none'}`);
-                console.log(`  Width: ${surface.width || 'default'}, Height: ${surface.height || 'default'}, Semidia: ${surface.semidia || 'none'}`);
-                console.log(`  Transform matrices available:`);
-                console.log(`    - normalTransform: ${(surface as any).normalTransform ? 'YES' : 'NO'}`);
-                console.log(`    - fullTransform: ${surface.transform ? 'YES' : 'NO'}`);
-                
-                console.log(`Mesh Generation Results:`);
-                console.log(`  Total mesh vertices: ${mesh.x.length}`);
-                console.log(`  Mesh type: ${mesh.type}`);
-                console.log(`  Corner coordinates being plotted in Plotly:`);
-                cornerX.forEach((x, i) => {
-                  console.log(`    Corner ${i+1}: [${x.toFixed(6)}, ${cornerY[i].toFixed(6)}, ${cornerZ[i].toFixed(6)}]`);
-                });
+                // console.log(`🔍 PLOTLY VISUALIZATION: Surface ${surface.id} Corner Analysis`);
+                // console.log(`================================================================`);
+                // console.log(`Surface Properties:`);
+                // console.log(`  ID: ${surface.id}`);
+                // console.log(`  Shape: ${surface.shape}`);
+                // console.log(`  Position: [${surface.position.x.toFixed(6)}, ${surface.position.y.toFixed(6)}, ${surface.position.z.toFixed(6)}]`);
+                // console.log(`  Normal: [${surface.normal?.x.toFixed(6)}, ${surface.normal?.y.toFixed(6)}, ${surface.normal?.z.toFixed(6)}]`);
+                // console.log(`  LocalDialAngle: ${(surface as any).localDialAngle} radians = ${(surface as any).localDialAngle ? ((surface as any).localDialAngle * 180 / Math.PI).toFixed(2) + '°' : 'none'}`);
+                // console.log(`  Width: ${surface.width || 'default'}, Height: ${surface.height || 'default'}, Semidia: ${surface.semidia || 'none'}`);
+                // console.log(`  Transform matrices available:`);
+                // console.log(`    - normalTransform: ${(surface as any).normalTransform ? 'YES' : 'NO'}`);
+                // console.log(`    - fullTransform: ${surface.transform ? 'YES' : 'NO'}`);
+                // 
+                // console.log(`Mesh Generation Results:`);
+                // console.log(`  Total mesh vertices: ${mesh.x.length}`);
+                // console.log(`  Mesh type: ${mesh.type}`);
+                // console.log(`  Corner coordinates being plotted in Plotly:`);
+                // cornerX.forEach((x, i) => {
+                //   console.log(`    Corner ${i+1}: [${x.toFixed(6)}, ${cornerY[i].toFixed(6)}, ${cornerZ[i].toFixed(6)}]`);
+                // });
                 
                 // Create simplified hover text for each corner
                 const cornerHoverText = cornerX.map((x, i) => 
@@ -212,10 +212,10 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
                   name: `${surface.id} corners`,
                   showlegend: false
                   });
-                  console.log(`✅ Added corner markers for surface ${surface.id} to Plotly`);
-                  console.log(`================================================================\n`);
+                  // console.log(`✅ Added corner markers for surface ${surface.id} to Plotly`);
+                  // console.log(`================================================================\n`);
                 } else {
-                  console.log(`Skipping corner markers for ${surface.shape} surface ${surface.id} (no defined corners)`);
+                  // console.log(`Skipping corner markers for ${surface.shape} surface ${surface.id} (no defined corners)`);
                 }
               } catch (cornerError) {
                 console.warn(`Failed to add corner markers for surface ${surface.id}:`, cornerError);
@@ -228,13 +228,13 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
 
           // Add light source indicators and trace rays
           try {
-            console.log('System light sources:', opticalSystem.lightSources);
+            // console.log('System light sources:', opticalSystem.lightSources);
             
             opticalSystem.lightSources.forEach((source, index) => {
-              console.log(`Processing light source ${index}:`, source);
-              console.log(`Source constructor:`, source.constructor.name);
-              console.log(`Source generateRays method:`, typeof source.generateRays);
-              console.log(`Source methods:`, Object.getOwnPropertyNames(Object.getPrototypeOf(source)));
+              // console.log(`Processing light source ${index}:`, source);
+              // console.log(`Source constructor:`, source.constructor.name);
+              // console.log(`Source generateRays method:`, typeof source.generateRays);
+              // console.log(`Source methods:`, Object.getOwnPropertyNames(Object.getPrototypeOf(source)));
               
               // Check if we have position and wavelength
               if (source && source.position && source.wavelength) {
@@ -245,32 +245,32 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
                 // Try to generate and trace rays
                 try {
                   if (source.generateRays && typeof source.generateRays === 'function') {
-                    console.log(`Generating rays for light source ${index}...`);
+                    // console.log(`Generating rays for light source ${index}...`);
                     const rays = source.generateRays(source.numberOfRays || 10); // Generate all requested rays
-                    console.log(`Generated ${rays.length} rays`);
+                    // console.log(`Generated ${rays.length} rays`);
                     
                     rays.forEach((ray: Ray, rayIndex: number) => {
                       try {
                         
                         // Check if we have surfaces to trace through
                         if (opticalSystem && opticalSystem.surfaces && opticalSystem.surfaces.length > 0) {
-                          console.log(`Optical system surfaces:`, opticalSystem.surfaces.map(s => ({
-                            id: s.id, shape: s.shape, mode: s.mode, position: s.position
-                          })));
-                          
-                          console.log(`Tracing ray ${rayIndex} through ${opticalSystem.surfaces.length} surfaces`);
-                          console.log(`Initial ray:`, { position: ray.position, direction: ray.direction });
+                          // console.log(`Optical system surfaces:`, opticalSystem.surfaces.map(s => ({
+                          //   id: s.id, shape: s.shape, mode: s.mode, position: s.position
+                          // })));
+                          // 
+                          // console.log(`Tracing ray ${rayIndex} through ${opticalSystem.surfaces.length} surfaces`);
+                          // console.log(`Initial ray:`, { position: ray.position, direction: ray.direction });
                           
                           // Trace ray through optical system
                           const rayPath = RayTracer.traceRaySequential(ray, opticalSystem.surfaces);
-                          console.log(`Ray path has ${rayPath.length} points`);
+                          // console.log(`Ray path has ${rayPath.length} points`);
                           
                           // Plot the complete ray path - each consecutive pair forms a line segment
                           for (let i = 0; i < rayPath.length - 1; i++) {
                             const startRay = rayPath[i];
                             const endRay = rayPath[i + 1];
                             
-                            console.log(`Segment ${i + 1}: from [${startRay.position.x.toFixed(2)}, ${startRay.position.y.toFixed(2)}, ${startRay.position.z.toFixed(2)}] to [${endRay.position.x.toFixed(2)}, ${endRay.position.y.toFixed(2)}, ${endRay.position.z.toFixed(2)}]`);
+                            // console.log(`Segment ${i + 1}: from [${startRay.position.x.toFixed(2)}, ${startRay.position.y.toFixed(2)}, ${startRay.position.z.toFixed(2)}] to [${endRay.position.x.toFixed(2)}, ${endRay.position.y.toFixed(2)}, ${endRay.position.z.toFixed(2)}]`);
                             
                             // Validate coordinates before plotting
                             const coords = [
@@ -435,10 +435,10 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
         const unifiedMinZ = centerZ - maxRange / 2;
         const unifiedMaxZ = centerZ + maxRange / 2;
 
-        console.log('Unified axis ranges:');
-        console.log(`X: ${unifiedMinX.toFixed(1)} to ${unifiedMaxX.toFixed(1)}`);
-        console.log(`Y: ${unifiedMinY.toFixed(1)} to ${unifiedMaxY.toFixed(1)}`);
-        console.log(`Z: ${unifiedMinZ.toFixed(1)} to ${unifiedMaxZ.toFixed(1)}`);
+        // console.log('Unified axis ranges:');
+        // console.log(`X: ${unifiedMinX.toFixed(1)} to ${unifiedMaxX.toFixed(1)}`);
+        // console.log(`Y: ${unifiedMinY.toFixed(1)} to ${unifiedMaxY.toFixed(1)}`);
+        // console.log(`Z: ${unifiedMinZ.toFixed(1)} to ${unifiedMaxZ.toFixed(1)}`);
 
         // Add empty point for axis setup
         plotData.push({

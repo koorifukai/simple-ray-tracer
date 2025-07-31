@@ -5,7 +5,6 @@
  */
 
 import { Vector3 } from '../math/Matrix4';
-import { Matrix4 } from '../math/Matrix4';
 import { Ray } from './LightSource';
 import type { OpticalSurface } from './surfaces';
 
@@ -183,7 +182,7 @@ export class RayTracer {
     }
 
     // 4. Ray hits surface - apply surface physics in local coordinates
-    const result = this.applySurfacePhysics(localRay, intersection, surface);
+    const result = this.applySurfacePhysics(localRay, intersection, surface, isFirstRayOfLight);
     
     if (!useSimplifiedLog) {
       this.log('surface', `Physics result:`, { 
@@ -384,11 +383,11 @@ export class RayTracer {
 
   /**
    * Transform ray from global to surface local coordinates
-   * Uses proper transformation matrix that aligns surface normal with [-1,0,0]
+   * Uses precomputed transformation matrix for efficiency
    */
   private static transformRayToLocal(ray: Ray, surface: OpticalSurface): Ray {
-    // Get the transformation matrix that moves the surface to origin and aligns normal with [-1,0,0]
-    const transform = this.getSurfaceToLocalTransform(surface);
+    // Use precomputed forward transformation matrix
+    const transform = surface.forwardTransform;
     
     // Transform ray origin point directly
     const localOrigin = transform.transformPointV3(ray.position);
@@ -401,12 +400,11 @@ export class RayTracer {
 
   /**
    * Transform ray from surface local to global coordinates
-   * Transforms hit point and direction back to world coordinates
+   * Uses precomputed inverse transformation matrix for efficiency
    */
   private static transformRayToGlobal(ray: Ray, surface: OpticalSurface): Ray {
-    // Get the inverse transformation matrix 
-    const transform = this.getSurfaceToLocalTransform(surface);
-    const inverseTransform = transform.inverse();
+    // Use precomputed inverse transformation matrix
+    const inverseTransform = surface.inverseTransform;
     
     // Transform local ray origin and direction back to world coordinates
     const worldOrigin = inverseTransform.transformPointV3(ray.position);
@@ -417,86 +415,18 @@ export class RayTracer {
 
   /**
    * Transform point from local to global coordinates
+   * Uses precomputed inverse transformation matrix for efficiency
    */
   private static transformPointToGlobal(point: Vector3, surface: OpticalSurface): Vector3 {
-    const transform = this.getSurfaceToLocalTransform(surface);
-    const inverseTransform = transform.inverse();
-    return inverseTransform.transformPointV3(point);
+    return surface.inverseTransform.transformPointV3(point);
   }
 
   /**
    * Transform vector from local to global coordinates
+   * Uses precomputed inverse transformation matrix for efficiency
    */
   private static transformVectorToGlobal(vector: Vector3, surface: OpticalSurface): Vector3 {
-    const transform = this.getSurfaceToLocalTransform(surface);
-    const inverseTransform = transform.inverse();
-    return inverseTransform.transformVectorV3(vector);
-  }
-
-  /**
-   * Get transformation matrix that moves surface to origin and aligns normal with [-1,0,0]
-   * This creates a coordinate system where the surface is at origin facing -X direction
-   */
-  private static getSurfaceToLocalTransform(surface: OpticalSurface): Matrix4 {
-    // For spherical surfaces: position is VERTEX, but we need CENTER at origin
-    // Center = vertex - radius * normal_direction
-    let translationPoint = surface.position;
-    
-    if (surface.shape === 'spherical' && surface.radius) {
-      const surfaceNormal = surface.normal || new Vector3(-1, 0, 0);
-      const radius = surface.radius;
-      // Calculate sphere center: vertex - radius * normal
-      const sphereCenter = surface.position.subtract(surfaceNormal.multiply(radius));
-      translationPoint = sphereCenter;
-      RayTracer.log('intersection', `Spherical surface ${surface.id}: vertex at [${surface.position.x}, ${surface.position.y}, ${surface.position.z}], center at [${sphereCenter.x}, ${sphereCenter.y}, ${sphereCenter.z}]`);
-    }
-    
-    // Start with translation to move sphere center (or surface) to origin
-    const translation = Matrix4.translation(-translationPoint.x, -translationPoint.y, -translationPoint.z);
-    
-    // Get surface normal (should be stored in the surface object)
-    const surfaceNormal = surface.normal || new Vector3(-1, 0, 0); // Default to -X facing
-    this.log('surface', `Surface ${surface.id} normal: [${surfaceNormal.x}, ${surfaceNormal.y}, ${surfaceNormal.z}]`); 
-    
-    // Create rotation matrix that aligns surface normal with [-1, 0, 0]
-    const targetNormal = new Vector3(-1, 0, 0);
-    const rotation = this.createRotationMatrixFromNormals(surfaceNormal, targetNormal);
-    
-    // Combined transformation: first translate, then rotate
-    return rotation.multiply(translation);
-  }
-
-  /**
-   * Create rotation matrix that rotates 'from' vector to 'to' vector
-   * Uses Rodrigues' rotation formula for arbitrary axis rotation
-   */
-  private static createRotationMatrixFromNormals(from: Vector3, to: Vector3): Matrix4 {
-    const fromNorm = from.normalize();
-    const toNorm = to.normalize();
-    
-    // Check if vectors are already aligned
-    const dot = fromNorm.dot(toNorm);
-    if (Math.abs(dot - 1.0) < 1e-6) {
-      // Already aligned, return identity
-      return new Matrix4().identity();
-    }
-    
-    if (Math.abs(dot + 1.0) < 1e-6) {
-      // Vectors are opposite, rotate 180° around any perpendicular axis
-      let perpendicular: Vector3;
-      if (Math.abs(fromNorm.x) < 0.9) {
-        perpendicular = new Vector3(1, 0, 0).cross(fromNorm).normalize();
-      } else {
-        perpendicular = new Vector3(0, 1, 0).cross(fromNorm).normalize();  
-      }
-      return Matrix4.rotationFromAxisAngle(perpendicular, Math.PI);
-    }
-    
-    // General case: use Rodrigues' formula
-    const axis = fromNorm.cross(toNorm).normalize();
-    const angle = Math.acos(Math.max(-1, Math.min(1, dot)));
-    
-    return Matrix4.rotationFromAxisAngle(axis, angle);
+    return surface.inverseTransform.transformVectorV3(vector);
   }
 
   /**
@@ -643,8 +573,8 @@ export class RayTracer {
    * Handles both circular and rectangular apertures
    */
   private static intersectPlane(ray: Ray, surface: OpticalSurface): RayIntersection {
-    console.log(`Plane intersection - surface at X=0, facing -1,0,0`);
-    console.log(`Local ray: position=${ray.position.x},${ray.position.y},${ray.position.z}, direction=${ray.direction.x},${ray.direction.y},${ray.direction.z}`);
+     console.log(`Plane intersection - surface at X=0, facing -1,0,0`);
+     console.log(`Local ray: position=${ray.position.x},${ray.position.y},${ray.position.z}, direction=${ray.direction.x},${ray.direction.y},${ray.direction.z}`);
     
     // Plane is at X = 0 with normal [-1, 0, 0] (facing negative X)
     const localNormal = new Vector3(-1, 0, 0);
@@ -902,14 +832,15 @@ export class RayTracer {
   private static applySurfacePhysics(
     ray: Ray, 
     intersection: RayIntersection, 
-    surface: OpticalSurface
+    surface: OpticalSurface,
+    isFirstRayOfLight: boolean = false
   ): RayTraceResult {
     const mode = surface.mode || 'refraction';
     
     // Handle different surface modes from EUREKA
     switch (mode) {
       case 'refraction':
-        const transmitted = this.calculateRefraction(ray, intersection, surface);
+        const transmitted = this.calculateRefraction(ray, intersection, surface, isFirstRayOfLight);
         return {
           ray,
           intersection,
@@ -929,7 +860,7 @@ export class RayTracer {
       case 'partial':
         // TODO: Implement Fresnel equations for partial reflection/transmission
         // For now, just do refraction
-        const partialTransmitted = this.calculateRefraction(ray, intersection, surface);
+        const partialTransmitted = this.calculateRefraction(ray, intersection, surface, isFirstRayOfLight);
         return {
           ray,
           intersection,
@@ -1013,7 +944,8 @@ export class RayTracer {
   private static calculateRefraction(
     ray: Ray, 
     intersection: RayIntersection, 
-    surface: OpticalSurface
+    surface: OpticalSurface,
+    isFirstRayOfLight: boolean = false
   ): Ray | null {
     // Get refractive indices from surface properties
     const n1 = surface.n1 || 1.0; // Incident medium
@@ -1053,14 +985,16 @@ export class RayTracer {
     const refracted = incident.multiply(snellRatio)
       .add(localNormal.multiply(snellRatio * cosIncident - cosRefracted));
     
-    console.log(`  Refracted direction:`, refracted);
+    if (isFirstRayOfLight) {
+      console.log(`  Refracted direction:`, refracted);
+    }
     
     // Verify Snell's law: n1*sin(θ1) should equal n2*sin(θ2)
-    const sinIncident = Math.sqrt(1 - cosIncident * cosIncident);
-    const sinRefracted = Math.sqrt(1 - cosRefracted * cosRefracted);
-    const snellCheck1 = n1 * sinIncident;
-    const snellCheck2 = n2 * sinRefracted;
-    console.log(`  Snell's law verification: n1*sin(θ1)=${snellCheck1.toFixed(4)}, n2*sin(θ2)=${snellCheck2.toFixed(4)}`);
+    // const sinIncident = Math.sqrt(1 - cosIncident * cosIncident);
+    // const sinRefracted = Math.sqrt(1 - cosRefracted * cosRefracted);
+    // const snellCheck1 = n1 * sinIncident;
+    // const snellCheck2 = n2 * sinRefracted;
+    // console.log(`  Snell's law verification: n1*sin(θ1)=${snellCheck1.toFixed(4)}, n2*sin(θ2)=${snellCheck2.toFixed(4)}`);
     
     return new Ray(
       intersection.point,
