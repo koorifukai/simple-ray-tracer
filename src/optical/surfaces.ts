@@ -196,13 +196,41 @@ export class OpticalSurfaceFactory {
     // Store BOTH transforms: post-dial for corners, pre-dial for normal
     surface.transform = transform;          // For corner calculations (includes dial)
     surface.normalTransform = normalTransform; // For normal calculations (excludes dial)
-
+    surface.forwardTransform = transform.inverse();  // World → Local transform (for ray intersection calculation)
+    surface.inverseTransform = transform.clone();
     // === PRECOMPUTE RAY TRACING TRANSFORMATION MATRICES ===
     // Calculate forward transform (World → Local) for efficient ray tracing
     console.log(`🔧 Computing transformation matrices for surface ${surface.id}`);
-    surface.forwardTransform = this.computeForwardTransform(surface);
-    surface.inverseTransform = surface.forwardTransform.inverse();
+    // surface.forwardTransform = this.computeForwardTransform(surface);
+    // surface.inverseTransform = surface.forwardTransform.inverse();
     console.log(`✅ Precomputed forward/inverse matrices for surface ${surface.id}`);
+
+    // === LOG TRANSFORMATION MATRICES ===
+    console.log(`📊 Matrix Details for surface ${surface.id}:`);
+    
+    // Log surface.transform (Local → World, includes dial)
+    const transformElems = surface.transform.elements;
+    console.log(`  transform (Local→World, +dial):`);
+    console.log(`    [${transformElems[0].toFixed(3)}, ${transformElems[4].toFixed(3)}, ${transformElems[8].toFixed(3)}, ${transformElems[12].toFixed(3)}]`);
+    console.log(`    [${transformElems[1].toFixed(3)}, ${transformElems[5].toFixed(3)}, ${transformElems[9].toFixed(3)}, ${transformElems[13].toFixed(3)}]`);
+    console.log(`    [${transformElems[2].toFixed(3)}, ${transformElems[6].toFixed(3)}, ${transformElems[10].toFixed(3)}, ${transformElems[14].toFixed(3)}]`);
+    console.log(`    [${transformElems[3].toFixed(3)}, ${transformElems[7].toFixed(3)}, ${transformElems[11].toFixed(3)}, ${transformElems[15].toFixed(3)}]`);
+    
+    // Log surface.forwardTransform (World → Local)
+    const forwardElems = surface.forwardTransform.elements;
+    console.log(`  forwardTransform (World→Local):`);
+    console.log(`    [${forwardElems[0].toFixed(3)}, ${forwardElems[4].toFixed(3)}, ${forwardElems[8].toFixed(3)}, ${forwardElems[12].toFixed(3)}]`);
+    console.log(`    [${forwardElems[1].toFixed(3)}, ${forwardElems[5].toFixed(3)}, ${forwardElems[9].toFixed(3)}, ${forwardElems[13].toFixed(3)}]`);
+    console.log(`    [${forwardElems[2].toFixed(3)}, ${forwardElems[6].toFixed(3)}, ${forwardElems[10].toFixed(3)}, ${forwardElems[14].toFixed(3)}]`);
+    console.log(`    [${forwardElems[3].toFixed(3)}, ${forwardElems[7].toFixed(3)}, ${forwardElems[11].toFixed(3)}, ${forwardElems[15].toFixed(3)}]`);
+    
+    // Log surface.inverseTransform (Local → World, should equal transform)
+    const inverseElems = surface.inverseTransform.elements;
+    console.log(`  inverseTransform (Local→World, should=transform):`);
+    console.log(`    [${inverseElems[0].toFixed(3)}, ${inverseElems[4].toFixed(3)}, ${inverseElems[8].toFixed(3)}, ${inverseElems[12].toFixed(3)}]`);
+    console.log(`    [${inverseElems[1].toFixed(3)}, ${inverseElems[5].toFixed(3)}, ${inverseElems[9].toFixed(3)}, ${inverseElems[13].toFixed(3)}]`);
+    console.log(`    [${inverseElems[2].toFixed(3)}, ${inverseElems[6].toFixed(3)}, ${inverseElems[10].toFixed(3)}, ${inverseElems[14].toFixed(3)}]`);
+    console.log(`    [${inverseElems[3].toFixed(3)}, ${inverseElems[7].toFixed(3)}, ${inverseElems[11].toFixed(3)}, ${inverseElems[15].toFixed(3)}]`);
 
     // Aspherical properties
     if (surfaceData.conic !== undefined) {
@@ -259,7 +287,7 @@ export class OpticalSurfaceFactory {
     // console.log(`\n=== PLOT VISUALIZATION OPERATIONS START: Assembly ${assemblyId || 'unnamed'} ===`);
     // console.log(`Assembly Configuration:`);
     console.log(`  - assemblyOffset: [${assemblyOffset.x}, ${assemblyOffset.y}, ${assemblyOffset.z}]`);
-    console.log(`  - assemblyNormal: [${assemblyNormal?.x.toFixed(6)}, ${assemblyNormal?.y.toFixed(6)}, ${assemblyNormal?.z.toFixed(6)}]`);
+    console.log(`  - assemblyNormal: [${assemblyNormal?.x.toFixed(3)}, ${assemblyNormal?.y.toFixed(3)}, ${assemblyNormal?.z.toFixed(3)}]`);
     console.log(`  - assemblyDial: ${assemblyDial}°`);
     console.log(`  - assemblyId: ${assemblyId}`);
     
@@ -283,7 +311,7 @@ export class OpticalSurfaceFactory {
     const globalSurfaces = this.placeAssemblyGlobally(localSurfaces, assemblyOffset, assemblyNormal, assemblyDial);
     // console.log(`  - Applied global transformations to ${globalSurfaces.length} surfaces`);
     // globalSurfaces.forEach(surface => {
-    //   console.log(`    ${surface.id}: globalPos=[${surface.position.x.toFixed(3)}, ${surface.position.y.toFixed(3)}, ${surface.position.z.toFixed(3)}], globalNormal=[${surface.normal?.x.toFixed(6)}, ${surface.normal?.y.toFixed(6)}, ${surface.normal?.z.toFixed(6)}]`);
+    //   console.log(`    ${surface.id}: globalPos=[${surface.position.x.toFixed(3)}, ${surface.position.y.toFixed(3)}, ${surface.position.z.toFixed(3)}], globalNormal=[${surface.normal?.x.toFixed(3)}, ${surface.normal?.y.toFixed(3)}, ${surface.normal?.z.toFixed(3)}]`);
     // });
     
     // console.log(`\nSTAGE 3: VISUALIZATION MESH CONNECTION PREPARATION`);
@@ -450,7 +478,7 @@ export class OpticalSurfaceFactory {
     const targetNormal = assemblyNormal ? assemblyNormal.normalize() : assemblyAxis;
     
     // console.log(`Assembly target normal calculation verification:`);
-    console.log(`  Target normal: [${targetNormal.x.toFixed(6)}, ${targetNormal.y.toFixed(6)}, ${targetNormal.z.toFixed(6)}]`);
+    console.log(`  Target normal: [${targetNormal.x.toFixed(3)}, ${targetNormal.y.toFixed(3)}, ${targetNormal.z.toFixed(3)}]`);
     console.log(`  Expected for angles [45,-30]: [-0.612372, -0.612372, -0.500000]`);
     
     let R_align = new Matrix4(); // Identity by default
@@ -553,12 +581,12 @@ export class OpticalSurfaceFactory {
       // Direct A*B result without coordinate swapping
       const transformedNormal = new Vector3(transformedNormX, transformedNormY, transformedNormZ).normalize();
       
-      console.log(`${globalSurface.id}: A*B result: [${transformedNormX.toFixed(6)}, ${transformedNormY.toFixed(6)}, ${transformedNormZ.toFixed(6)}]`);
+      console.log(`${globalSurface.id}: A*B result: [${transformedNormX.toFixed(3)}, ${transformedNormY.toFixed(3)}, ${transformedNormZ.toFixed(3)}]`);
       
       // Update surface normal (equivalent to s.normal = new_norm in EUREKA)
       globalSurface.normal = transformedNormal;
       
-      console.log(`${globalSurface.id}: Final assigned normal: [${globalSurface.normal.x.toFixed(6)}, ${globalSurface.normal.y.toFixed(6)}, ${globalSurface.normal.z.toFixed(6)}]`);
+      console.log(`${globalSurface.id}: Final assigned normal: [${globalSurface.normal.x.toFixed(3)}, ${globalSurface.normal.y.toFixed(3)}, ${globalSurface.normal.z.toFixed(3)}]`);
       
       // Create local transformation matrix for surface (EUREKA local_mat)
       // This represents the surface's coordinate system relative to its position
