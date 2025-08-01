@@ -34,12 +34,11 @@ export interface OpticalSurface {
   position: Vector3;      // Position in 3D space
   rotation?: Vector3;     // Rotation angles (rx, ry, rz) in radians
   normal?: Vector3;       // Explicit normal direction vector
-  transform: Matrix4;     // Local coordinate system transform (includes dial rotation for corners)
-  normalTransform?: Matrix4; // Transform for normal calculation (excludes dial rotation)
+  transform: Matrix4;     // Unified transform for both ray tracing and visualization
   
-  // Precomputed transformation matrices for efficient ray tracing
-  forwardTransform: Matrix4;  // World → Local transform (for ray intersection calculation)
-  inverseTransform: Matrix4;  // Local → World transform (for result transformation)
+  // Precomputed transformation matrices for efficient ray tracing (EUREKA methodology)
+  forwardTransform: Matrix4;  // World → Local transform (EUREKA "move" matrix)
+  inverseTransform: Matrix4;  // Local → World transform (EUREKA "inverse" matrix)
   
   // Aperture properties
   aperture?: number;      // Circular aperture radius
@@ -68,12 +67,12 @@ export class OpticalSurfaceFactory {
   
   /**
    * Create an optical surface from YAML surface definition
+   * Following EUREKA calc_mat methodology
    */
   static createSurface(
     id: string, 
     surfaceData: any, 
-    position: Vector3 = new Vector3(0, 0, 0),
-    isAssemblyMember: boolean = false
+    position: Vector3 = new Vector3(0, 0, 0)
   ): OpticalSurface {
     
     const surface: OpticalSurface = {
@@ -132,105 +131,55 @@ export class OpticalSurfaceFactory {
       ).normalize();
     }
 
-    // Create transformation matrix with proper orientation
-    let transform = Matrix4.translation(position.x, position.y, position.z);
+    // Apply transformation hierarchy following EUREKA calc_mat methodology
+    // Step 1: Calculate rotation matrix (r) from default normal to target normal
+    const defaultNormal = new Vector3(-1, 0, 0);
+    let rotationMatrix = new Matrix4().identity();
     
-    // Apply surface orientation if normal is specified (same logic as assembly surfaces)
+    // Apply local surface orientation if specified
     if (surface.normal) {
       const targetNormal = surface.normal.normalize();
-      
-      // Check if we need to apply rotation (compare to default normal [-1,0,0])
       const normalDiff = Math.abs(targetNormal.x + 1) + Math.abs(targetNormal.y) + Math.abs(targetNormal.z);
-      if (normalDiff > 0.001) { // Not equal to default normal [-1,0,0]
-        // EUREKA upright_rot_transform: robust two-step rotation
-        const defaultNormal = new Vector3(-1, 0, 0);
-        const orientationMatrix = this.createUprightRotationTransform(defaultNormal, targetNormal);
-        transform = transform.multiply(orientationMatrix);
+      if (normalDiff > 0.001) {
+        rotationMatrix = this.createUprightRotationTransform(defaultNormal, targetNormal);
       }
     }
     
-    // DIAL ROTATION - Applied LAST (EUREKA methodology: dial comes after all other rotations)
-    // IMPORTANT: Dial rotates corners/mesh around the normal, but the normal itself does NOT change
-    // NOTE: For assembly members, dial is stored and applied later in the global placement phase
-    // console.log(`${id}: Checking dial - surfaceData.dial=${surfaceData.dial}, isAssemblyMember=${isAssemblyMember}`);
-    
-    // console.log(`${id}: Checking dial - surfaceData.dial=${surfaceData.dial}, isAssemblyMember=${isAssemblyMember}`);
-    
-    // Store the pre-dial transform for normal calculation (dial doesn't affect normal)
-    const normalTransform = transform.clone();
-    
-    if (surfaceData.dial !== undefined && !isAssemblyMember) {
+    // Step 2: Apply surface dial rotation to the rotation matrix (EUREKA: r = np.dot(rhr, r))
+    if (surfaceData.dial !== undefined) {
       const dialAngleRad = surfaceData.dial * Math.PI / 180;
-      
-      // Store localDialAngle for GroundTruthValidator to detect dial surfaces
-      (surface as any).localDialAngle = dialAngleRad;
-      
-      // Get the FINAL normal after all transformations (for dial axis calculation)
-      // Calculate what the final normal will be using the same transform that positions the surface
-      const defaultNormal = new Vector3(-1, 0, 0);
-      const [finalNormalX, finalNormalY, finalNormalZ] = normalTransform.transformVector(
-        defaultNormal.x, defaultNormal.y, defaultNormal.z
-      );
-      const finalNormal = new Vector3(finalNormalX, finalNormalY, finalNormalZ).normalize();
-      
-      // console.log(`${id}: APPLYING standalone dial rotation ${surfaceData.dial}° about final normal axis [${finalNormal.x.toFixed(3)}, ${finalNormal.y.toFixed(3)}, ${finalNormal.z.toFixed(3)}]`);
-      
-      // Log transform matrix elements before dial
-      // const beforeMatrix = transform.elements;
-      // console.log(`${id}: Transform BEFORE dial: [${beforeMatrix[0].toFixed(3)}, ${beforeMatrix[1].toFixed(3)}, ${beforeMatrix[2].toFixed(3)}, ${beforeMatrix[3].toFixed(3)}] / [${beforeMatrix[4].toFixed(3)}, ${beforeMatrix[5].toFixed(3)}, ${beforeMatrix[6].toFixed(3)}, ${beforeMatrix[7].toFixed(3)}]`);
-      
-      // Apply dial rotation ONLY to corner/mesh transform, NOT to normal calculation
-      const dialRotation = this.createRotationMatrix(finalNormal, dialAngleRad);
-      transform = transform.multiply(dialRotation);
-      
-      // Log transform matrix elements after dial
-      // const afterMatrix = transform.elements;
-      // console.log(`${id}: Transform AFTER dial: [${afterMatrix[0].toFixed(3)}, ${afterMatrix[1].toFixed(3)}, ${afterMatrix[2].toFixed(3)}, ${afterMatrix[3].toFixed(3)}] / [${afterMatrix[4].toFixed(3)}, ${afterMatrix[5].toFixed(3)}, ${afterMatrix[6].toFixed(3)}, ${afterMatrix[7].toFixed(3)}]`);
-      // console.log(`${id}: Normal preserved - using pre-dial transform for normal calculation`);
-    } else if (surfaceData.dial !== undefined) {
-      // console.log(`${id}: Dial ${surfaceData.dial}° will be applied later in assembly global placement`);
-    } else {
-      // console.log(`${id}: No dial rotation specified`);
+      // Get current normal direction after orientation transform
+      const currentNormal = surface.normal || defaultNormal;
+      const dialRotation = this.createRotationMatrix(currentNormal, dialAngleRad);
+      rotationMatrix = dialRotation.multiply(rotationMatrix);
     }
     
-    // Store BOTH transforms: post-dial for corners, pre-dial for normal
-    surface.transform = transform;          // For corner calculations (includes dial)
-    surface.normalTransform = normalTransform; // For normal calculations (excludes dial)
-    surface.forwardTransform = transform.inverse();  // World → Local transform (for ray intersection calculation)
-    surface.inverseTransform = transform.clone();
-    // === PRECOMPUTE RAY TRACING TRANSFORMATION MATRICES ===
-    // Calculate forward transform (World → Local) for efficient ray tracing
-    console.log(`🔧 Computing transformation matrices for surface ${surface.id}`);
-    // surface.forwardTransform = this.computeForwardTransform(surface);
-    // surface.inverseTransform = surface.forwardTransform.inverse();
-    console.log(`✅ Precomputed forward/inverse matrices for surface ${surface.id}`);
-
-    // === LOG TRANSFORMATION MATRICES ===
-    console.log(`📊 Matrix Details for surface ${surface.id}:`);
+    // Step 3: Calculate translation vector (EUREKA: t = self.vertex - self.normal * self.radius)
+    const currentNormal = surface.normal || defaultNormal;
+    const radius = surface.radius || 0;
+    const translationVector = new Vector3(
+      position.x - currentNormal.x * radius,
+      position.y - currentNormal.y * radius,
+      position.z - currentNormal.z * radius
+    );
     
-    // Log surface.transform (Local → World, includes dial)
-    const transformElems = surface.transform.elements;
-    console.log(`  transform (Local→World, +dial):`);
-    console.log(`    [${transformElems[0].toFixed(3)}, ${transformElems[4].toFixed(3)}, ${transformElems[8].toFixed(3)}, ${transformElems[12].toFixed(3)}]`);
-    console.log(`    [${transformElems[1].toFixed(3)}, ${transformElems[5].toFixed(3)}, ${transformElems[9].toFixed(3)}, ${transformElems[13].toFixed(3)}]`);
-    console.log(`    [${transformElems[2].toFixed(3)}, ${transformElems[6].toFixed(3)}, ${transformElems[10].toFixed(3)}, ${transformElems[14].toFixed(3)}]`);
-    console.log(`    [${transformElems[3].toFixed(3)}, ${transformElems[7].toFixed(3)}, ${transformElems[11].toFixed(3)}, ${transformElems[15].toFixed(3)}]`);
+    // Step 4: Build 4x4 transformation matrix (EUREKA inverse matrix format)
+    const transform = new Matrix4();
+    // Copy rotation part (3x3)
+    for (let i = 0; i < 3; i++) {
+      for (let j = 0; j < 3; j++) {
+        transform.set(i, j, rotationMatrix.get(i, j));
+      }
+    }
+    // Set translation part
+    transform.set(0, 3, translationVector.x);
+    transform.set(1, 3, translationVector.y);
+    transform.set(2, 3, translationVector.z);
+    transform.set(3, 3, 1);
     
-    // Log surface.forwardTransform (World → Local)
-    const forwardElems = surface.forwardTransform.elements;
-    console.log(`  forwardTransform (World→Local):`);
-    console.log(`    [${forwardElems[0].toFixed(3)}, ${forwardElems[4].toFixed(3)}, ${forwardElems[8].toFixed(3)}, ${forwardElems[12].toFixed(3)}]`);
-    console.log(`    [${forwardElems[1].toFixed(3)}, ${forwardElems[5].toFixed(3)}, ${forwardElems[9].toFixed(3)}, ${forwardElems[13].toFixed(3)}]`);
-    console.log(`    [${forwardElems[2].toFixed(3)}, ${forwardElems[6].toFixed(3)}, ${forwardElems[10].toFixed(3)}, ${forwardElems[14].toFixed(3)}]`);
-    console.log(`    [${forwardElems[3].toFixed(3)}, ${forwardElems[7].toFixed(3)}, ${forwardElems[11].toFixed(3)}, ${forwardElems[15].toFixed(3)}]`);
-    
-    // Log surface.inverseTransform (Local → World, should equal transform)
-    const inverseElems = surface.inverseTransform.elements;
-    console.log(`  inverseTransform (Local→World, should=transform):`);
-    console.log(`    [${inverseElems[0].toFixed(3)}, ${inverseElems[4].toFixed(3)}, ${inverseElems[8].toFixed(3)}, ${inverseElems[12].toFixed(3)}]`);
-    console.log(`    [${inverseElems[1].toFixed(3)}, ${inverseElems[5].toFixed(3)}, ${inverseElems[9].toFixed(3)}, ${inverseElems[13].toFixed(3)}]`);
-    console.log(`    [${inverseElems[2].toFixed(3)}, ${inverseElems[6].toFixed(3)}, ${inverseElems[10].toFixed(3)}, ${inverseElems[14].toFixed(3)}]`);
-    console.log(`    [${inverseElems[3].toFixed(3)}, ${inverseElems[7].toFixed(3)}, ${inverseElems[11].toFixed(3)}, ${inverseElems[15].toFixed(3)}]`);
+    // Store single transform for both ray tracing and visualization
+    surface.transform = transform;
+    this.finalizeTransformationMatrices(surface);
 
     // Aspherical properties
     if (surfaceData.conic !== undefined) {
@@ -283,64 +232,9 @@ export class OpticalSurfaceFactory {
     assemblyDial?: number
   ): OpticalSurface[] {
     
-    // PLOT VISUALIZATION OPERATIONS - START (Hidden)
-    // console.log(`\n=== PLOT VISUALIZATION OPERATIONS START: Assembly ${assemblyId || 'unnamed'} ===`);
-    // console.log(`Assembly Configuration:`);
-    console.log(`  - assemblyOffset: [${assemblyOffset.x}, ${assemblyOffset.y}, ${assemblyOffset.z}]`);
-    console.log(`  - assemblyNormal: [${assemblyNormal?.x.toFixed(3)}, ${assemblyNormal?.y.toFixed(3)}, ${assemblyNormal?.z.toFixed(3)}]`);
-    console.log(`  - assemblyDial: ${assemblyDial}°`);
-    console.log(`  - assemblyId: ${assemblyId}`);
-    
-    // console.log('=== ASSEMBLY CONSTRUCTION (Build Locally Then Place Globally) ===');
-    // console.log('Stage 1: Building local assembly...');
-    
-    // STAGE 1: BUILD LOCAL ASSEMBLY (Hidden)
-    // Build the assembly in its own local coordinate system with proper relative positioning
-    // console.log(`\nSTAGE 1: LOCAL ASSEMBLY BUILDING`);
+    // Build assembly in local coordinates, then place globally
     const localSurfaces = this.buildLocalAssembly(assemblyData, assemblyId);
-    // console.log(`  - Built ${localSurfaces.length} surfaces in local coordinate system`);
-    // localSurfaces.forEach(surface => {
-    //   console.log(`    ${surface.id}: localPos=[${surface.position.x.toFixed(3)}, ${surface.position.y.toFixed(3)}, ${surface.position.z.toFixed(3)}], localDial=${(surface as any).localDialAngle ? ((surface as any).localDialAngle * 180 / Math.PI).toFixed(2) + '°' : 'none'}`);
-    // });
-    
-    // console.log('Stage 2: Placing assembly globally...');
-    
-    // STAGE 2: PLACE ASSEMBLY GLOBALLY (Hidden)
-    // Apply assembly-level transformations uniformly to all surfaces
-    // console.log(`\nSTAGE 2: GLOBAL ASSEMBLY PLACEMENT`);
     const globalSurfaces = this.placeAssemblyGlobally(localSurfaces, assemblyOffset, assemblyNormal, assemblyDial);
-    // console.log(`  - Applied global transformations to ${globalSurfaces.length} surfaces`);
-    // globalSurfaces.forEach(surface => {
-    //   console.log(`    ${surface.id}: globalPos=[${surface.position.x.toFixed(3)}, ${surface.position.y.toFixed(3)}, ${surface.position.z.toFixed(3)}], globalNormal=[${surface.normal?.x.toFixed(3)}, ${surface.normal?.y.toFixed(3)}, ${surface.normal?.z.toFixed(3)}]`);
-    // });
-    
-    // console.log(`\nSTAGE 3: VISUALIZATION MESH CONNECTION PREPARATION`);
-    // console.log(`  - Each surface will generate mesh via SurfaceRenderer.generatePlanarMesh()`);
-    // console.log(`  - Mesh generation uses normalTransform (excludes local dial) + Rodrigues rotation`);
-    // console.log(`  - Corner coordinates will be: transform WITHOUT dial → apply dial via Rodrigues → final world coordinates`);
-    // console.log(`=== PLOT VISUALIZATION OPERATIONS END: Assembly ${assemblyId || 'unnamed'} ===\n`);
-    // PLOT VISUALIZATION OPERATIONS - END (Hidden)
-
-    // Assembly summary with key optical information
-    // console.log('\n=== ASSEMBLY SUMMARY ===');
-    // console.log(`Assembly created with ${globalSurfaces.length} surfaces:`);
-    // globalSurfaces.forEach(surface => {
-    //   // Calculate final world normal direction - use the same logic as normal vector generation
-    //   let finalNormal: Vector3;
-    //   
-    //   if (surface.normal) {
-    //     // EXPLICIT NORMAL: Use exactly as specified (world coordinates)
-    //     finalNormal = surface.normal.normalize();
-    //   } else {
-    //     // GEOMETRY-BASED NORMAL: Transform default local normal through surface transform
-    //     const normalLocal = new Vector3(-1, 0, 0);
-    //     const [normalX, normalY, normalZ] = surface.transform.transformVector(normalLocal.x, normalLocal.y, normalLocal.z);
-    //     finalNormal = new Vector3(normalX, normalY, normalZ).normalize();
-    //   }
-    //   
-    //   console.log(`  ${surface.id}: position=(${surface.position.x.toFixed(1)}, ${surface.position.y.toFixed(1)}, ${surface.position.z.toFixed(1)}), normal=[${finalNormal.x.toFixed(3)}, ${finalNormal.y.toFixed(3)}, ${finalNormal.z.toFixed(3)}], radius=${surface.radius || 'flat'}`);
-    // });
-    // console.log('========================\n');
 
     return globalSurfaces;
   }
@@ -385,85 +279,130 @@ export class OpticalSurfaceFactory {
         }
       }
 
-      // Create the surface at LOCAL position (in assembly coordinates)
-      const surface = OpticalSurfaceFactory.createSurface(
-        key, 
-        surfaceData, 
-        currentPosition.clone(),
-        true // isAssemblyMember = true, so dial will be handled in global placement
+      // Create surface with EUREKA methodology for LOCAL assembly coordinates
+      // Following EUREKA calc_mat 4-step process but in assembly-local space
+      
+      // Step 1: Calculate relative normal direction (EUREKA ang2vec equivalent)
+      let relativeNormal = new Vector3(-1, 0, 0); // Default backward normal
+      
+      if (surfaceData.normal && Array.isArray(surfaceData.normal)) {
+        relativeNormal = new Vector3(
+          surfaceData.normal[0] || 0,
+          surfaceData.normal[1] || 0,
+          surfaceData.normal[2] || 0
+        ).normalize();
+      } else if (surfaceData.angles && Array.isArray(surfaceData.angles)) {
+        const azimuthRad = (surfaceData.angles[0] || 0) * Math.PI / 180;
+        const elevationRad = (surfaceData.angles[1] || 0) * Math.PI / 180;
+        relativeNormal = new Vector3(
+          -Math.cos(elevationRad) * Math.cos(azimuthRad),
+          -Math.cos(elevationRad) * Math.sin(azimuthRad),
+          Math.sin(elevationRad)
+        ).normalize();
+      }
+      
+      // Step 2: Calculate rotation matrix from default normal to target normal
+      const defaultNormal = new Vector3(-1, 0, 0);
+      let rotationMatrix = new Matrix4().identity();
+      const normalDiff = Math.abs(relativeNormal.x + 1) + Math.abs(relativeNormal.y) + Math.abs(relativeNormal.z);
+      if (normalDiff > 0.001) {
+        rotationMatrix = this.createUprightRotationTransform(defaultNormal, relativeNormal);
+      }
+      
+      // Step 3: Apply intra-assembly dial rotation (if specified)
+      if (surfaceData.dial !== undefined) {
+        const dialAngleRad = surfaceData.dial * Math.PI / 180;
+        const dialRotation = this.createRotationMatrix(relativeNormal, dialAngleRad);
+        rotationMatrix = dialRotation.multiply(rotationMatrix);
+        console.log(`Surface ${key} dial rotation: ${surfaceData.dial}° around normal:`, relativeNormal);
+      }
+      
+      // Step 4: Calculate translation (EUREKA: t = vertex - normal * radius)
+      const radius = surfaceData.radius || 0;
+      const translationVector = new Vector3(
+        currentPosition.x - relativeNormal.x * radius,
+        currentPosition.y - relativeNormal.y * radius,
+        currentPosition.z - relativeNormal.z * radius
       );
+      
+      // Step 5: Build 4x4 transformation matrix (EUREKA inverse matrix format)
+      const localTransform = new Matrix4();
+      // Copy rotation part (3x3)
+      for (let i = 0; i < 3; i++) {
+        for (let j = 0; j < 3; j++) {
+          localTransform.set(i, j, rotationMatrix.get(i, j));
+        }
+      }
+      // Set translation part
+      localTransform.set(0, 3, translationVector.x);
+      localTransform.set(1, 3, translationVector.y);
+      localTransform.set(2, 3, translationVector.z);
+      localTransform.set(3, 3, 1);
+      
+      // Create surface with basic properties (no redundant transformation)
+      const surface: OpticalSurface = {
+        id: key,
+        shape: surfaceData.shape || 'spherical',
+        mode: surfaceData.mode || 'refraction',
+        position: currentPosition.clone(),
+        normal: relativeNormal,
+        radius: surfaceData.radius,
+        semidia: surfaceData.semidia,
+        height: surfaceData.height,
+        width: surfaceData.width,
+        n1: surfaceData.n1,
+        n2: surfaceData.n2,
+        transform: localTransform,
+        forwardTransform: new Matrix4().identity(), // Will be computed later
+        inverseTransform: new Matrix4().identity(), // Will be computed later
+        opacity: 0.3
+      };
 
       // Store assembly information
       if (assemblyId) {
         surface.assemblyId = assemblyId;
-        surface.elementIndex = elementIndex + 1; // 1-based indexing for user display
-      }
-
-      // EUREKA approach: Calculate relative normal direction for this surface
-      // Default relative normal is [-1, 0, 0] (pointing backward along assembly axis)
-      let relativeNormal = new Vector3(-1, 0, 0);
-      
-      // Apply individual surface normal orientation (if specified)
-      if (surface.normal) {
-        // Explicit normal is LOCAL vector relative to optical axis
-        relativeNormal = surface.normal.normalize();
-      } else if (surfaceData.angles && Array.isArray(surfaceData.angles)) {
-        // Convert angles to normal vector (EUREKA ang2vec equivalent)
-        // angles[0]: Azimuth (rotation about Z-axis, tilts surface left/right in XY plane)
-        // angles[1]: Elevation (tilts surface up/down in elevation plane)
-        const azimuthRad = (surfaceData.angles[0] || 0) * Math.PI / 180;    // Rotation about Z-axis
-        const elevationRad = (surfaceData.angles[1] || 0) * Math.PI / 180;  // Elevation angle
-        
-        // Convert spherical coordinates to Cartesian normal vector
-        // Starting from default backward normal [-1,0,0]
-        relativeNormal = new Vector3(
-          -Math.cos(elevationRad) * Math.cos(azimuthRad),  // X component
-          -Math.cos(elevationRad) * Math.sin(azimuthRad),  // Y component  
-          Math.sin(elevationRad)                           // Z component
-        ).normalize();
-        
-        // DEBUG: Log the conversion for verification
-        // console.log(`angles [${surfaceData.angles[0]}, ${surfaceData.angles[1]}] = normal [${relativeNormal.x.toFixed(3)}, ${relativeNormal.y.toFixed(3)}, ${relativeNormal.z.toFixed(3)}]`);
+        surface.elementIndex = elementIndex + 1;
       }
       
-      // Store relative normal for later transformation
+      // Store relative normal for global placement
       (surface as any).relativeNormal = relativeNormal;
-      
-      // Create LOCAL transformation matrix (EUREKA local_mat equivalent)
-      // This is the surface's coordinate system within the assembly
-      let localTransform = Matrix4.translation(currentPosition.x, currentPosition.y, currentPosition.z);
-      
-      // Apply surface orientation based on relative normal (EUREKA upright_rot_transform)
-      const normalDiff = Math.abs(relativeNormal.x + 1) + Math.abs(relativeNormal.y) + Math.abs(relativeNormal.z);
-      if (normalDiff > 0.001) { // Not equal to default normal [-1,0,0]
-        // EUREKA upright_rot_transform: robust two-step rotation
-        const defaultNormal = new Vector3(-1, 0, 0);
-        const orientationMatrix = this.createUprightRotationTransform(defaultNormal, relativeNormal);
-        localTransform = localTransform.multiply(orientationMatrix);
+      // Set material and visual properties (EUREKA surface classification)
+      if (surfaceData.material) {
+        surface.material = surfaceData.material;
       }
       
-      // SIMPLIFIED APPROACH: Store local dial for later application, build surface with dial = 0
-      // Following your methodology: skip local dial initially, apply at very end
-      if (surfaceData.dial !== undefined) {
-        (surface as any).localDialAngle = surfaceData.dial * Math.PI / 180;
-        console.log(`${key}: LOCAL dial ${surfaceData.dial}° stored for final application (dial = 0 during construction)`);
+      // Set default color based on surface mode if not specified
+      if (!surface.color) {
+        switch (surface.mode) {
+          case 'reflection':
+          case 'mirror':
+          case 'reflect':
+            surface.color = '#C0C0C0'; // Silver for mirrors
+            break;
+          case 'refraction':
+          case 'refract':
+            surface.color = '#87CEEB'; // Sky blue for refractive surfaces
+            break;
+          case 'absorption':
+            surface.color = '#2F2F2F'; // Dark gray for absorbers
+            break;
+          case 'aperture':
+          case 'stop':
+            surface.color = '#FFD700'; // Gold for apertures
+            break;
+          default:
+            surface.color = '#FFFFFF'; // White for others
+        }
       }
       
-      // Store the local transformation WITHOUT any dial rotation
-      surface.transform = localTransform;
-
       surfaces.push(surface);
-      // console.log(`    ${key}: local_position=(${currentPosition.x.toFixed(1)}, ${currentPosition.y.toFixed(1)}, ${currentPosition.z.toFixed(1)}), rel_normal=[${relativeNormal.x.toFixed(3)}, ${relativeNormal.y.toFixed(3)}, ${relativeNormal.z.toFixed(3)}]`);
     });
 
     return surfaces;
   }
 
   /**
-   * STAGE 2: Apply global assembly transformations uniformly to all surfaces
-   * This places the entire assembly at the specified global position and orientation
-   * Following EUREKA place() method: transforms both position and normal directions
-   * IMPLEMENTS TWO-STAGE DIAL ROTATION: local dial + assembly dial
+   * Apply global assembly transformations uniformly to all surfaces
    */
   private static placeAssemblyGlobally(
     localSurfaces: OpticalSurface[], 
@@ -472,194 +411,93 @@ export class OpticalSurfaceFactory {
     assemblyDial?: number
   ): OpticalSurface[] {
     
-    // EUREKA approach: Create assembly transformation matrix (equivalent to T matrix in EUREKA)
-    // Step 1: R_align - rotation to align assembly axis with target normal (EUREKA upright_rot_transform)
-    const assemblyAxis = new Vector3(-1, 0, 0); // Default assembly axis (backward)
+    // Create assembly transformation matrix
+    const assemblyAxis = new Vector3(-1, 0, 0);
     const targetNormal = assemblyNormal ? assemblyNormal.normalize() : assemblyAxis;
     
-    // console.log(`Assembly target normal calculation verification:`);
-    console.log(`  Target normal: [${targetNormal.x.toFixed(3)}, ${targetNormal.y.toFixed(3)}, ${targetNormal.z.toFixed(3)}]`);
-    console.log(`  Expected for angles [45,-30]: [-0.612372, -0.612372, -0.500000]`);
-    
-    let R_align = new Matrix4(); // Identity by default
+    let R_align = new Matrix4();
     const axisNormalDiff = Math.abs(targetNormal.x + 1) + Math.abs(targetNormal.y) + Math.abs(targetNormal.z);
-    if (axisNormalDiff > 0.001) { // Not equal to default assembly axis
+    if (axisNormalDiff > 0.001) {
       R_align = this.createUprightRotationTransform(assemblyAxis, targetNormal);
     }
     
-    // Step 2: R_dial - assembly-level dial rotation around the target normal (EUREKA R_dial)
-    // This is the SECOND stage of dial rotation (first stage was local surface dial)
+    // Apply assembly-level dial rotation
     let R_total = R_align;
     if (assemblyDial !== undefined) {
-      const dialAngleRad = assemblyDial * Math.PI / 180; // Use actual dial angle, not negative
-      console.log(`Assembly dial rotation: ${assemblyDial}° about target normal [${targetNormal.x.toFixed(3)}, ${targetNormal.y.toFixed(3)}, ${targetNormal.z.toFixed(3)}] (using angle: ${assemblyDial}°)`);
-      
-      // R_dial: rotation around the target normal (EUREKA axial_rotation)
+      const dialAngleRad = assemblyDial * Math.PI / 180;
       const R_dial = this.createRotationMatrix(targetNormal, dialAngleRad);
-      
-      // EUREKA: R_total = R_dial * R_align (dial applied AFTER alignment)
       R_total = R_dial.multiply(R_align);
-      
-      // Debug: Show the transformation matrices
-      const alignMatrix = R_align.elements;
-      const dialMatrix = R_dial.elements;
-      const totalMatrix = R_total.elements;
-      console.log(`R_align: [${alignMatrix[0].toFixed(3)}, ${alignMatrix[1].toFixed(3)}, ${alignMatrix[2].toFixed(3)}] / [${alignMatrix[4].toFixed(3)}, ${alignMatrix[5].toFixed(3)}, ${alignMatrix[6].toFixed(3)}] / [${alignMatrix[8].toFixed(3)}, ${alignMatrix[9].toFixed(3)}, ${alignMatrix[10].toFixed(3)}]`);
-      console.log(`R_dial: [${dialMatrix[0].toFixed(3)}, ${dialMatrix[1].toFixed(3)}, ${dialMatrix[2].toFixed(3)}] / [${dialMatrix[4].toFixed(3)}, ${dialMatrix[5].toFixed(3)}, ${dialMatrix[6].toFixed(3)}] / [${dialMatrix[8].toFixed(3)}, ${dialMatrix[9].toFixed(3)}, ${dialMatrix[10].toFixed(3)}]`);
-      console.log(`R_total: [${totalMatrix[0].toFixed(3)}, ${totalMatrix[1].toFixed(3)}, ${totalMatrix[2].toFixed(3)}] / [${totalMatrix[4].toFixed(3)}, ${totalMatrix[5].toFixed(3)}, ${totalMatrix[6].toFixed(3)}] / [${totalMatrix[8].toFixed(3)}, ${totalMatrix[9].toFixed(3)}, ${totalMatrix[10].toFixed(3)}]`);
     }
     
-    // Create 4x4 homogeneous transformation matrix (EUREKA T matrix)
-    // CORRECTED: Apply rotation first, then translation (R × T order)
+    // Create final assembly transformation matrix
     let assemblyTransform = R_total.clone();
     const translationMatrix = Matrix4.translation(assemblyOffset.x, assemblyOffset.y, assemblyOffset.z);
     assemblyTransform = translationMatrix.multiply(assemblyTransform);
-    
-    // Debug: For 3D offset assemblies, print detailed matrix information
-    const hasOffset = Math.abs(assemblyOffset.x) > 0.01 || Math.abs(assemblyOffset.y) > 0.01 || Math.abs(assemblyOffset.z) > 0.01;
-    if (hasOffset) {
-      // console.log(`\n=== Assembly with 3D offset ${JSON.stringify(assemblyOffset)} Matrix Details ===`);
-      console.log('R_total matrix elements:');
-      const re = R_total.elements;
-      console.log(`[${re[0].toFixed(3)}, ${re[4].toFixed(3)}, ${re[8].toFixed(3)}] / [${re[1].toFixed(3)}, ${re[5].toFixed(3)}, ${re[9].toFixed(3)}] / [${re[2].toFixed(3)}, ${re[6].toFixed(3)}, ${re[10].toFixed(3)}]`);
-      console.log('Final assemblyTransform elements:');
-      const ae = assemblyTransform.elements;
-      console.log(`[${ae[0].toFixed(3)}, ${ae[4].toFixed(3)}, ${ae[8].toFixed(3)}, ${ae[12].toFixed(3)}]`);
-      console.log(`[${ae[1].toFixed(3)}, ${ae[5].toFixed(3)}, ${ae[9].toFixed(3)}, ${ae[13].toFixed(3)}]`);
-      console.log(`[${ae[2].toFixed(3)}, ${ae[6].toFixed(3)}, ${ae[10].toFixed(3)}, ${ae[14].toFixed(3)}]`);
-      console.log(`[${ae[3].toFixed(3)}, ${ae[7].toFixed(3)}, ${ae[11].toFixed(3)}, ${ae[15].toFixed(3)}]`);
-    }
-    
-    if (assemblyNormal) {
-      // console.log(`  Assembly normal: [${assemblyNormal.x.toFixed(3)}, ${assemblyNormal.y.toFixed(3)}, ${assemblyNormal.z.toFixed(3)}]`);
-    }
-    // console.log(`  Assembly offset: (${assemblyOffset.x.toFixed(1)}, ${assemblyOffset.y.toFixed(1)}, ${assemblyOffset.z.toFixed(1)})`);
-
-    // Apply assembly transformation to each surface (following EUREKA loop)
+    // Apply assembly transformation to each surface
     const globalSurfaces: OpticalSurface[] = localSurfaces.map(localSurface => {
-      // Clone the surface to avoid modifying the original
       const globalSurface: OpticalSurface = {
         ...localSurface,
         position: localSurface.position.clone(),
         transform: localSurface.transform.clone()
       };
       
-      // Get relative position and normal from local surface (EUREKA rel_pos, rel_norm)
-      const rel_pos = localSurface.position; // Local position within assembly
+      const rel_pos = localSurface.position;
       const rel_norm = (localSurface as any).relativeNormal || new Vector3(-1, 0, 0);
       
-      // Transform position: new_pos = T * rel_pos (EUREKA xdot(T, rel_pos))
+      // Transform position
       const [globalX, globalY, globalZ] = assemblyTransform.transformPoint(
         rel_pos.x, rel_pos.y, rel_pos.z
       );
-      
-      // Debug the assembly transform matrix for this specific surface
-      if (globalSurface.id === 's2' && rel_pos.y !== 0) {
-        console.log(`${globalSurface.id}: Debug assembly transform for 3D offset surface`);
-        console.log(`${globalSurface.id}: rel_pos input: [${rel_pos.x}, ${rel_pos.y}, ${rel_pos.z}]`);
-        console.log(`${globalSurface.id}: transform result: [${globalX}, ${globalY}, ${globalZ}]`);
-        const matElems = assemblyTransform.elements;
-        console.log(`${globalSurface.id}: Matrix row1: [${matElems[0].toFixed(3)}, ${matElems[1].toFixed(3)}, ${matElems[2].toFixed(3)}, ${matElems[3].toFixed(3)}]`);
-        console.log(`${globalSurface.id}: Matrix row2: [${matElems[4].toFixed(3)}, ${matElems[5].toFixed(3)}, ${matElems[6].toFixed(3)}, ${matElems[7].toFixed(3)}]`);
-        console.log(`${globalSurface.id}: Matrix row3: [${matElems[8].toFixed(3)}, ${matElems[9].toFixed(3)}, ${matElems[10].toFixed(3)}, ${matElems[11].toFixed(3)}]`);
-        console.log(`${globalSurface.id}: Matrix row4: [${matElems[12].toFixed(3)}, ${matElems[13].toFixed(3)}, ${matElems[14].toFixed(3)}, ${matElems[15].toFixed(3)}]`);
-      }
-      
-      // Apply the calculated position
       globalSurface.position = new Vector3(globalX, globalY, globalZ);
       
-      console.log(`${globalSurface.id}: Position - Original: [${globalX.toFixed(2)}, ${globalY.toFixed(2)}, ${globalZ.toFixed(2)}]`);
-      
-      // Transform normal using SINGLE combined matrix: world normal = R_total * relative_normal
-      // This is the fundamental A*B calculation where A=R_total and B transforms [-1,0,0] to relative normal
-      console.log(`${globalSurface.id}: Applying A*B method - A=R_total, B=rel_norm`);
-      
+      // Transform normal
       const [transformedNormX, transformedNormY, transformedNormZ] = R_total.transformVector(
         rel_norm.x, rel_norm.y, rel_norm.z
       );
-      
-      // Direct A*B result without coordinate swapping
       const transformedNormal = new Vector3(transformedNormX, transformedNormY, transformedNormZ).normalize();
-      
-      console.log(`${globalSurface.id}: A*B result: [${transformedNormX.toFixed(3)}, ${transformedNormY.toFixed(3)}, ${transformedNormZ.toFixed(3)}]`);
-      
-      // Update surface normal (equivalent to s.normal = new_norm in EUREKA)
       globalSurface.normal = transformedNormal;
       
-      console.log(`${globalSurface.id}: Final assigned normal: [${globalSurface.normal.x.toFixed(3)}, ${globalSurface.normal.y.toFixed(3)}, ${globalSurface.normal.z.toFixed(3)}]`);
-      
-      // Create local transformation matrix for surface (EUREKA local_mat)
-      // This represents the surface's coordinate system relative to its position
-      let local_mat = Matrix4.translation(rel_pos.x, rel_pos.y, rel_pos.z);
-      
-      // Apply surface orientation in local coordinates (EUREKA upright_rot_transform)
-      const localNormalDiff = Math.abs(rel_norm.x + 1) + Math.abs(rel_norm.y) + Math.abs(rel_norm.z);
-      if (localNormalDiff > 0.001) { // Not equal to default normal [-1,0,0]
-        // EUREKA upright_rot_transform: robust two-step rotation
-        const defaultNormal = new Vector3(-1, 0, 0);
-        const localRotation = this.createUprightRotationTransform(defaultNormal, rel_norm);
-        local_mat = local_mat.multiply(localRotation);
-      }
-      
-      // ROBOTICS/CG TRANSFORM HIERARCHY: World → Assembly → Surface
-      // 1. World → Assembly: assemblyTransform (includes assembly dial affecting normals)
-      // 2. Assembly → Surface: local_mat (surface positioning and orientation)
-      globalSurface.transform = assemblyTransform.multiply(local_mat);
-      
-      // Store local dial for FINAL application (after all surfaces are built)
-      if ((localSurface as any).localDialAngle !== undefined) {
-        // Store dial angle information if present
-        if ('localDialAngle' in localSurface) {
-          (globalSurface as any).localDialAngle = (localSurface as any).localDialAngle;
-        }
-        (globalSurface as any).finalNormal = transformedNormal; // Store final normal for dial rotation
-      }
-      
-      // For normals: use transform hierarchy WITHOUT local dial
-      // Normal affected by: World → Assembly (including assembly dial) but NOT local dial
-      let localMatForNormal = Matrix4.translation(rel_pos.x, rel_pos.y, rel_pos.z);
-      if (localNormalDiff > 0.001) {
-        const defaultNormal = new Vector3(-1, 0, 0);
-        const localRotation = this.createUprightRotationTransform(defaultNormal, rel_norm);
-        localMatForNormal = localMatForNormal.multiply(localRotation);
-      }
-      
-      // Normal transform: World → Assembly only (excludes local dial)
-      globalSurface.normalTransform = assemblyTransform.multiply(localMatForNormal);
+      // Apply global assembly transformation to local surface transform
+      // Local transform already includes surface orientation and dial rotation (EUREKA methodology)
+      globalSurface.transform = assemblyTransform.multiply(localSurface.transform);
       
       return globalSurface;
     });
 
-    // FINAL STEP: Apply all local dials at once (your methodology: "apply individual surface dials at the very end")
+    // Finalize transformation matrices for all surfaces
     globalSurfaces.forEach(surface => {
-      if ((surface as any).localDialAngle !== undefined) {
-        const localDialAngle = (surface as any).localDialAngle;
-        const localDialDegrees = localDialAngle * 180 / Math.PI;
-        
-        console.log(`${surface.id}: Applying LOCAL dial ${localDialDegrees}° at FINAL step (preserves normal)`);
-        
-        // CRITICAL FIX: Rotate around local normal axis in world space, not final world normal
-        // Local normal is always [-1,0,0], transform it to world space to get correct rotation axis
-        const localNormal = new Vector3(-1, 0, 0);
-        const normalTransform = surface.normalTransform || surface.transform;
-        const [worldAxisX, worldAxisY, worldAxisZ] = normalTransform.transformVector(localNormal.x, localNormal.y, localNormal.z);
-        const worldRotationAxis = new Vector3(worldAxisX, worldAxisY, worldAxisZ).normalize();
-        
-        const localDialRotation = this.createRotationMatrix(worldRotationAxis, localDialAngle);
-        surface.transform = surface.transform.multiply(localDialRotation);
-      }
-    });
-
-    // === FINAL STEP: Compute ray tracing transformation matrices for all assembly surfaces ===
-    console.log(`🔧 Computing transformation matrices for ${globalSurfaces.length} assembly surfaces`);
-    globalSurfaces.forEach(surface => {
-      console.log(`🔧 Computing matrices for assembly surface ${surface.id}`);
-      surface.forwardTransform = this.computeForwardTransform(surface);
-      surface.inverseTransform = surface.forwardTransform.inverse();
-      console.log(`✅ Precomputed forward/inverse matrices for assembly surface ${surface.id}`);
+      this.finalizeTransformationMatrices(surface);
     });
 
     return globalSurfaces;
+  }
+
+  /**
+   * Finalize transformation matrices once surface placement is complete
+   * Following EUREKA methodology: inverse = Local→World, move = World→Local
+   */
+  static finalizeTransformationMatrices(surface: OpticalSurface): void {
+    // EUREKA approach: inverse is Local→World transform
+    surface.inverseTransform = surface.transform.clone();
+    
+    // EUREKA approach: move is World→Local transform (inverse of inverse)
+    surface.forwardTransform = surface.inverseTransform.inverse();
+  }
+
+  /**
+   * Transform local point to world coordinates
+   */
+  static transformLocalToWorld(surface: OpticalSurface, localX: number, localY: number, localZ: number): { x: number; y: number; z: number } {
+    const [worldX, worldY, worldZ] = surface.inverseTransform.transformPoint(localX, localY, localZ);
+    return { x: worldX, y: worldY, z: worldZ };
+  }
+
+  /**
+   * Transform world point to local coordinates
+   */
+  static transformWorldToLocal(surface: OpticalSurface, worldX: number, worldY: number, worldZ: number): { x: number; y: number; z: number } {
+    const [localX, localY, localZ] = surface.forwardTransform.transformPoint(worldX, worldY, worldZ);
+    return { x: localX, y: localY, z: localZ };
   }
 
   /**
@@ -686,34 +524,12 @@ export class OpticalSurfaceFactory {
   }
 
   /**
-   * Compute forward transformation matrix (World → Local) for ray tracing
-   * This is the same logic as RayTracer.getSurfaceToLocalTransform but precomputed
+   * DEPRECATED: This function is replaced by unified matrix calculation
+   * All surfaces now use the same transformation logic regardless of shape
    */
   static computeForwardTransform(surface: OpticalSurface): Matrix4 {
-    // For spherical surfaces: position is VERTEX, but we need CENTER at origin
-    // Center = vertex - radius * normal_direction
-    let translationPoint = surface.position;
-    
-    if (surface.shape === 'spherical' && surface.radius) {
-      const surfaceNormal = surface.normal || new Vector3(-1, 0, 0);
-      const radius = surface.radius;
-      // Calculate sphere center: vertex - radius * normal
-      const sphereCenter = surface.position.subtract(surfaceNormal.multiply(radius));
-      translationPoint = sphereCenter;
-    }
-    
-    // Start with translation to move sphere center (or surface) to origin
-    const translation = Matrix4.translation(-translationPoint.x, -translationPoint.y, -translationPoint.z);
-    
-    // Get surface normal (should be stored in the surface object)
-    const surfaceNormal = surface.normal || new Vector3(-1, 0, 0); // Default to -X facing
-    
-    // Create rotation matrix that aligns surface normal with [-1, 0, 0]
-    const targetNormal = new Vector3(-1, 0, 0);
-    const rotation = this.createRotationMatrixFromNormals(surfaceNormal, targetNormal);
-    
-    // Combined transformation: first translate, then rotate
-    return rotation.multiply(translation);
+    // Simply return the precomputed forward transform
+    return surface.forwardTransform || surface.transform.inverse();
   }
 
   /**
@@ -838,13 +654,20 @@ export class OpticalSurfaceFactory {
 
 /**
  * Generate mesh data for surface visualization
+ * 
+ * CRITICAL EUREKA METHODOLOGY DISTINCTION:
+ * - Transformation matrices position surfaces at center of curvature for ray tracing math
+ * - Mesh visualization must show surfaces at their vertices (where rays intersect)
+ * - Local coordinate origin (0,0,0) represents the surface vertex
+ * - Surface curvature extends into negative X direction from vertex
  */
 export class SurfaceRenderer {
   
   /**
-   * Generate spherical surface mesh for Plotly.js using mesh3d
-   * Uses vertex-based positioning: vertex (optical axis intersection) at designated position
-   * Based on Python lens_vertices and spherical_coords implementation
+   * Generate spherical surface mesh
+   * EUREKA methodology: Transform positions surfaces at center of curvature for ray tracing,
+   * but mesh visualization must show surface at the vertex (where rays actually intersect).
+   * Local coordinate system origin (0,0,0) represents the surface vertex.
    */
   static generateSphericalMesh(surface: OpticalSurface, resolution: number = 20): {
     type: string;
@@ -865,63 +688,50 @@ export class SurfaceRenderer {
     const vertices: { x: number; y: number; z: number }[] = [];
     const faces: { i: number; j: number; k: number }[] = [];
 
-    // Python approach: lens_vertices + spherical_coords
     const r = Math.abs(radius);
-    const effectiveSemidia = Math.min(semidia, r); // Clamp semidia to radius
-    const rad = Math.asin(effectiveSemidia / r); // Angular extent (theta_max)
+    const effectiveSemidia = Math.min(semidia, r);
+    const rad = Math.asin(effectiveSemidia / r);
     
     const thetaSteps = Math.max(6, Math.floor(resolution / 4));
     const phiSteps = Math.max(8, Math.floor(resolution * 1.5));
 
-    // Add single vertex point at theta=0 (optical axis intersection)
-    const vertexLocalZ = 0; // r * Math.sin(0) * Math.cos(0) = 0
-    const vertexLocalY = 0; // r * Math.sin(0) * Math.sin(0) = 0  
-    const vertexLocalX = -radius; // -radius * Math.cos(0) = -radius
-    const vertexShiftedX = vertexLocalX + radius; // = 0 (vertex at origin)
+    // Add vertex at theta=0 (surface apex)
+    const vertexLocalZ = 0;
+    const vertexLocalY = 0;
+    const vertexLocalX = 0; // Vertex is at local origin in surface coordinate system
     
-    const [vertexWorldX, vertexWorldY, vertexWorldZ] = surface.transform.transformPoint(vertexShiftedX, vertexLocalY, vertexLocalZ);
+    const [vertexWorldX, vertexWorldY, vertexWorldZ] = surface.inverseTransform.transformPoint(vertexLocalX, vertexLocalY, vertexLocalZ);
     vertices.push({ x: vertexWorldX, y: vertexWorldY, z: vertexWorldZ });
 
-    // Generate sphere coordinates following Python lens_vertices function
-    // Skip ti=0 since we already added the single vertex point
+    // Generate sphere coordinates relative to vertex position
     for (let ti = 1; ti <= thetaSteps; ti++) {
-      const theta = (ti / thetaSteps) * rad; // From rad/thetaSteps to rad
+      const theta = (ti / thetaSteps) * rad;
       
       for (let pi = 0; pi < phiSteps; pi++) {
-        const phi = (pi / phiSteps) * 2 * Math.PI; // Full rotation around Y-axis
+        const phi = (pi / phiSteps) * 2 * Math.PI;
         
-        // Python lens_vertices coordinates:
-        // z = r * sin(theta) * cos(phi)  
-        // y = r * sin(theta) * sin(phi)
-        // x = -radius * cos(theta)
         const localZ = r * Math.sin(theta) * Math.cos(phi);
         const localY = r * Math.sin(theta) * Math.sin(phi);
-        const localX = -radius * Math.cos(theta);
+        const localX = -r * (1 - Math.cos(theta)); // Surface points relative to vertex
         
-        // Python spherical_coords: base[:, 0] += sur.radius (shift X to make vertex at origin)
-        const shiftedX = localX + radius; // This makes vertex (theta=0) at X=0
-        
-        // Transform to world coordinates using surface transform
-        const [worldX, worldY, worldZ] = surface.transform.transformPoint(shiftedX, localY, localZ);
+        const [worldX, worldY, worldZ] = surface.inverseTransform.transformPoint(localX, localY, localZ);
         vertices.push({ x: worldX, y: worldY, z: worldZ });
       }
     }
 
-    // Generate triangular faces connecting vertex to first ring and rings to each other
+    // Generate triangular faces
     for (let ti = 0; ti < thetaSteps; ti++) {
       for (let pi = 0; pi < phiSteps; pi++) {
         if (ti === 0) {
-          // Connect single vertex (index 0) to first ring (indices 1 to phiSteps)
           const firstRingCurrent = 1 + pi;
           const firstRingNext = 1 + ((pi + 1) % phiSteps);
           
           faces.push({
-            i: 0, // single vertex point
+            i: 0,
             j: firstRingCurrent,
             k: firstRingNext
           });
         } else {
-          // Connect ring ti-1 to ring ti
           const prevRingBase = 1 + (ti - 1) * phiSteps;
           const currentRingBase = 1 + ti * phiSteps;
           
@@ -930,7 +740,6 @@ export class SurfaceRenderer {
           const currentCurrent = currentRingBase + pi;
           const currentNext = currentRingBase + ((pi + 1) % phiSteps);
           
-          // Create two triangles per quad
           faces.push({
             i: prevCurrent,
             j: currentCurrent,
@@ -966,7 +775,8 @@ export class SurfaceRenderer {
   }
 
   /**
-   * Generate planar surface mesh for Plotly.js using mesh3d
+   * Generate planar surface mesh
+   * For planar surfaces, the vertex and center coincide at local origin (0,0,0).
    */
   static generatePlanarMesh(surface: OpticalSurface, resolution: number = 10): {
     type: string;
@@ -979,7 +789,7 @@ export class SurfaceRenderer {
     opacity: number;
     color: string;
     flatshading?: boolean;
-    corners?: { x: number[]; y: number[]; z: number[] }; // Add corner positions for proper marking
+    corners?: { x: number[]; y: number[]; z: number[] };
   } {
     const semidia = surface.semidia || 25;
     const height = surface.height || semidia * 2;
@@ -988,66 +798,19 @@ export class SurfaceRenderer {
     const vertices: { x: number; y: number; z: number }[] = [];
     const faces: { i: number; j: number; k: number }[] = [];
 
-    // For circular aperture, use efficient "pizza slice" triangulation
+    // For circular aperture, use pizza slice triangulation
     if (surface.semidia) {
-      // Generate circular planar surface using pizza slice method
-      const angularSteps = Math.max(12, Math.floor(resolution * 1.2)); // More angular divisions for smooth circle
+      const angularSteps = Math.max(12, Math.floor(resolution * 1.2));
       
-      // Helper function to transform a local point using correct dial rotation methodology
       const transformLocalPoint = (x: number, y: number, z: number) => {
-        // Use normalTransform (excludes dial) or fallback to transform if no dial
-        const transformWithoutDial = (surface as any).normalTransform || surface.transform;
-        
-        // 1. Transform point to world coordinates WITHOUT dial rotation
-        const [baseWorldX, baseWorldY, baseWorldZ] = transformWithoutDial.transformPoint(x, y, z);
-        
-        // 2. If surface has dial, apply it to the position-to-point vector using Rodrigues rotation
-        if ((surface as any).localDialAngle !== undefined) {
-          const dialAngle = (surface as any).localDialAngle;
-          
-          // Vector from surface position to point (before dial)
-          const vectorToPoint = new Vector3(
-            baseWorldX - surface.position.x,
-            baseWorldY - surface.position.y,
-            baseWorldZ - surface.position.z
-          );
-          
-          // Apply dial rotation around the surface normal in world space
-          const normal = surface.normal?.normalize();
-          if (normal) {
-            const cosTheta = Math.cos(dialAngle);
-            const sinTheta = Math.sin(dialAngle);
-            const t = 1 - cosTheta;
-            const nx = normal.x, ny = normal.y, nz = normal.z;
-            
-            // Rodrigues rotation matrix applied to vector
-            const rotatedVector = new Vector3(
-              (t*nx*nx + cosTheta) * vectorToPoint.x + (t*nx*ny - sinTheta*nz) * vectorToPoint.y + (t*nx*nz + sinTheta*ny) * vectorToPoint.z,
-              (t*nx*ny + sinTheta*nz) * vectorToPoint.x + (t*ny*ny + cosTheta) * vectorToPoint.y + (t*ny*nz - sinTheta*nx) * vectorToPoint.z,
-              (t*nx*nz - sinTheta*ny) * vectorToPoint.x + (t*ny*nz + sinTheta*nx) * vectorToPoint.y + (t*nz*nz + cosTheta) * vectorToPoint.z
-            );
-            
-            // Final point position = surface position + rotated vector
-            return { 
-              x: surface.position.x + rotatedVector.x,
-              y: surface.position.y + rotatedVector.y,
-              z: surface.position.z + rotatedVector.z
-            };
-          } else {
-            // Fallback: use base coordinates if no normal available
-            return { x: baseWorldX, y: baseWorldY, z: baseWorldZ };
-          }
-        } else {
-          // No dial rotation - use base world coordinates
-          return { x: baseWorldX, y: baseWorldY, z: baseWorldZ };
-        }
+        return OpticalSurfaceFactory.transformLocalToWorld(surface, x, y, z);
       };
       
-      // Add center vertex (index 0)
+      // Add center vertex
       const centerVertex = transformLocalPoint(0, 0, 0);
       vertices.push(centerVertex);
       
-      // Add rim vertices at semidia radius (indices 1 to angularSteps)
+      // Add rim vertices
       for (let i = 0; i < angularSteps; i++) {
         const theta = (i / angularSteps) * 2 * Math.PI;
         const localY = semidia * Math.cos(theta);
@@ -1057,21 +820,18 @@ export class SurfaceRenderer {
         vertices.push(vertex);
       }
       
-      // Generate pizza slice triangles: center to each edge pair
+      // Generate pizza slice triangles
       for (let i = 0; i < angularSteps; i++) {
         const next = (i + 1) % angularSteps;
         faces.push({
-          i: 0,       // center vertex
-          j: 1 + i,   // current rim vertex  
-          k: 1 + next // next rim vertex (wrapping around)
+          i: 0,
+          j: 1 + i,
+          k: 1 + next
         });
       }
 
-      // Circular surfaces don't have distinct corners
-      // Set color based on surface mode: black with transparency for apertures, normal color otherwise
       const circularColor = surface.mode === 'aperture' ? 
-        'rgba(0,0,0,0.8)' : // Almost black with transparency for apertures
-        'rgba(255,255,255,0.8)'; // Normal white color for non-aperture disks
+        'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)';
 
       const result = {
         type: 'mesh3d',
@@ -1088,74 +848,32 @@ export class SurfaceRenderer {
 
       return result;
     } else {
-      // Rectangular aperture - simple quad with corner marking
+      // Rectangular aperture
       const halfHeight = height / 2;
       const halfWidth = width / 2;
       
-      // Local corner coordinates matching test validation approach
-      // Width extends along Y-axis, height extends along Z-axis
       const localCorners = [
-        [0, -halfWidth, -halfHeight], // [X, Y, Z] = [0, -width/2, -height/2]
-        [0, halfWidth, -halfHeight],  // [X, Y, Z] = [0, +width/2, -height/2]
-        [0, halfWidth, halfHeight],   // [X, Y, Z] = [0, +width/2, +height/2]
-        [0, -halfWidth, halfHeight]   // [X, Y, Z] = [0, -width/2, +height/2]
+        [0, -halfWidth, -halfHeight],
+        [0, halfWidth, -halfHeight],
+        [0, halfWidth, halfHeight],
+        [0, -halfWidth, halfHeight]
       ];
       
-      // Apply correct dial rotation methodology and store corners
       const worldCorners: { x: number; y: number; z: number }[] = [];
       
-      // Helper function for transforming corners (same as above)
       const transformLocalPoint = (x: number, y: number, z: number) => {
-        const transformWithoutDial = (surface as any).normalTransform || surface.transform;
-        const [baseWorldX, baseWorldY, baseWorldZ] = transformWithoutDial.transformPoint(x, y, z);
-        
-        if ((surface as any).localDialAngle !== undefined) {
-          const dialAngle = (surface as any).localDialAngle;
-          const vectorToPoint = new Vector3(
-            baseWorldX - surface.position.x,
-            baseWorldY - surface.position.y,
-            baseWorldZ - surface.position.z
-          );
-          
-          const normal = surface.normal?.normalize();
-          if (normal) {
-            const cosTheta = Math.cos(dialAngle);
-            const sinTheta = Math.sin(dialAngle);
-            const t = 1 - cosTheta;
-            const nx = normal.x, ny = normal.y, nz = normal.z;
-            
-            const rotatedVector = new Vector3(
-              (t*nx*nx + cosTheta) * vectorToPoint.x + (t*nx*ny - sinTheta*nz) * vectorToPoint.y + (t*nx*nz + sinTheta*ny) * vectorToPoint.z,
-              (t*nx*ny + sinTheta*nz) * vectorToPoint.x + (t*ny*ny + cosTheta) * vectorToPoint.y + (t*ny*nz - sinTheta*nx) * vectorToPoint.z,
-              (t*nx*nz - sinTheta*ny) * vectorToPoint.x + (t*ny*nz + sinTheta*nx) * vectorToPoint.y + (t*nz*nz + cosTheta) * vectorToPoint.z
-            );
-            
-            return { 
-              x: surface.position.x + rotatedVector.x,
-              y: surface.position.y + rotatedVector.y,
-              z: surface.position.z + rotatedVector.z
-            };
-          } else {
-            return { x: baseWorldX, y: baseWorldY, z: baseWorldZ };
-          }
-        } else {
-          return { x: baseWorldX, y: baseWorldY, z: baseWorldZ };
-        }
+        return OpticalSurfaceFactory.transformLocalToWorld(surface, x, y, z);
       };
       
-      // Transform all corners and add to vertices
       localCorners.forEach(([x, y, z]) => {
         const corner = transformLocalPoint(x, y, z);
         vertices.push(corner);
         worldCorners.push(corner);
       });
       
-      // Two triangles forming a rectangle
-      // For a proper rectangle with vertices 0,1,2,3, use correct winding order
-      faces.push({ i: 0, j: 1, k: 3 });  // Triangle 1: (0,1,3)
-      faces.push({ i: 1, j: 2, k: 3 });  // Triangle 2: (1,2,3)
+      faces.push({ i: 0, j: 1, k: 3 });
+      faces.push({ i: 1, j: 2, k: 3 });
 
-      // Different color for apertures
       const color = surface.mode === 'aperture' ? 
         'rgba(100,100,255,0.6)' : 'rgba(255,255,255,0.8)';
 
@@ -1182,9 +900,9 @@ export class SurfaceRenderer {
   }
 
   /**
-   * Generate cylindrical surface mesh for Plotly.js using mesh3d
-   * Based on Python implementation: curves in Y-direction, flat in Z-direction
-   * Uses proper vertex positioning and dial rotation like planar surfaces
+   * Generate cylindrical surface mesh
+   * EUREKA methodology: Mesh positioned at surface vertex (local origin),
+   * with curvature extending into negative X direction.
    */
   static generateCylindricalMesh(surface: OpticalSurface, resolution: number = 20): {
     type: string;
@@ -1198,7 +916,7 @@ export class SurfaceRenderer {
     color: string;
     flatshading?: boolean;
     lighting?: any;
-    corners?: { x: number[]; y: number[]; z: number[] }; // Add corner positions for proper marking
+    corners?: { x: number[]; y: number[]; z: number[] };
   } {
     const radius = surface.radius || 50;
     const height = surface.height || (surface.semidia ? surface.semidia * 2 : 50);
@@ -1207,103 +925,47 @@ export class SurfaceRenderer {
     const vertices: { x: number; y: number; z: number }[] = [];
     const faces: { i: number; j: number; k: number }[] = [];
 
-    // Calculate angular range based on width (like Python implementation)
     const r = Math.abs(radius);
-    const rad = Math.asin(0.5 * width / r); // Angular extent
+    const rad = Math.asin(0.5 * width / r);
     const thetaSteps = Math.max(8, Math.floor(resolution * 0.8));
     const zSteps = Math.max(4, Math.floor(resolution * 0.4));
 
-    // Helper function to transform a local point using correct dial rotation methodology
-    // (Same as planar surfaces - rotate around surface normal)
     const transformLocalPoint = (x: number, y: number, z: number) => {
-      // Use normalTransform (excludes dial) or fallback to transform if no dial
-      const transformWithoutDial = (surface as any).normalTransform || surface.transform;
-      
-      // 1. Transform point to world coordinates WITHOUT dial rotation
-      const [baseWorldX, baseWorldY, baseWorldZ] = transformWithoutDial.transformPoint(x, y, z);
-      
-      // 2. If surface has dial, apply it to the position-to-point vector using Rodrigues rotation
-      if ((surface as any).localDialAngle !== undefined) {
-        const dialAngle = (surface as any).localDialAngle;
-        
-        // Vector from surface position to point (before dial)
-        const vectorToPoint = new Vector3(
-          baseWorldX - surface.position.x,
-          baseWorldY - surface.position.y,
-          baseWorldZ - surface.position.z
-        );
-        
-        // Apply dial rotation around the surface normal in world space (like planar surfaces)
-        const normal = surface.normal?.normalize();
-        if (normal) {
-          const cosTheta = Math.cos(dialAngle);
-          const sinTheta = Math.sin(dialAngle);
-          const t = 1 - cosTheta;
-          const nx = normal.x, ny = normal.y, nz = normal.z;
-          
-          // Rodrigues rotation matrix applied to vector
-          const rotatedVector = new Vector3(
-            (t*nx*nx + cosTheta) * vectorToPoint.x + (t*nx*ny - sinTheta*nz) * vectorToPoint.y + (t*nx*nz + sinTheta*ny) * vectorToPoint.z,
-            (t*nx*ny + sinTheta*nz) * vectorToPoint.x + (t*ny*ny + cosTheta) * vectorToPoint.y + (t*ny*nz - sinTheta*nx) * vectorToPoint.z,
-            (t*nx*nz - sinTheta*ny) * vectorToPoint.x + (t*ny*nz + sinTheta*nx) * vectorToPoint.y + (t*nz*nz + cosTheta) * vectorToPoint.z
-          );
-          
-          // Final point position = surface position + rotated vector
-          return { 
-            x: surface.position.x + rotatedVector.x,
-            y: surface.position.y + rotatedVector.y,
-            z: surface.position.z + rotatedVector.z
-          };
-        } else {
-          // Fallback: use base coordinates if no normal available
-          return { x: baseWorldX, y: baseWorldY, z: baseWorldZ };
-        }
-      } else {
-        // No dial rotation - use base world coordinates
-        return { x: baseWorldX, y: baseWorldY, z: baseWorldZ };
-      }
+      return OpticalSurfaceFactory.transformLocalToWorld(surface, x, y, z);
     };
 
-    // Generate vertices in a grid pattern: theta (curvature) × z (height)
+    // Generate vertices in grid pattern: theta × z
     for (let zi = 0; zi <= zSteps; zi++) {
-      const z = ((zi / zSteps) - 0.5) * height; // From -height/2 to +height/2
+      const z = ((zi / zSteps) - 0.5) * height;
       
       for (let ti = 0; ti <= thetaSteps; ti++) {
-        const theta = -rad + (ti / thetaSteps) * (2 * rad); // From -rad to +rad
+        const theta = -rad + (ti / thetaSteps) * (2 * rad);
         
-        // Calculate cylindrical coordinates (following Python implementation)
         const localY = r * Math.sin(theta);
         let localX = 0;
         
-        // Only calculate X curvature if within cylinder radius
         if (Math.abs(localY) <= r) {
           const radiusSign = radius >= 0 ? 1 : -1;
-          // FIXED: NO vertex offset - vertex should be at designated position (0,0,0 in local coords)
-          // Surface equation: x = R - sqrt(R² - y²) (standard cylinder equation)
           localX = radiusSign * (r - Math.sqrt(r * r - localY * localY));
         } else {
-          // Point is outside cylinder radius
-          localX = 0; // At vertex position
+          localX = 0;
         }
         
         const localZ = z;
         
-        // Transform to world coordinates using dial-aware transformation
         const vertex = transformLocalPoint(localX, localY, localZ);
         vertices.push(vertex);
       }
     }
 
-    // Generate triangular faces connecting the grid
+    // Generate triangular faces
     for (let zi = 0; zi < zSteps; zi++) {
       for (let ti = 0; ti < thetaSteps; ti++) {
-        // Current vertex indices in the grid
         const current = zi * (thetaSteps + 1) + ti;
         const right = current + 1;
         const below = (zi + 1) * (thetaSteps + 1) + ti;
         const belowRight = below + 1;
         
-        // Create two triangles for each quad
         faces.push({
           i: current,
           j: right,
@@ -1410,23 +1072,17 @@ export class SurfaceRenderer {
 
     // Surface apex position (always at center for visualization)
     const apexLocal = new Vector3(0, 0, 0);
-    const [apexX, apexY, apexZ] = surface.transform.transformPoint(apexLocal.x, apexLocal.y, apexLocal.z);
+    const apexWorld = OpticalSurfaceFactory.transformLocalToWorld(surface, apexLocal.x, apexLocal.y, apexLocal.z);
+    const [apexX, apexY, apexZ] = [apexWorld.x, apexWorld.y, apexWorld.z];
 
     let normalVec: Vector3;
 
-    // CRITICAL: Use the stored surface.normal (which excludes dial rotation) for normal visualization
-    // The surface.normal is the true optical normal direction and should NOT be affected by dial rotation
-    // Dial rotation only affects the surface corners/mesh for aperture orientation, not the optical normal
-    if (surface.normal) {
-      // Use the stored normal (calculated correctly without dial effects)
-      normalVec = surface.normal.normalize();
-    } else {
-      // Fallback: derive from normalTransform (which excludes dial) or regular transform if no dial
-      const transformToUse = surface.normalTransform || surface.transform;
-      const normalLocal = new Vector3(-1, 0, 0); // Default local normal direction
-      const [normalX, normalY, normalZ] = transformToUse.transformVector(normalLocal.x, normalLocal.y, normalLocal.z);
-      normalVec = new Vector3(normalX, normalY, normalZ).normalize();
-    }
+    // CRITICAL: Use surface.transform (includes dial) to match visible mesh orientation
+    // This ensures the displayed normal is perpendicular to what the user sees
+    // Normal must be consistent with the mesh visualization for visual clarity
+    const normalLocal = new Vector3(-1, 0, 0); // Default local normal direction
+    const [normalX, normalY, normalZ] = surface.transform.transformVector(normalLocal.x, normalLocal.y, normalLocal.z);
+    normalVec = new Vector3(normalX, normalY, normalZ).normalize();
     
     const normalEnd = new Vector3(apexX, apexY, apexZ).add(normalVec.multiply(normalLength));
     

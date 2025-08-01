@@ -15,8 +15,7 @@ interface DialDebugResult {
   testRay: Ray;
   
   // Transformation matrices
-  visualTransform: Matrix4;           // surface.transform (used for visualization)
-  normalTransform: Matrix4;           // surface.normalTransform (excludes dial)
+  visualTransform: Matrix4;           // surface.transform (unified for both ray tracing and visualization)
   forwardTransform: Matrix4;          // surface.forwardTransform (for ray tracing)
   inverseTransform: Matrix4;          // surface.inverseTransform
   
@@ -71,12 +70,11 @@ class DialDebugAnalyzer {
         dial: dialDegrees
       };
       
-      // Create surface using the factory
+      // Create surface using the factory (EUREKA methodology)
       const surface = OpticalSurfaceFactory.createSurface(
         `s1_dial${dialDegrees}`,
         surfaceData,
-        surfacePosition,
-        false // standalone surface, not assembly member
+        surfacePosition
       );
       
       // Transform test ray to local coordinates using the surface's forward transform
@@ -96,7 +94,6 @@ class DialDebugAnalyzer {
         surface,
         testRay,
         visualTransform: surface.transform,
-        normalTransform: surface.normalTransform || surface.transform,
         forwardTransform: surface.forwardTransform,
         inverseTransform: surface.inverseTransform,
         localRayPosition: localRayPos,
@@ -152,13 +149,10 @@ class DialDebugAnalyzer {
     
     // Matrix comparisons
     console.log('\nTransformation Matrices:');
-    console.log('Visual Transform (includes dial):');
+    console.log('Unified Transform (includes dial, for both ray tracing and visualization):');
     this.printMatrix4x4(result.visualTransform);
     
-    console.log('Normal Transform (excludes dial):');
-    this.printMatrix4x4(result.normalTransform);
-    
-    console.log('Forward Transform (for ray tracing):');
+    console.log('Forward Transform (World→Local, for ray tracing):');
     this.printMatrix4x4(result.forwardTransform);
     
     // Local ray transformation results
@@ -187,19 +181,23 @@ class DialDebugAnalyzer {
       
       // Compare visual transforms (should change with dial)
       const visualSame = this.matricesEqual(baseline.visualTransform, current.visualTransform);
-      console.log(`Visual Transform (includes dial): ${visualSame ? '❌ SAME (WRONG!)' : '✅ DIFFERENT (correct)'}`);
+      console.log(`Unified Transform (includes dial): ${visualSame ? '❌ SAME (WRONG!)' : '✅ DIFFERENT (correct)'}`);
       
-      // Compare normal transforms (should stay same - excludes dial)
-      const normalSame = this.matricesEqual(baseline.normalTransform, current.normalTransform);
-      console.log(`Normal Transform (excludes dial): ${normalSame ? '✅ SAME (correct)' : '❌ DIFFERENT (WRONG!)'}`);
-      
-      // Compare forward transforms (CRITICAL - should change with dial but probably doesn't)
+      // Compare forward transforms (CRITICAL - should change with dial)
       const forwardSame = this.matricesEqual(baseline.forwardTransform, current.forwardTransform);
       console.log(`Forward Transform (ray tracing): ${forwardSame ? '❌ SAME (BUG!)' : '✅ DIFFERENT (correct)'}`);
+      
+      // Compare inverse transforms (should also change with dial)
+      const inverseSame = this.matricesEqual(baseline.inverseTransform, current.inverseTransform);
+      console.log(`Inverse Transform (visualization): ${inverseSame ? '❌ SAME (BUG!)' : '✅ DIFFERENT (correct)'}`);
       
       // Compare local ray positions (should change with dial)
       const localPosSame = this.vectorsEqual(baseline.localRayPosition, current.localRayPosition);
       console.log(`Local Ray Position: ${localPosSame ? '❌ SAME (BUG!)' : '✅ DIFFERENT (correct)'}`);
+      
+      // Compare local ray directions (should change with dial)
+      const localDirSame = this.vectorsEqual(baseline.localRayDirection, current.localRayDirection);
+      console.log(`Local Ray Direction: ${localDirSame ? '❌ SAME (BUG!)' : '✅ DIFFERENT (correct)'}`);
       
       // Compare local intersections (should change with dial)
       if (baseline.expectedLocalIntersection && current.expectedLocalIntersection) {

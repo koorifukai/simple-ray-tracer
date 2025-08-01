@@ -347,9 +347,9 @@ export class GroundTruthValidator {
         // Use the stored normal (calculated correctly by A*B method or individual surface logic)
         actualNormal = [actual.normal.x, actual.normal.y, actual.normal.z];
       } else {
-        // Fallback: calculate from normalTransform (dial-free) or regular transform
+        // Calculate surface normal from transform matrix
         const normalLocal = new Vector3(-1, 0, 0);
-        const transformForNormal = actual.normalTransform || actual.transform;
+        const transformForNormal = actual.transform;
         const [normalX, normalY, normalZ] = transformForNormal.transformVector(
           normalLocal.x, normalLocal.y, normalLocal.z
         );
@@ -469,58 +469,16 @@ export class GroundTruthValidator {
       new Vector3(0, -halfWidth, halfHeight)   // C4: [-width/2, +height/2]
     ];
 
-    // Apply dial rotation correctly: Transform corners without dial, then rotate position-to-corner vectors
+    // Apply EUREKA methodology: surface.transform already includes all transformations (position, orientation, dial)
     const worldCorners: [number, number, number][] = [];
     
-    // Use normalTransform (excludes dial) or fallback to transform if no dial
-    const transformWithoutDial = (surface as any).normalTransform || surface.transform;
-    
     localCorners.forEach(localCorner => {
-      // 1. Transform corner to world coordinates WITHOUT dial rotation
-      const [baseWorldX, baseWorldY, baseWorldZ] = transformWithoutDial.transformPoint(
+      // Transform corner to world coordinates using the unified transform matrix
+      // This already includes position, orientation, and dial rotation (EUREKA methodology)
+      const [worldX, worldY, worldZ] = surface.inverseTransform.transformPoint(
         localCorner.x, localCorner.y, localCorner.z
       );
-      
-      // 2. If surface has dial, apply it to the position-to-corner vector
-      if ((surface as any).localDialAngle !== undefined) {
-        const dialAngle = (surface as any).localDialAngle;
-        
-        // Vector from surface position to corner (before dial)
-        const vectorToCorner = new Vector3(
-          baseWorldX - surface.position.x,
-          baseWorldY - surface.position.y,
-          baseWorldZ - surface.position.z
-        );
-        
-        // Apply dial rotation around the surface normal in world space
-        const normal = surface.normal?.normalize();
-        if (!normal) {
-          // Fallback: use base coordinates if no normal available
-          worldCorners.push([baseWorldX, baseWorldY, baseWorldZ]);
-          return;
-        }
-        const cosTheta = Math.cos(dialAngle);
-        const sinTheta = Math.sin(dialAngle);
-        const t = 1 - cosTheta;
-        const x = normal.x, y = normal.y, z = normal.z;
-        
-        // Rodrigues rotation matrix applied to vector
-        const rotatedVector = new Vector3(
-          (t*x*x + cosTheta) * vectorToCorner.x + (t*x*y - sinTheta*z) * vectorToCorner.y + (t*x*z + sinTheta*y) * vectorToCorner.z,
-          (t*x*y + sinTheta*z) * vectorToCorner.x + (t*y*y + cosTheta) * vectorToCorner.y + (t*y*z - sinTheta*x) * vectorToCorner.z,
-          (t*x*z - sinTheta*y) * vectorToCorner.x + (t*y*z + sinTheta*x) * vectorToCorner.y + (t*z*z + cosTheta) * vectorToCorner.z
-        );
-        
-        // Final corner position = surface position + rotated vector
-        worldCorners.push([
-          surface.position.x + rotatedVector.x,
-          surface.position.y + rotatedVector.y,
-          surface.position.z + rotatedVector.z
-        ]);
-      } else {
-        // No dial rotation - use base world coordinates
-        worldCorners.push([baseWorldX, baseWorldY, baseWorldZ]);
-      }
+      worldCorners.push([worldX, worldY, worldZ]);
     });
 
     return worldCorners;

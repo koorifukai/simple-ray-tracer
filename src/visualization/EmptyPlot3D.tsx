@@ -71,17 +71,13 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
                 }
               };
               
-              // Calculate global normal vector for display
+              // Calculate global normal vector for display - must be perpendicular to visible mesh
               let globalNormal: Vector3;
-              if (surface.normal) {
-                // EXPLICIT NORMAL: Use exactly as specified (world coordinates)
-                globalNormal = surface.normal.normalize();
-              } else {
-                // GEOMETRY-BASED NORMAL: Transform default local normal through surface transform
-                const normalLocal = new Vector3(-1, 0, 0);
-                const [normalX, normalY, normalZ] = surface.transform.transformVector(normalLocal.x, normalLocal.y, normalLocal.z);
-                globalNormal = new Vector3(normalX, normalY, normalZ).normalize();
-              }
+              // ALWAYS use surface.transform (includes dial) to match the visual mesh orientation
+              // This ensures the displayed normal is perpendicular to what the user sees
+              const normalLocal = new Vector3(-1, 0, 0);
+              const [normalX, normalY, normalZ] = surface.transform.transformVector(normalLocal.x, normalLocal.y, normalLocal.z);
+              globalNormal = new Vector3(normalX, normalY, normalZ).normalize();
               
               // Create display name and surface ID line
               let displayName: string;
@@ -157,11 +153,12 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
                 // console.log(`  Shape: ${surface.shape}`);
                 // console.log(`  Position: [${surface.position.x.toFixed(6)}, ${surface.position.y.toFixed(6)}, ${surface.position.z.toFixed(6)}]`);
                 // console.log(`  Normal: [${surface.normal?.x.toFixed(6)}, ${surface.normal?.y.toFixed(6)}, ${surface.normal?.z.toFixed(6)}]`);
-                // console.log(`  LocalDialAngle: ${(surface as any).localDialAngle} radians = ${(surface as any).localDialAngle ? ((surface as any).localDialAngle * 180 / Math.PI).toFixed(2) + '°' : 'none'}`);
+                // console.log(`  Radius: ${surface.radius || 'none'}, Dial: ${(surface as any).localDialAngle ? ((surface as any).localDialAngle * 180 / Math.PI).toFixed(2) + '°' : 'none'}`);
                 // console.log(`  Width: ${surface.width || 'default'}, Height: ${surface.height || 'default'}, Semidia: ${surface.semidia || 'none'}`);
-                // console.log(`  Transform matrices available:`);
-                // console.log(`    - normalTransform: ${(surface as any).normalTransform ? 'YES' : 'NO'}`);
-                // console.log(`    - fullTransform: ${surface.transform ? 'YES' : 'NO'}`);
+                // console.log(`  Transform matrices (EUREKA methodology):`);
+                // console.log(`    - unified transform: ${surface.transform ? 'YES' : 'NO'}`);
+                // console.log(`    - forwardTransform: ${surface.forwardTransform ? 'YES' : 'NO'}`);
+                // console.log(`    - inverseTransform: ${surface.inverseTransform ? 'YES' : 'NO'}`);
                 // 
                 // console.log(`Mesh Generation Results:`);
                 // console.log(`  Total mesh vertices: ${mesh.x.length}`);
