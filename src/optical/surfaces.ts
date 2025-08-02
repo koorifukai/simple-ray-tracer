@@ -50,6 +50,12 @@ export interface OpticalSurface {
   n1?: number;           // Refractive index before surface
   n2?: number;           // Refractive index after surface
   
+  // Partial surface properties (for mode: 'partial')
+  transmission?: number; // Transmission coefficient (0-1) for partial surfaces
+  
+  // Wavelength selection properties
+  sel?: string;          // Wavelength selection: 'o532' (only 532nm), 'x633' (exclude 633nm)
+  
   // Aspherical coefficients (for aspherical surfaces)
   conic?: number;        // Conic constant (k)
   aspheric?: number[];   // Aspherical coefficients [A4, A6, A8, ...]
@@ -106,6 +112,16 @@ export class OpticalSurfaceFactory {
     }
     if (surfaceData.n2 !== undefined) {
       surface.n2 = surfaceData.n2;
+    }
+    
+    // Partial surface properties
+    if (surfaceData.transmission !== undefined) {
+      surface.transmission = Math.max(0, Math.min(1, surfaceData.transmission)); // Clamp to 0-1
+    }
+    
+    // Wavelength selection properties
+    if (surfaceData.sel !== undefined) {
+      surface.sel = surfaceData.sel;
     }
 
     // Normal vector (explicit direction specification or angles)

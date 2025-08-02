@@ -311,41 +311,67 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
                           
                           // Trace ray through optical system
                           const rayPath = RayTracer.traceRaySequential(ray, opticalSystem.surfaces);
-                          // console.log(`Ray path has ${rayPath.length} points`);
+                          console.log(`🔍 VISUALIZATION: Received ${rayPath.length} ray segments from RayTracer`);
                           
-                          // Plot the complete ray path - each consecutive pair forms a line segment
-                          for (let i = 0; i < rayPath.length - 1; i++) {
-                            const startRay = rayPath[i];
-                            const endRay = rayPath[i + 1];
-                            
-                            // console.log(`Segment ${i + 1}: from [${startRay.position.x.toFixed(2)}, ${startRay.position.y.toFixed(2)}, ${startRay.position.z.toFixed(2)}] to [${endRay.position.x.toFixed(2)}, ${endRay.position.y.toFixed(2)}, ${endRay.position.z.toFixed(2)}]`);
-                            
-                            // Validate coordinates before plotting
-                            const coords = [
-                              startRay.position.x, startRay.position.y, startRay.position.z,
-                              endRay.position.x, endRay.position.y, endRay.position.z
-                            ];
-                            
-                            if (coords.some(coord => !isFinite(coord))) {
-                              console.warn(`Invalid coordinates for ray ${rayIndex} segment ${i + 1}:`, coords);
-                              continue; // Skip this segment
+                          // Group rays by light ID to handle branching correctly
+                          const rayGroups = new Map<number, Ray[]>();
+                          for (const pathRay of rayPath) {
+                            const lightId = pathRay.lightId;
+                            if (!rayGroups.has(lightId)) {
+                              rayGroups.set(lightId, []);
                             }
-                            
-                            plotData.push({
-                              type: 'scatter3d',
-                              mode: 'lines',
-                              x: [startRay.position.x, endRay.position.x],
-                              y: [startRay.position.y, endRay.position.y],
-                              z: [startRay.position.z, endRay.position.z],
-                              line: {
-                                color: color,
-                                width: 3 // Make thicker for easier visibility
-                              },
-                              name: `Ray ${rayIndex + 1} Seg ${i + 1}`,
-                              showlegend: false,
-                              hoverinfo: 'skip'
-                            });
+                            rayGroups.get(lightId)!.push(pathRay);
                           }
+                          
+                          console.log(`🔍 VISUALIZATION: Grouped into ${rayGroups.size} light ID groups:`);
+                          rayGroups.forEach((groupRays, lightId) => {
+                            console.log(`  Light ID ${lightId}: ${groupRays.length} segments`);
+                          });
+                          
+                          // Plot each ray group (light ID) separately
+                          rayGroups.forEach((groupRays, lightId) => {
+                            // All rays (original and branched) use the same wavelength-based color
+                            // since branched rays have the same wavelength as the original ray
+                            const rayColor = color;
+                            
+                            // Note: Branched rays (fractional light IDs) maintain the same wavelength
+                            // and thus the same color as the original ray, just with different intensity
+                            
+                            // Plot the ray group as connected segments
+                            console.log(`🔍 PLOTTING: Light ID ${lightId} with ${groupRays.length} segments`);
+                            for (let i = 0; i < groupRays.length - 1; i++) {
+                              const startRay = groupRays[i];
+                              const endRay = groupRays[i + 1];
+                              
+                              console.log(`  Segment ${i}: (${startRay.position.x.toFixed(3)}, ${startRay.position.y.toFixed(3)}, ${startRay.position.z.toFixed(3)}) -> (${endRay.position.x.toFixed(3)}, ${endRay.position.y.toFixed(3)}, ${endRay.position.z.toFixed(3)})`);
+                              
+                              // Validate coordinates before plotting
+                              const coords = [
+                                startRay.position.x, startRay.position.y, startRay.position.z,
+                                endRay.position.x, endRay.position.y, endRay.position.z
+                              ];
+                              
+                              if (coords.some(coord => !isFinite(coord))) {
+                                console.warn(`Invalid coordinates for light ID ${lightId} segment ${i + 1}:`, coords);
+                                continue; // Skip this segment
+                              }
+                              
+                              plotData.push({
+                                type: 'scatter3d',
+                                mode: 'lines',
+                                x: [startRay.position.x, endRay.position.x],
+                                y: [startRay.position.y, endRay.position.y],
+                                z: [startRay.position.z, endRay.position.z],
+                                line: {
+                                  color: rayColor,
+                                  width: 3 // Make thicker for easier visibility
+                                },
+                                name: `Light ${lightId} Seg ${i + 1}`,
+                                showlegend: false,
+                                hoverinfo: 'skip'
+                              });
+                            }
+                          });
                         } else {
                           // No surfaces - just show simple ray extension
                           const startPoint = ray.position;

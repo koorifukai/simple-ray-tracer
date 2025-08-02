@@ -1,0 +1,75 @@
+light_sources:
+  - id: L1
+    type: point
+    position: [-50, 0, 5]
+    direction: [1, 0, 0]
+    wavelength: 488  # Blue laser
+    intensity: 1.0
+
+  - id: L2
+    type: point  
+    position: [-50, 0, 0]
+    direction: [1, 0, 0]
+    wavelength: 532  # Green laser
+    intensity: 1.0
+
+  - id: L3
+    type: point  
+    position: [-50, 0, -5]
+    direction: [1, 0, 0]
+    wavelength: 633  # Red laser
+    intensity: 1.0
+
+surfaces:
+  # Multi-wavelength selective partial surface 
+  # 488nm and 633nm interact (50/50 beam splitter for blue and red)
+  # 532nm passes through unchanged
+  - id: S1_multi_selective
+    shape: plane
+    mode: partial
+    position: [0, 0, 0]
+    normal: [-1, 0, 0]
+    width: 30
+    height: 30
+    n1: 1.0
+    n2: 1.5
+    transmission: 0.5  # 50% transmission, 50% reflection
+    sel: o488-x532-o633  # Only 488nm and 633nm interact, exclude 532nm
+    
+  # Regular refraction surface for transmitted rays
+  - id: S2_refraction
+    shape: plane
+    mode: refraction
+    position: [30, 0, 0]
+    normal: [-1, 0, 0]
+    width: 30
+    height: 30
+    n1: 1.5
+    n2: 1.0
+    
+  # Final detector for transmitted path
+  - id: detector_transmitted
+    shape: plane
+    mode: absorption
+    position: [60, 0, 0]
+    normal: [-1, 0, 0]
+    width: 40
+    height: 40
+    
+  # Mirror for reflected rays (positioned to catch reflected beams)
+  - id: S3_mirror
+    shape: plane
+    mode: reflection
+    position: [20, 0, 20]
+    normal: [0, 0, -1]  # Facing down to catch upward reflected rays
+    width: 30
+    height: 30
+    
+  # Final detector for reflected path
+  - id: detector_reflected
+    shape: plane
+    mode: absorption
+    position: [40, 0, 20]
+    normal: [-1, 0, 0]
+    width: 40
+    height: 40

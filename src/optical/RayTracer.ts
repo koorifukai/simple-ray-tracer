@@ -38,6 +38,9 @@ export interface RayTraceResult {
   transmitted?: Ray;
   reflected?: Ray;
   isBlocked: boolean;
+  // Partial surface coefficients
+  transmissionCoeff?: number;
+  reflectionCoeff?: number;
 }
 
 /**
@@ -88,6 +91,82 @@ export class RayTracer {
   }
 
   /**
+   * Generate next cascading light ID for ray branching (EUREKA methodology)
+   * Examples: 1 -> 1.1, 1.1 -> 1.11, 1.2 -> 1.21, etc.
+   * This prevents ID collisions when rays split multiple times
+   */
+  static getNextCascadingLightId(currentLightId: number): number {
+    const lightIdStr = currentLightId.toString();
+    
+    // Count decimal places to determine next level
+    const decimalIndex = lightIdStr.indexOf('.');
+    if (decimalIndex === -1) {
+      // No decimal places: 1 -> 1.1
+      return currentLightId + 0.1;
+    } else {
+      // Has decimal places: add one more digit level
+      const decimalPart = lightIdStr.substring(decimalIndex + 1);
+      // Create increment for next level: 0.01, 0.001, 0.0001, etc.
+      const nextIncrement = Math.pow(10, -(decimalPart.length + 1));
+      return currentLightId + nextIncrement;
+    }
+  }
+
+  /**
+   * Check if a wavelength should interact with a surface based on the 'sel' parameter
+   * @param wavelength - Wavelength in nanometers
+   * @param sel - Selection string (e.g., 'o532', 'x633', 'o488-x532-o633', or undefined)
+   * @returns true if the wavelength should interact with the surface
+   */
+  static shouldWavelengthInteract(wavelength: number, sel?: string): boolean {
+    if (!sel) {
+      return true; // No selection criteria - all wavelengths interact
+    }
+    
+    // Split by hyphens to handle multiple conditions: "o488-x532-o633"
+    const conditions = sel.split('-');
+    let shouldInteract = true; // Default for broadband
+    
+    for (const condition of conditions) {
+      const match = condition.trim().match(/^([ox])(\d+)$/);
+      if (!match) {
+        console.warn(`Invalid wavelength selection format: ${condition}. Expected format: o532 or x633`);
+        continue; // Skip invalid conditions
+      }
+      
+      const mode = match[1]; // 'o' for only, 'x' for exclude
+      const targetWavelength = parseInt(match[2], 10);
+      
+      if (mode === 'o') {
+        // Only this wavelength interacts - if wavelength matches, allow interaction
+        if (wavelength === targetWavelength) {
+          shouldInteract = true;
+        } else {
+          // For 'only' conditions, if wavelength doesn't match any 'o' condition, block it
+          // But we need to check if there are other 'o' conditions first
+          const hasOnlyConditions = conditions.some(c => c.trim().startsWith('o'));
+          if (hasOnlyConditions) {
+            const matchesAnyOnly = conditions.some(c => {
+              const m = c.trim().match(/^o(\d+)$/);
+              return m && parseInt(m[1], 10) === wavelength;
+            });
+            if (!matchesAnyOnly) {
+              shouldInteract = false;
+            }
+          }
+        }
+      } else if (mode === 'x') {
+        // Exclude this wavelength - if wavelength matches, block interaction
+        if (wavelength === targetWavelength) {
+          shouldInteract = false;
+        }
+      }
+    }
+    
+    return shouldInteract;
+  }
+
+  /**
    * Log a surface warning
    */
   private static logSurfaceWarning(
@@ -116,6 +195,19 @@ export class RayTracer {
    */
   static traceThroughSurface(ray: Ray, surface: OpticalSurface, isFirstRayOfLight = false): RayTraceResult {
     const useSimplifiedLog = isFirstRayOfLight && this.logConfig.simplified;
+    
+    // Check wavelength selection first - if this wavelength shouldn't interact, ray passes through unchanged
+    if (!this.shouldWavelengthInteract(ray.wavelength, surface.sel)) {
+      if (!useSimplifiedLog) {
+        this.log('surface', `Wavelength ${ray.wavelength}nm skips surface due to selection criteria: ${surface.sel}`);
+      }
+      return {
+        ray,
+        intersection: { point: new Vector3(0,0,0), normal: new Vector3(0,0,1), distance: 0, isValid: false },
+        transmitted: ray, // Ray continues unchanged
+        isBlocked: false
+      };
+    }
     
     if (useSimplifiedLog) {
       this.log('simplified', `\n--- Surface: ${surface.id} ---`);
@@ -253,6 +345,7 @@ export class RayTracer {
   /**
    * Trace a ray through multiple surfaces sequentially
    * Returns array of rays representing the complete ray path with proper segments
+   * Now handles partial surface branching properly
    */
   static traceRaySequential(ray: Ray, surfaces: OpticalSurface[]): Ray[] {
     // Clear warnings at the start of each ray trace
@@ -263,28 +356,82 @@ export class RayTracer {
     if (isFirstRayOfLight) {
       this.firstRayProcessed.add(ray.lightId);
     }
+
+    // Handle ray branching for partial surfaces
+    const allRayPaths = this.traceRayWithBranching(ray, surfaces, 0, isFirstRayOfLight);
     
+    // Flatten all ray paths into a single array for visualization
+    // Each path represents an independent ray that travels through the system
+    // Light IDs are already properly assigned (fractional IDs for branches)
+    const combinedRays: Ray[] = [];
+    
+    for (let pathIndex = 0; pathIndex < allRayPaths.length; pathIndex++) {
+      const path = allRayPaths[pathIndex];
+      console.log(`🔍 RAY PATH ${pathIndex} (Light ID: ${path[0]?.lightId}): ${path.length} segments`);
+      for (let i = 0; i < path.length; i++) {
+        const ray = path[i];
+        
+        // Calculate end position for this segment
+        let endPos: { x: number, y: number, z: number };
+        if (i < path.length - 1) {
+          // End position is the start of the next segment
+          const nextRay = path[i + 1];
+          endPos = { x: nextRay.position.x, y: nextRay.position.y, z: nextRay.position.z };
+        } else {
+          // For the last segment, calculate end position based on direction (extend 50 units)
+          const extensionLength = 50;
+          const endPosition = ray.position.add(ray.direction.multiply(extensionLength));
+          endPos = { x: endPosition.x, y: endPosition.y, z: endPosition.z };
+        }
+        
+        console.log(`  Segment ${i}: (${ray.position.x.toFixed(3)}, ${ray.position.y.toFixed(3)}, ${ray.position.z.toFixed(3)}) → (${ray.direction.x.toFixed(3)}, ${ray.direction.y.toFixed(3)}, ${ray.direction.z.toFixed(3)}) → END: (${endPos.x.toFixed(3)}, ${endPos.y.toFixed(3)}, ${endPos.z.toFixed(3)})`);
+      }
+      combinedRays.push(...path);
+    }
+    
+    return combinedRays;
+  }
+
+  /**
+   * Recursive ray tracing that handles partial surface branching
+   * Returns multiple ray paths when partial surfaces create reflected and transmitted rays
+   */
+  private static traceRayWithBranching(
+    ray: Ray, 
+    surfaces: OpticalSurface[], 
+    startSurfaceIndex: number,
+    isFirstTrace: boolean
+  ): Ray[][] {
     const rayPath: Ray[] = [ray.clone()]; // Start with initial ray
     let rayWasBlocked = false; // Track if ray was blocked during propagation
     let currentRay = ray;
     let lastSuccessfulRayDirection = ray.direction; // Track the last successful outgoing ray direction
 
-    if (isFirstRayOfLight && this.logConfig.simplified) {
+    if (isFirstTrace && this.logConfig.simplified && startSurfaceIndex === 0) {
       this.log('simplified', `\n=== Ray Trace: Light ${ray.lightId} ===`);
-    } else {
+    } else if (startSurfaceIndex === 0) {
       this.log('general', `Starting ray trace with ${surfaces.length} surfaces`);
       this.log('ray', `Initial ray:`, { position: currentRay.position, direction: currentRay.direction });
     }
 
-    for (let i = 0; i < surfaces.length; i++) {
+    // CRITICAL FIX: For branched rays (startSurfaceIndex > 0), the ray direction is already the correct direction
+    // This ensures reflected and transmitted rays extend in the right direction when they don't hit surfaces
+    if (startSurfaceIndex > 0) {
+      lastSuccessfulRayDirection = ray.direction.normalize();
+      if (!isFirstTrace) {
+        this.log('ray', `Branched ray starting at surface ${startSurfaceIndex} with direction:`, lastSuccessfulRayDirection);
+      }
+    }
+
+    for (let i = startSurfaceIndex; i < surfaces.length; i++) {
       const surface = surfaces[i];
-      if (!isFirstRayOfLight) {
+      if (!isFirstTrace) {
         this.log('general', `Processing surface ${i}: ${surface.id}, mode: ${surface.mode}, shape: ${surface.shape}`);
       }
       
-      const result = this.traceThroughSurface(currentRay, surface, isFirstRayOfLight);
+      const result = this.traceThroughSurface(currentRay, surface, isFirstTrace && startSurfaceIndex === 0);
       
-      if (!isFirstRayOfLight) {
+      if (!isFirstTrace) {
         this.log('surface', `Surface ${i} result:`, { 
           blocked: result.isBlocked, 
           hasTransmitted: !!result.transmitted,
@@ -294,7 +441,7 @@ export class RayTracer {
       
       if (result.isBlocked) {
         rayWasBlocked = true; // Mark that ray was blocked during propagation
-        if (!isFirstRayOfLight) {
+        if (!isFirstTrace) {
           this.log('ray', `Ray blocked at surface ${i} (${surface.mode} surface) - stopping propagation`);
         }
         
@@ -308,7 +455,7 @@ export class RayTracer {
             currentRay.intensity
           );
           rayPath.push(intersectionRay);
-          if (!isFirstRayOfLight) {
+          if (!isFirstTrace) {
             this.log('ray', `Ray terminated at intersection point:`, result.intersection.point);
           }
         }
@@ -327,16 +474,176 @@ export class RayTracer {
           currentRay.intensity
         );
         rayPath.push(intersectionRay);
-        if (!isFirstRayOfLight) {
+        if (!isFirstTrace) {
           this.log('ray', `Added intersection point to path:`, result.intersection.point);
         }
       }
 
-      // Continue with transmitted or reflected ray - these start from the ray after the surface
+      // *** CRITICAL: Handle partial surface branching ***
+      if (surface.mode === 'partial' && result.transmitted && result.reflected) {
+        const transmissionCoeff = result.transmissionCoeff ?? 0.5;
+        
+        if (!isFirstTrace) {
+          this.log('ray', `Partial surface: creating reflected AND transmitted rays (transmission coeff: ${transmissionCoeff})`);
+        }
+        
+        // EUREKA-style cascading light ID assignment for branching:
+        // Calculate next available fractional ID level to avoid collisions
+        const originalLightId = currentRay.lightId; // Use current ray's light ID
+        const shadowLightId = this.getNextCascadingLightId(originalLightId);
+        
+        if (!isFirstTrace) {
+          console.log(`🔍 LIGHT ID CASCADING: ${originalLightId} -> ${originalLightId} & ${shadowLightId}`);
+        }
+        
+        let transmittedRayForTracing: Ray;
+        let reflectedRayForTracing: Ray;
+        
+        if (transmissionCoeff > 0.5) {
+          // Transmission dominant: transmitted keeps original LID, reflected gets +0.1
+          transmittedRayForTracing = new Ray(
+            result.transmitted.position,
+            result.transmitted.direction,
+            result.transmitted.wavelength,
+            originalLightId, // Keeps original LID
+            result.transmitted.intensity
+          );
+          reflectedRayForTracing = new Ray(
+            result.reflected.position,
+            result.reflected.direction,
+            result.reflected.wavelength,
+            shadowLightId, // Gets LID+0.1
+            result.reflected.intensity
+          );
+        } else {
+          // Reflection dominant: reflected keeps original LID, transmitted gets +0.1
+          reflectedRayForTracing = new Ray(
+            result.reflected.position,
+            result.reflected.direction,
+            result.reflected.wavelength,
+            originalLightId, // Keeps original LID
+            result.reflected.intensity
+          );
+          transmittedRayForTracing = new Ray(
+            result.transmitted.position,
+            result.transmitted.direction,
+            result.transmitted.wavelength,
+            shadowLightId, // Gets LID+0.1
+            result.transmitted.intensity
+          );
+        }
+        
+        // Continue tracing transmitted ray through remaining surfaces
+        const transmittedPaths = this.traceRayWithBranching(
+          transmittedRayForTracing, 
+          surfaces, 
+          i + 1, // Continue from next surface
+          false
+        );
+        
+        // Continue tracing reflected ray through remaining surfaces
+        const reflectedPaths = this.traceRayWithBranching(
+          reflectedRayForTracing, 
+          surfaces, 
+          i + 1, // Continue from next surface
+          false
+        );
+        
+        // Debug: Log reflected ray path information
+        if (reflectedPaths.length > 0 && reflectedPaths[0].length > 0) {
+          console.log(`🔍 DEBUG: Reflected ray path has ${reflectedPaths[0].length} segments`);
+          console.log(`🔍 DEBUG: Transmitted ray ID: ${transmittedRayForTracing.lightId} (original: ${result.transmitted.lightId})`);
+          console.log(`🔍 DEBUG: Reflected ray ID: ${reflectedRayForTracing.lightId} (original: ${result.reflected.lightId})`);
+          console.log(`🔍 DEBUG: First reflected ray: (${reflectedRayForTracing.position.x.toFixed(3)}, ${reflectedRayForTracing.position.y.toFixed(3)}, ${reflectedRayForTracing.position.z.toFixed(3)}) → (${reflectedRayForTracing.direction.x.toFixed(3)}, ${reflectedRayForTracing.direction.y.toFixed(3)}, ${reflectedRayForTracing.direction.z.toFixed(3)})`);
+          if (reflectedPaths[0].length > 1) {
+            const lastReflectedRay = reflectedPaths[0][reflectedPaths[0].length - 1];
+            console.log(`🔍 DEBUG: Last reflected ray: (${lastReflectedRay.position.x.toFixed(3)}, ${lastReflectedRay.position.y.toFixed(3)}, ${lastReflectedRay.position.z.toFixed(3)}) → (${lastReflectedRay.direction.x.toFixed(3)}, ${lastReflectedRay.direction.y.toFixed(3)}, ${lastReflectedRay.direction.z.toFixed(3)})`);
+          }
+          
+          // Additional debug: Check if last ray looks like it was extended or if it's connected back to source
+          const firstRay = reflectedPaths[0][0];
+          const lastRay = reflectedPaths[0][reflectedPaths[0].length - 1];
+          const pathDistance = firstRay.position.distanceTo(lastRay.position);
+          console.log(`🔍 DEBUG: Total reflected path distance: ${pathDistance.toFixed(3)}`);
+          
+          // Check if last ray direction is pointing away from source (should be reflected direction)
+          const isPointingAwayFromSource = reflectedRayForTracing.direction.dot(firstRay.direction) < 0;
+          console.log(`🔍 DEBUG: Last ray pointing away from source: ${isPointingAwayFromSource}`);
+        }
+        
+        // Combine current ray path with both branches
+        const allPaths: Ray[][] = [];
+        
+        // Add transmitted branch paths - continue from current path
+        for (const path of transmittedPaths) {
+          // Update ALL rays in the transmitted path to have the correct light ID
+          const correctedPath = path.map(ray => new Ray(
+            ray.position,
+            ray.direction,
+            ray.wavelength,
+            transmittedRayForTracing.lightId, // Use transmitted ray's light ID
+            ray.intensity
+          ));
+          // Combine with current ray path, updating light IDs
+          const updatedRayPath = rayPath.map(ray => new Ray(
+            ray.position,
+            ray.direction,
+            ray.wavelength,
+            transmittedRayForTracing.lightId, // Update original path to transmitted ID
+            ray.intensity
+          ));
+          allPaths.push([...updatedRayPath, ...correctedPath]);
+        }
+        
+        // Fallback for empty transmitted paths
+        if (transmittedPaths.length === 0) {
+          const updatedRayPath = rayPath.map(ray => new Ray(
+            ray.position,
+            ray.direction,
+            ray.wavelength,
+            transmittedRayForTracing.lightId,
+            ray.intensity
+          ));
+          allPaths.push(updatedRayPath);
+        }
+        
+        // Add reflected branch paths - start independently from intersection point
+        for (const path of reflectedPaths) {
+          // Update ALL rays in the reflected path to have the correct light ID
+          const correctedPath = path.map(ray => new Ray(
+            ray.position,
+            ray.direction,
+            ray.wavelength,
+            reflectedRayForTracing.lightId, // Use reflected ray's fractional light ID
+            ray.intensity
+          ));
+          allPaths.push(correctedPath);
+        }
+        
+        // Fallback for empty reflected paths  
+        if (reflectedPaths.length === 0) {
+          // Create a minimal reflected path starting from the intersection
+          if (rayPath.length >= 2) {
+            const intersectionPoint = rayPath[rayPath.length - 1];
+            const reflectedPath = [new Ray(
+              intersectionPoint.position,
+              reflectedRayForTracing.direction,
+              intersectionPoint.wavelength,
+              reflectedRayForTracing.lightId,
+              intersectionPoint.intensity
+            )];
+            allPaths.push(reflectedPath);
+          }
+        }
+        
+        return allPaths;
+      }
+
+      // Handle single ray continuation (transmitted or reflected)
       if (result.transmitted) {
         currentRay = result.transmitted;
         lastSuccessfulRayDirection = result.transmitted.direction; // Update last successful outgoing direction
-        if (!isFirstRayOfLight) {
+        if (!isFirstTrace) {
           this.log('ray', `Ray transmitted, new direction:`, currentRay.direction);
           this.log('ray', `Added transmitted ray segment to path`);
         }
@@ -344,26 +651,42 @@ export class RayTracer {
       } else if (result.reflected) {
         currentRay = result.reflected;
         lastSuccessfulRayDirection = result.reflected.direction; // Update last successful outgoing direction
-        if (!isFirstRayOfLight) {
+        if (!isFirstTrace) {
           this.log('ray', `Ray reflected, new direction:`, currentRay.direction);
           this.log('ray', `Added reflected ray segment to path`);
         }
         
       } else {
-        if (!isFirstRayOfLight) {
+        if (!isFirstTrace) {
           this.log('ray', `No continuing ray from surface ${i}`);
         }
         break;
       }
     }
 
+    // Complete the ray path using the existing logic
+    this.completeRayPath(rayPath, rayWasBlocked, surfaces, lastSuccessfulRayDirection, isFirstTrace);
+    
+    return [rayPath]; // Return single path array
+  }
+
+  /**
+   * Complete a ray path with proper extension logic
+   */
+  private static completeRayPath(
+    rayPath: Ray[], 
+    rayWasBlocked: boolean, 
+    surfaces: OpticalSurface[], 
+    lastSuccessfulRayDirection: Vector3,
+    isFirstTrace: boolean
+  ): void {
     // Add a final ray segment based on the last surface interaction
     if (rayPath.length > 0) {
       const lastRay = rayPath[rayPath.length - 1];
       
       // CRITICAL: If ray was blocked during propagation (absorption hit or aperture miss), NO EXTENSION
       if (rayWasBlocked) {
-        if (!isFirstRayOfLight) {
+        if (!isFirstTrace) {
           this.log('general', `Ray was blocked during propagation - terminating at intersection point (no extension)`);
         }
         // Ray path ends exactly where it was blocked - no extension
@@ -389,101 +712,100 @@ export class RayTracer {
         
         // SCENARIO 1: Last surface is absorption and ray hit it (final detector)
         if (isLastSurface && lastProcessedSurface && lastProcessedSurface.mode === 'absorption') {
-          if (!isFirstRayOfLight) {
+          if (!isFirstTrace) {
             this.log('general', `Ray completed path and hit final absorption surface (detector) - terminating at intersection point (no extension)`);
           }
           // For final absorption surfaces, the ray path should end exactly at the intersection point
-          // The last ray in rayPath already represents the intersection point, so we're done
           
         // SCENARIO 2: Ray didn't reach last surface, but last surface is aperture
         } else if (!isLastSurface && lastSurface.mode === 'aperture') {
-        // Calculate YZ plane intersection with aperture surface
-        const aperture = lastSurface;
-        const localRay = this.transformRayToLocal(lastRay, aperture);
-        
-        // Check if ray intersects YZ plane (X=0) of aperture
-        if (Math.abs(localRay.direction.x) > this.EPSILON) {
-          const t = -localRay.position.x / localRay.direction.x;
-          if (t > this.EPSILON) {
-            const hitPoint = localRay.position.add(localRay.direction.multiply(t));
-            const worldHitPoint = this.transformPointToGlobal(hitPoint, aperture);
-            
-            const apertureEndRay = new Ray(
-              worldHitPoint,
-              lastSuccessfulRayDirection, // Use last successful outgoing direction
-              lastRay.wavelength,
-              lastRay.lightId,
-              lastRay.intensity
-            );
-            rayPath.push(apertureEndRay);
-            if (!isFirstRayOfLight) {
-              this.log('ray', `Ray didn't hit aperture - terminated at YZ plane intersection:`, worldHitPoint);
+          // Calculate YZ plane intersection with aperture surface
+          const aperture = lastSurface;
+          const localRay = this.transformRayToLocal(lastRay, aperture);
+          
+          // Check if ray intersects YZ plane (X=0) of aperture
+          if (Math.abs(localRay.direction.x) > this.EPSILON) {
+            const t = -localRay.position.x / localRay.direction.x;
+            if (t > this.EPSILON) {
+              const hitPoint = localRay.position.add(localRay.direction.multiply(t));
+              const worldHitPoint = this.transformPointToGlobal(hitPoint, aperture);
+              
+              const apertureEndRay = new Ray(
+                worldHitPoint,
+                lastSuccessfulRayDirection,
+                lastRay.wavelength,
+                lastRay.lightId,
+                lastRay.intensity
+              );
+              rayPath.push(apertureEndRay);
+              if (!isFirstTrace) {
+                this.log('ray', `Ray didn't hit aperture - terminated at YZ plane intersection:`, worldHitPoint);
+              }
+            } else {
+              // Ray moving away from aperture, extend normally
+              const finalPosition = lastRay.position.add(lastSuccessfulRayDirection.multiply(extensionLength));
+              const finalRay = new Ray(
+                finalPosition,
+                lastSuccessfulRayDirection,
+                lastRay.wavelength,
+                lastRay.lightId,
+                lastRay.intensity
+              );
+              rayPath.push(finalRay);
+              if (!isFirstTrace) {
+                this.log('ray', `Ray moving away from aperture - extended ${extensionLength.toFixed(1)} units to:`, finalPosition);
+              }
             }
           } else {
-            // Ray moving away from aperture, extend normally
+            // Ray parallel to aperture, extend normally
             const finalPosition = lastRay.position.add(lastSuccessfulRayDirection.multiply(extensionLength));
             const finalRay = new Ray(
               finalPosition,
-              lastSuccessfulRayDirection, // Use last successful outgoing direction
+              lastSuccessfulRayDirection,
               lastRay.wavelength,
               lastRay.lightId,
               lastRay.intensity
             );
             rayPath.push(finalRay);
-            if (!isFirstRayOfLight) {
-              this.log('ray', `Ray moving away from aperture - extended ${extensionLength.toFixed(1)} units to:`, finalPosition);
+            if (!isFirstTrace) {
+              this.log('ray', `Ray parallel to aperture - extended ${extensionLength.toFixed(1)} units to:`, finalPosition);
             }
           }
+          
+        // SCENARIO 3: All other cases - extend ray by 10% of accumulative distance
         } else {
-          // Ray parallel to aperture, extend normally
+          // For refraction, reflection, or if ray didn't reach final surface
+          // Extend the ray into free space using the LAST SUCCESSFUL OUTGOING DIRECTION
           const finalPosition = lastRay.position.add(lastSuccessfulRayDirection.multiply(extensionLength));
           const finalRay = new Ray(
             finalPosition,
-            lastSuccessfulRayDirection, // Use last successful outgoing direction
+            lastSuccessfulRayDirection,
             lastRay.wavelength,
             lastRay.lightId,
             lastRay.intensity
           );
           rayPath.push(finalRay);
-          if (!isFirstRayOfLight) {
-            this.log('ray', `Ray parallel to aperture - extended ${extensionLength.toFixed(1)} units to:`, finalPosition);
+          if (!isFirstTrace) {
+            this.log('ray', `Extended ray ${extensionLength.toFixed(1)} units in last successful outgoing direction to:`, finalPosition);
           }
-        }
-        
-      // SCENARIO 3: All other cases - extend ray by 10% of accumulative distance
-      } else {
-        // For refraction, reflection, or if ray didn't reach final surface
-        // Extend the ray into free space using the LAST SUCCESSFUL OUTGOING DIRECTION
-        const finalPosition = lastRay.position.add(lastSuccessfulRayDirection.multiply(extensionLength));
-        const finalRay = new Ray(
-          finalPosition,
-          lastSuccessfulRayDirection, // Use last successful outgoing direction, not incoming direction
-          lastRay.wavelength,
-          lastRay.lightId,
-          lastRay.intensity
-        );
-        rayPath.push(finalRay);
-        if (!isFirstRayOfLight) {
-          this.log('ray', `Extended ray ${extensionLength.toFixed(1)} units in last successful outgoing direction to:`, finalPosition);
-        }
-        
-        // Check if ray didn't reach the final surface and log warning
-        if (lastProcessedSurfaceIndex < surfaces.length - 1) {
-          const missedSurfaces = surfaces.length - 1 - lastProcessedSurfaceIndex;
-          this.logSurfaceWarning(
-            surfaces[surfaces.length - 1], 
-            `Ray terminated early, missed ${missedSurfaces} surface(s) including final surface`,
-            'ray_anomaly',
-            'warning'
-          );
-        }
+          
+          // Check if ray didn't reach the final surface and log warning
+          if (lastProcessedSurfaceIndex < surfaces.length - 1) {
+            const missedSurfaces = surfaces.length - 1 - lastProcessedSurfaceIndex;
+            this.logSurfaceWarning(
+              surfaces[surfaces.length - 1], 
+              `Ray terminated early, missed ${missedSurfaces} surface(s) including final surface`,
+              'ray_anomaly',
+              'warning'
+            );
+          }
         }
       }
     }
 
     // Display any warnings that occurred during ray tracing
     const warnings = this.getWarnings();
-    if (warnings.length > 0 && !isFirstRayOfLight) {
+    if (warnings.length > 0 && !isFirstTrace) {
       this.log('general', `\n⚠️ ${warnings.length} optical design warning(s):`);
       warnings.forEach((warning, index) => {
         const icon = warning.severity === 'error' ? '❌' : warning.severity === 'warning' ? '⚠️' : 'ℹ️';
@@ -491,8 +813,6 @@ export class RayTracer {
       });
       this.log('general', ''); // Empty line for spacing
     }
-    
-    return rayPath;
   }
 
   /**
@@ -950,14 +1270,23 @@ export class RayTracer {
         };
       
       case 'partial':
-        // TODO: Implement Fresnel equations for partial reflection/transmission
-        // For now, just do refraction
+        // Implement partial reflection/transmission with transmission coefficient
+        const transmissionCoeff = surface.transmission ?? 0.5; // Default 50/50 split
+        const reflectionCoeff = 1.0 - transmissionCoeff;
+        
+        // Calculate both reflected and transmitted rays
+        const partialReflected = this.calculateReflection(ray, intersection);
         const partialTransmitted = this.calculateRefraction(ray, intersection, surface);
+        
+        // Return both rays for potential branching (visualization will choose one)
         return {
           ray,
           intersection,
+          reflected: partialReflected,
           transmitted: partialTransmitted || undefined,
-          isBlocked: !partialTransmitted
+          transmissionCoeff,
+          reflectionCoeff,
+          isBlocked: !partialTransmitted && !partialReflected
         };
       
       case 'absorption':

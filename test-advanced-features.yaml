@@ -1,0 +1,49 @@
+light_sources:
+  - id: L1
+    type: point
+    position: [-50, 0, 0]
+    direction: [1, 0, 0]
+    wavelength: 532  # Green laser
+    intensity: 1.0
+
+  - id: L2
+    type: point  
+    position: [-50, 10, 0]
+    direction: [1, 0, 0]
+    wavelength: 633  # Red laser
+    intensity: 1.0
+
+surfaces:
+  # Wavelength selective surface - only green light interacts
+  - id: S1_green_only
+    shape: plane
+    mode: partial
+    position: [0, 0, 0]
+    normal: [-1, 0, 0]
+    width: 20
+    height: 20
+    n1: 1.0
+    n2: 1.5
+    transmission: 0.7  # 70% transmission, 30% reflection
+    sel: o532  # Only 532nm (green) interacts
+    
+  # Wavelength selective surface - excludes red light  
+  - id: S2_no_red
+    shape: plane
+    mode: refraction
+    position: [30, 0, 0]
+    normal: [-1, 0, 0]
+    width: 20
+    height: 20
+    n1: 1.5
+    n2: 1.0
+    sel: x633  # All wavelengths except 633nm (red)
+    
+  # Final detector
+  - id: detector
+    shape: plane
+    mode: absorption
+    position: [60, 0, 0]
+    normal: [-1, 0, 0]
+    width: 30
+    height: 30

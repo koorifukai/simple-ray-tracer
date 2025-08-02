@@ -1,0 +1,23 @@
+display_settings:
+  figsize: [7, 7]
+  theme: dark_background
+  lens_display_theta: 10
+  lens_display_phi: 20
+  ray_display_density: 0.8
+  obj_display_density: 0.5
+  fill_with_grey: False
+  show_grid: True
+
+surfaces:
+  - s1:
+      {sid: 0, shape: plano, mode: partial, transmission: 0.3, semidia: 10}
+
+light_sources:
+  - l1:
+      {lid: 0, position: [-50,0,0], vector: [1,0,0], number: 1, wavelength: 488, type: point}
+
+optical_trains:
+  - a: 
+     {lid: 0}
+    b:
+     {sid: 0, position: [0,0,0], normal: [-1,0,0]}
