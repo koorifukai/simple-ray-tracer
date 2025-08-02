@@ -80,6 +80,10 @@ export class LightSource {
   public rays: Ray[];
   public sourceType: LightSourceType;
   public divergence: number;
+  
+  // Transformation matrices for proper 3D positioning (like surfaces)
+  public forwardTransform: Matrix4 = new Matrix4();
+  public inverseTransform: Matrix4 = new Matrix4();
 
   constructor(
     lid: number,
@@ -96,29 +100,60 @@ export class LightSource {
     this.rays = [];
     this.sourceType = 'linear';
     this.divergence = 0;
+    
+    // Create transformation matrices for this light source
+    this.createTransformationMatrices();
+  }
+
+  /**
+   * Create transformation matrices for light source positioning
+   * Similar to surface transformation matrices
+   */
+  private createTransformationMatrices(): void {
+    // Create transformation matrix from light source position and direction
+    // This transforms from local light coordinates to world coordinates
+    this.forwardTransform = Matrix4.createTransformation(this.position, this.getRotationFromDirection());
+    this.inverseTransform = this.forwardTransform.inverse();
+  }
+
+  /**
+   * Calculate rotation angles from direction vector
+   * Similar to how surfaces calculate their orientation
+   */
+  private getRotationFromDirection(): Vector3 {
+    const dir = this.direction.normalize();
+    
+    // Calculate Euler angles to align local X-axis with direction vector
+    // Local coordinate system: X = forward (direction), Y = right, Z = up
+    const rotY = Math.atan2(-dir.z, dir.x); // Rotation around Y-axis
+    const rotZ = Math.atan2(dir.y, Math.sqrt(dir.x * dir.x + dir.z * dir.z)); // Rotation around Z-axis
+    
+    return new Vector3(0, rotY, rotZ); // No rotation around X-axis (roll)
   }
 
   /**
    * Generate linear array of rays (equivalent to Python linear())
+   * Creates rays in local coordinate system then transforms to world
    */
   linear(width: number, dial: number = 0): void {
     this.sourceType = 'linear';
     this.rays = [];
 
-    // Create linear array in local Y-Z plane
+    // Create linear array in local Y-Z plane (perpendicular to X-axis direction)
     // Add 90° offset so dial=0 points to 12 o'clock (positive Z)
     const dialRad = (dial + 90) * Math.PI / 180;
     const positions: Vector3[] = [];
 
     for (let i = 0; i < this.numberOfRays; i++) {
       const t = this.numberOfRays > 1 ? (i / (this.numberOfRays - 1)) * 2 - 1 : 0; // -1 to 1
-      const localY = (t * width) / 2;
+      const localOffset = (t * width) / 2;
       
-      // Apply dial rotation with 90° offset for 12 o'clock default
-      const rotatedY = localY * Math.cos(dialRad);
-      const rotatedZ = localY * Math.sin(dialRad);
+      // Apply dial rotation in the Y-Z plane (perpendicular to light direction)
+      const localY = localOffset * Math.cos(dialRad);
+      const localZ = localOffset * Math.sin(dialRad);
       
-      positions.push(new Vector3(0, rotatedY, rotatedZ));
+      // Position is offset from origin in local coordinate system
+      positions.push(new Vector3(0, localY, localZ));
     }
 
     // Transform to world coordinates and create rays
@@ -222,6 +257,7 @@ export class LightSource {
 
   /**
    * Generate point source with divergence (equivalent to Python point())
+   * Creates divergent rays from a single point
    */
   point(divergence: number = 0): void {
     this.sourceType = 'point';
@@ -231,22 +267,23 @@ export class LightSource {
     if (divergence > 0) {
       const directions: Vector3[] = [];
       
-      // Generate exactly numberOfRays directions
+      // Generate exactly numberOfRays directions within cone
       for (let i = 0; i < this.numberOfRays; i++) {
-        // Generate random direction within cone
-        const theta = Math.random() * 2 * Math.PI;
-        const phi = Math.acos(1 - Math.random() * (1 - Math.cos(divergence)));
+        // Generate random direction within cone using spherical coordinates
+        const theta = Math.random() * 2 * Math.PI; // Azimuthal angle
+        const phi = Math.acos(1 - Math.random() * (1 - Math.cos(divergence))); // Polar angle within cone
         
-        const localX = Math.cos(phi);
-        const localY = Math.sin(phi) * Math.cos(theta);
-        const localZ = Math.sin(phi) * Math.sin(theta);
+        // Local coordinate system: X = forward (main direction), Y = right, Z = up
+        const localX = Math.cos(phi); // Forward component
+        const localY = Math.sin(phi) * Math.cos(theta); // Right component  
+        const localZ = Math.sin(phi) * Math.sin(theta); // Up component
         
         directions.push(new Vector3(localX, localY, localZ));
       }
 
       this.createRaysFromDirections(directions);
     } else {
-      // Generate numberOfRays identical rays at position
+      // No divergence: generate numberOfRays identical rays all pointing in same direction
       for (let i = 0; i < this.numberOfRays; i++) {
         this.rays.push(new Ray(this.position, this.direction, this.wavelength, this.lid));
       }
@@ -255,19 +292,13 @@ export class LightSource {
 
   /**
    * Create rays from local positions (transform and orient)
+   * Uses proper transformation matrix like surfaces
    */
   private createRaysFromPositions(localPositions: Vector3[]): void {
-    const rotationMatrix = this.getRotationMatrix();
-
     localPositions.forEach(localPos => {
-      // Transform position to world coordinates
-      const [worldY, worldZ, worldX] = rotationMatrix.transformPoint(localPos.y, localPos.z, localPos.x);
-      const worldPosition = new Vector3(
-        this.position.x + worldX,
-        this.position.y + worldY,
-        this.position.z + worldZ
-      );
-
+      // Transform local position to world coordinates using transformation matrix
+      const worldPosition = this.forwardTransform.transformPointV3(localPos);
+      
       // All rays have same direction for position-based sources
       const ray = new Ray(worldPosition, this.direction, this.wavelength, this.lid);
       this.rays.push(ray);
@@ -276,63 +307,17 @@ export class LightSource {
 
   /**
    * Create rays from local directions (for divergent sources)
+   * Uses proper transformation matrix like surfaces
    */
   private createRaysFromDirections(localDirections: Vector3[]): void {
-    const rotationMatrix = this.getRotationMatrix();
-
     localDirections.forEach(localDir => {
-      // Transform direction to world coordinates
-      const [worldY, worldZ, worldX] = rotationMatrix.transformVector(localDir.y, localDir.z, localDir.x);
-      const worldDirection = new Vector3(worldX, worldY, worldZ);
-
+      // Transform local direction to world coordinates using transformation matrix
+      const worldDirection = this.forwardTransform.transformVectorV3(localDir);
+      
       // All rays start from same position for direction-based sources
       const ray = new Ray(this.position, worldDirection, this.wavelength, this.lid);
       this.rays.push(ray);
     });
-  }
-
-  /**
-   * Get rotation matrix to transform from local coordinates to world coordinates
-   */
-  private getRotationMatrix(): Matrix4 {
-    // Create rotation matrix to align [1,0,0] with this.direction
-    const up = new Vector3(1, 0, 0);
-    const target = this.direction.normalize();
-
-    // If direction is already aligned with X-axis, return identity
-    if (Math.abs(up.dot(target)) > 0.99999) {
-      return target.x > 0 ? new Matrix4() : Matrix4.scaling(-1, 1, 1);
-    }
-
-    // Create rotation axis (cross product of up and target)
-    const axis = up.cross(target).normalize();
-    const angle = Math.acos(Math.max(-1, Math.min(1, up.dot(target))));
-
-    // Create rotation matrix around axis
-    return this.createRotationMatrix(axis, angle);
-  }
-
-  /**
-   * Create rotation matrix around arbitrary axis
-   */
-  private createRotationMatrix(axis: Vector3, angle: number): Matrix4 {
-    const c = Math.cos(angle);
-    const s = Math.sin(angle);
-    const t = 1 - c;
-    const x = axis.x, y = axis.y, z = axis.z;
-
-    const matrix = new Matrix4();
-    matrix.set(0, 0, t * x * x + c);
-    matrix.set(0, 1, t * x * y - s * z);
-    matrix.set(0, 2, t * x * z + s * y);
-    matrix.set(1, 0, t * x * y + s * z);
-    matrix.set(1, 1, t * y * y + c);
-    matrix.set(1, 2, t * y * z - s * x);
-    matrix.set(2, 0, t * x * z - s * y);
-    matrix.set(2, 1, t * y * z + s * x);
-    matrix.set(2, 2, t * z * z + c);
-
-    return matrix;
   }
 
   /**

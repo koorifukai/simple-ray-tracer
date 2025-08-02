@@ -468,4 +468,14 @@ export class Vector3 {
   clone(): Vector3 {
     return new Vector3(this.x, this.y, this.z);
   }
+
+  /**
+   * Distance to another vector
+   */
+  distanceTo(other: Vector3): number {
+    const dx = this.x - other.x;
+    const dy = this.y - other.y;
+    const dz = this.z - other.z;
+    return Math.sqrt(dx * dx + dy * dy + dz * dz);
+  }
 }

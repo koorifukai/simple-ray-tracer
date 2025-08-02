@@ -233,7 +233,9 @@ export class RayTracer {
     }
     
     const rayPath: Ray[] = [ray.clone()]; // Start with initial ray
+    let rayWasBlocked = false; // Track if ray was blocked during propagation
     let currentRay = ray;
+    let lastSuccessfulRayDirection = ray.direction; // Track the last successful outgoing ray direction
 
     if (isFirstRayOfLight && this.logConfig.simplified) {
       this.log('simplified', `\n=== Ray Trace: Light ${ray.lightId} ===`);
@@ -259,8 +261,9 @@ export class RayTracer {
       }
       
       if (result.isBlocked) {
+        rayWasBlocked = true; // Mark that ray was blocked during propagation
         if (!isFirstRayOfLight) {
-          this.log('ray', `Ray blocked at surface ${i}`);
+          this.log('ray', `Ray blocked at surface ${i} (${surface.mode} surface) - stopping propagation`);
         }
         
         // For blocked rays, add the intersection point to show where the ray was blocked
@@ -274,9 +277,10 @@ export class RayTracer {
           );
           rayPath.push(intersectionRay);
           if (!isFirstRayOfLight) {
-            this.log('ray', `Added intersection point to path:`, result.intersection.point);
+            this.log('ray', `Ray terminated at intersection point:`, result.intersection.point);
           }
         }
+        // CRITICAL: Ray is blocked (absorption hit or aperture miss) - stop processing all subsequent surfaces
         break;
       }
 
@@ -299,6 +303,7 @@ export class RayTracer {
       // Continue with transmitted or reflected ray - these start from the ray after the surface
       if (result.transmitted) {
         currentRay = result.transmitted;
+        lastSuccessfulRayDirection = result.transmitted.direction; // Update last successful outgoing direction
         if (!isFirstRayOfLight) {
           this.log('ray', `Ray transmitted, new direction:`, currentRay.direction);
           this.log('ray', `Added transmitted ray segment to path`);
@@ -306,6 +311,7 @@ export class RayTracer {
         
       } else if (result.reflected) {
         currentRay = result.reflected;
+        lastSuccessfulRayDirection = result.reflected.direction; // Update last successful outgoing direction
         if (!isFirstRayOfLight) {
           this.log('ray', `Ray reflected, new direction:`, currentRay.direction);
           this.log('ray', `Added reflected ray segment to path`);
@@ -323,31 +329,110 @@ export class RayTracer {
     if (rayPath.length > 0) {
       const lastRay = rayPath[rayPath.length - 1];
       
-      // Check if the last surface processed was absorption (detector)
-      const lastProcessedSurfaceIndex = Math.min(surfaces.length - 1, Math.floor((rayPath.length - 1) / 2));
-      const lastProcessedSurface = surfaces[lastProcessedSurfaceIndex];
-      
-      if (lastProcessedSurface && lastProcessedSurface.mode === 'absorption') {
+      // CRITICAL: If ray was blocked during propagation (absorption hit or aperture miss), NO EXTENSION
+      if (rayWasBlocked) {
         if (!isFirstRayOfLight) {
-          this.log('general', `Last surface is absorption (detector) - ray path terminates at intersection point`);
+          this.log('general', `Ray was blocked during propagation - terminating at intersection point (no extension)`);
         }
-        // For absorption surfaces, the ray path should end exactly at the intersection point
-        // The last ray in rayPath already represents the intersection point, so we're done
+        // Ray path ends exactly where it was blocked - no extension
+        
+      } else {
+        // Ray completed full propagation through all surfaces - apply extension rules
+        
+        // Calculate accumulative distance travelled through all ray segments
+        let accumulativeDistance = 0;
+        for (let i = 1; i < rayPath.length; i++) {
+          const segmentDistance = rayPath[i-1].position.distanceTo(rayPath[i].position);
+          accumulativeDistance += segmentDistance;
+        }
+        
+        // Use 10% of accumulative distance for extension, fallback to 50 if no valid distance
+        const extensionLength = accumulativeDistance > 1e-6 ? accumulativeDistance * 0.1 : 50;
+        
+        // Determine last surface that was processed
+        const lastProcessedSurfaceIndex = Math.min(surfaces.length - 1, Math.floor((rayPath.length - 1) / 2));
+        const lastProcessedSurface = surfaces[lastProcessedSurfaceIndex];
+        const isLastSurface = lastProcessedSurfaceIndex === surfaces.length - 1;
+        const lastSurface = surfaces[surfaces.length - 1];
+        
+        // SCENARIO 1: Last surface is absorption and ray hit it (final detector)
+        if (isLastSurface && lastProcessedSurface && lastProcessedSurface.mode === 'absorption') {
+          if (!isFirstRayOfLight) {
+            this.log('general', `Ray completed path and hit final absorption surface (detector) - terminating at intersection point (no extension)`);
+          }
+          // For final absorption surfaces, the ray path should end exactly at the intersection point
+          // The last ray in rayPath already represents the intersection point, so we're done
+          
+        // SCENARIO 2: Ray didn't reach last surface, but last surface is aperture
+        } else if (!isLastSurface && lastSurface.mode === 'aperture') {
+        // Calculate YZ plane intersection with aperture surface
+        const aperture = lastSurface;
+        const localRay = this.transformRayToLocal(lastRay, aperture);
+        
+        // Check if ray intersects YZ plane (X=0) of aperture
+        if (Math.abs(localRay.direction.x) > this.EPSILON) {
+          const t = -localRay.position.x / localRay.direction.x;
+          if (t > this.EPSILON) {
+            const hitPoint = localRay.position.add(localRay.direction.multiply(t));
+            const worldHitPoint = this.transformPointToGlobal(hitPoint, aperture);
+            
+            const apertureEndRay = new Ray(
+              worldHitPoint,
+              lastSuccessfulRayDirection, // Use last successful outgoing direction
+              lastRay.wavelength,
+              lastRay.lightId,
+              lastRay.intensity
+            );
+            rayPath.push(apertureEndRay);
+            if (!isFirstRayOfLight) {
+              this.log('ray', `Ray didn't hit aperture - terminated at YZ plane intersection:`, worldHitPoint);
+            }
+          } else {
+            // Ray moving away from aperture, extend normally
+            const finalPosition = lastRay.position.add(lastSuccessfulRayDirection.multiply(extensionLength));
+            const finalRay = new Ray(
+              finalPosition,
+              lastSuccessfulRayDirection, // Use last successful outgoing direction
+              lastRay.wavelength,
+              lastRay.lightId,
+              lastRay.intensity
+            );
+            rayPath.push(finalRay);
+            if (!isFirstRayOfLight) {
+              this.log('ray', `Ray moving away from aperture - extended ${extensionLength.toFixed(1)} units to:`, finalPosition);
+            }
+          }
+        } else {
+          // Ray parallel to aperture, extend normally
+          const finalPosition = lastRay.position.add(lastSuccessfulRayDirection.multiply(extensionLength));
+          const finalRay = new Ray(
+            finalPosition,
+            lastSuccessfulRayDirection, // Use last successful outgoing direction
+            lastRay.wavelength,
+            lastRay.lightId,
+            lastRay.intensity
+          );
+          rayPath.push(finalRay);
+          if (!isFirstRayOfLight) {
+            this.log('ray', `Ray parallel to aperture - extended ${extensionLength.toFixed(1)} units to:`, finalPosition);
+          }
+        }
+        
+      // SCENARIO 3: All other cases - extend ray by 10% of accumulative distance
       } else {
         // For refraction, reflection, or if ray didn't reach final surface
-        // Extend the ray into free space
-        const extensionLength = 50; // Extend 50 units into free space
-        const finalPosition = lastRay.position.add(lastRay.direction.multiply(extensionLength));
+        // Extend the ray into free space using the LAST SUCCESSFUL OUTGOING DIRECTION
+        const finalPosition = lastRay.position.add(lastSuccessfulRayDirection.multiply(extensionLength));
         const finalRay = new Ray(
           finalPosition,
-          lastRay.direction,
+          lastSuccessfulRayDirection, // Use last successful outgoing direction, not incoming direction
           lastRay.wavelength,
           lastRay.lightId,
           lastRay.intensity
         );
         rayPath.push(finalRay);
         if (!isFirstRayOfLight) {
-          this.log('ray', `Added final ray segment extending ${extensionLength} units to:`, finalPosition);
+          this.log('ray', `Extended ray ${extensionLength.toFixed(1)} units in last successful outgoing direction to:`, finalPosition);
         }
         
         // Check if ray didn't reach the final surface and log warning
@@ -360,14 +445,13 @@ export class RayTracer {
             'warning'
           );
         }
+        }
       }
     }
 
     if (!isFirstRayOfLight) {
       console.log(`Final ray path has ${rayPath.length} points`);
-    }
-    
-    // Display any warnings that occurred during ray tracing
+    }    // Display any warnings that occurred during ray tracing
     const warnings = this.getWarnings();
     if (warnings.length > 0 && !isFirstRayOfLight) {
       this.log('general', `\n⚠️ ${warnings.length} optical design warning(s):`);
