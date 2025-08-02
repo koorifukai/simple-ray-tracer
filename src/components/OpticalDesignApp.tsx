@@ -81,6 +81,8 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
   const [parsedData, setParsedData] = useState<any>(null);
   const [lastValidSystem, setLastValidSystem] = useState<any>(null);
   const [fontSize, setFontSize] = useState(13);
+  const [autoUpdate, setAutoUpdate] = useState(true); // Toggle for auto ray tracing
+  const [lastRayTracedYaml, setLastRayTracedYaml] = useState(defaultYaml); // Track last ray traced content
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Initialize with default system
@@ -102,10 +104,11 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
     setIsYamlValid(isValid);
     setYamlError(error || '');
     
-    if (isValid) {
+    if (isValid && autoUpdate) {
       try {
         const parsed = yaml.load(yamlContent) as any;
         setParsedData(parsed);
+        setLastRayTracedYaml(yamlContent);
         // Keep track of the last valid system
         if (parsed && typeof parsed === 'object' && parsed.name) {
           setLastValidSystem(parsed);
@@ -113,10 +116,13 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
       } catch (err) {
         setParsedData(null);
       }
+    } else if (!autoUpdate) {
+      // When auto-update is off, don't update ray tracing but still validate YAML syntax
+      console.log('⏸️ Auto-update paused - YAML syntax valid but ray tracing not updated');
     } else {
       setParsedData(null);
     }
-  }, [yamlContent]);
+  }, [yamlContent, autoUpdate]);
 
   const handleImport = useCallback(() => {
     fileInputRef.current?.click();
@@ -154,6 +160,43 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
     setYamlContent(defaultYaml);
   }, []);
 
+  const handleToggleAutoUpdate = useCallback(() => {
+    const newAutoUpdate = !autoUpdate;
+    setAutoUpdate(newAutoUpdate);
+    console.log(`🔄 Auto-update ${newAutoUpdate ? 'enabled' : 'disabled'}`);
+    
+    // If turning auto-update back on and YAML is valid, immediately update ray tracing
+    if (newAutoUpdate && isYamlValid) {
+      try {
+        const parsed = yaml.load(yamlContent) as any;
+        setParsedData(parsed);
+        setLastRayTracedYaml(yamlContent);
+        if (parsed && typeof parsed === 'object' && parsed.name) {
+          setLastValidSystem(parsed);
+        }
+        console.log('✅ Auto-update re-enabled - ray tracing updated immediately');
+      } catch (err) {
+        console.error('❌ Failed to update ray tracing when re-enabling auto-update:', err);
+      }
+    }
+  }, [autoUpdate, isYamlValid, yamlContent]);
+
+  const handleManualUpdate = useCallback(() => {
+    if (isYamlValid) {
+      try {
+        const parsed = yaml.load(yamlContent) as any;
+        setParsedData(parsed);
+        setLastRayTracedYaml(yamlContent);
+        if (parsed && typeof parsed === 'object' && parsed.name) {
+          setLastValidSystem(parsed);
+        }
+        console.log('🔄 Manual ray tracing update triggered');
+      } catch (err) {
+        console.error('❌ Failed to manually update ray tracing:', err);
+      }
+    }
+  }, [isYamlValid, yamlContent]);
+
 
 
 
@@ -182,6 +225,31 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
             <button className="menu-button" onClick={handleExport} disabled={!isYamlValid}>
               Export YAML
             </button>
+
+            {/* Auto-update toggle switch */}
+            <div className="auto-update-control">
+              <label className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={autoUpdate}
+                  onChange={handleToggleAutoUpdate}
+                />
+                <span className="toggle-slider"></span>
+              </label>
+              <span className="toggle-label">
+                Auto Ray Trace: {autoUpdate ? 'ON' : 'OFF'}
+              </span>
+              {!autoUpdate && (
+                <button 
+                  className="menu-button manual-update-btn" 
+                  onClick={handleManualUpdate}
+                  disabled={!isYamlValid}
+                  title="Manually update ray tracing with current YAML"
+                >
+                  Update Now
+                </button>
+              )}
+            </div>
 
             <div className="font-controls">
               Font:
@@ -212,9 +280,6 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
       <div className="main-content">
         {/* YAML Editor Panel */}
         <div className="yaml-panel">
-          <div className="panel-header">
-            System Definition (YAML)
-          </div>
           <div className="yaml-editor-container">
             <YamlEditor 
               value={yamlContent}
@@ -271,9 +336,6 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
 
         {/* Visualization Panel */}
         <div className="visualization-panel">
-          <div className="panel-header">
-            Optical System Visualization
-          </div>
           <div className="visualization-container">
             <EmptyPlot3D 
               title={
@@ -283,7 +345,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
                     ? `  `
                     : "Optical System Visualization"
               }
-              yamlContent={isYamlValid ? yamlContent : undefined}
+              yamlContent={autoUpdate ? (isYamlValid ? yamlContent : undefined) : lastRayTracedYaml}
             />
           </div>
         </div>

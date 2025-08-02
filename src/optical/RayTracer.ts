@@ -178,9 +178,28 @@ export class RayTracer {
         if (!useSimplifiedLog) {
           this.log('surface', `Aperture surface blocks non-intersecting rays`);
         }
+        
+        // Calculate where the blocked ray intersects the aperture plane (YZ plane at X=0)
+        const localRay = this.transformRayToLocal(ray, surface);
+        let blockingPoint = new Vector3(0, 0, 0);
+        
+        // Check if ray intersects YZ plane (X=0) of aperture
+        if (Math.abs(localRay.direction.x) > this.EPSILON) {
+          const t = -localRay.position.x / localRay.direction.x;
+          if (t > this.EPSILON) {
+            const hitPoint = localRay.position.add(localRay.direction.multiply(t));
+            blockingPoint = this.transformPointToGlobal(hitPoint, surface);
+          }
+        }
+        
         return {
           ray,
-          intersection: { point: new Vector3(0,0,0), normal: new Vector3(0,0,1), distance: 0, isValid: false },
+          intersection: { 
+            point: blockingPoint, 
+            normal: surface.normal || new Vector3(-1, 0, 0), 
+            distance: blockingPoint.subtract(ray.position).length(), 
+            isValid: true 
+          },
           isBlocked: true
         };
       }

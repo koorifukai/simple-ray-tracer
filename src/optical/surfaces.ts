@@ -818,7 +818,7 @@ export class SurfaceRenderer {
     const vertices: { x: number; y: number; z: number }[] = [];
     const faces: { i: number; j: number; k: number }[] = [];
 
-    // For circular aperture, use pizza slice triangulation
+    // For circular aperture, create donut shape for aperture mode
     if (surface.semidia) {
       const angularSteps = Math.max(12, Math.floor(resolution * 1.2));
       
@@ -826,96 +826,242 @@ export class SurfaceRenderer {
         return OpticalSurfaceFactory.transformLocalToWorld(surface, x, y, z);
       };
       
-      // Add center vertex
-      const centerVertex = transformLocalPoint(0, 0, 0);
-      vertices.push(centerVertex);
-      
-      // Add rim vertices
-      for (let i = 0; i < angularSteps; i++) {
-        const theta = (i / angularSteps) * 2 * Math.PI;
-        const localY = semidia * Math.cos(theta);
-        const localZ = semidia * Math.sin(theta);
+      if (surface.mode === 'aperture') {
+        // DONUT SHAPE for aperture surfaces
+        // Inner radius (hole) = semidia, outer radius = semidia + donut width
+        const innerRadius = semidia; // Hollow center
+        const donutWidth = semidia / 2; // Width of donut rim = half of semidia
+        const outerRadius = innerRadius + donutWidth;
         
-        const vertex = transformLocalPoint(0, localY, localZ);
-        vertices.push(vertex);
+        // Add inner rim vertices (hole edge)
+        for (let i = 0; i < angularSteps; i++) {
+          const theta = (i / angularSteps) * 2 * Math.PI;
+          const localY = innerRadius * Math.cos(theta);
+          const localZ = innerRadius * Math.sin(theta);
+          
+          const vertex = transformLocalPoint(0, localY, localZ);
+          vertices.push(vertex);
+        }
+        
+        // Add outer rim vertices (outside edge)
+        for (let i = 0; i < angularSteps; i++) {
+          const theta = (i / angularSteps) * 2 * Math.PI;
+          const localY = outerRadius * Math.cos(theta);
+          const localZ = outerRadius * Math.sin(theta);
+          
+          const vertex = transformLocalPoint(0, localY, localZ);
+          vertices.push(vertex);
+        }
+        
+        // Generate donut faces (connect inner and outer rims)
+        for (let i = 0; i < angularSteps; i++) {
+          const next = (i + 1) % angularSteps;
+          
+          // Inner rim indices: 0 to angularSteps-1
+          // Outer rim indices: angularSteps to 2*angularSteps-1
+          const innerCurrent = i;
+          const innerNext = next;
+          const outerCurrent = angularSteps + i;
+          const outerNext = angularSteps + next;
+          
+          // Create two triangles for each donut segment
+          faces.push({
+            i: innerCurrent,
+            j: outerCurrent,
+            k: innerNext
+          });
+          
+          faces.push({
+            i: innerNext,
+            j: outerCurrent,
+            k: outerNext
+          });
+        }
+
+        const donutColor = 'rgba(0, 0, 0, 0.3)'; // Black with 30% opacity for aperture blocking rim
+
+        const result = {
+          type: 'mesh3d',
+          x: vertices.map(v => v.x),
+          y: vertices.map(v => v.y),
+          z: vertices.map(v => v.z),
+          i: faces.map(f => f.i),
+          j: faces.map(f => f.j),
+          k: faces.map(f => f.k),
+          opacity: surface.opacity || 0.9,
+          color: donutColor,
+          flatshading: true
+        };
+
+        return result;
+      } else {
+        // SOLID DISC for non-aperture circular surfaces
+        // Add center vertex
+        const centerVertex = transformLocalPoint(0, 0, 0);
+        vertices.push(centerVertex);
+        
+        // Add rim vertices
+        for (let i = 0; i < angularSteps; i++) {
+          const theta = (i / angularSteps) * 2 * Math.PI;
+          const localY = semidia * Math.cos(theta);
+          const localZ = semidia * Math.sin(theta);
+          
+          const vertex = transformLocalPoint(0, localY, localZ);
+          vertices.push(vertex);
+        }
+        
+        // Generate pizza slice triangles
+        for (let i = 0; i < angularSteps; i++) {
+          const next = (i + 1) % angularSteps;
+          faces.push({
+            i: 0,
+            j: 1 + i,
+            k: 1 + next
+          });
+        }
+
+        const circularColor = 'rgba(255,255,255,0.8)';
+
+        const result = {
+          type: 'mesh3d',
+          x: vertices.map(v => v.x),
+          y: vertices.map(v => v.y),
+          z: vertices.map(v => v.z),
+          i: faces.map(f => f.i),
+          j: faces.map(f => f.j),
+          k: faces.map(f => f.k),
+          opacity: surface.opacity || 0.3,
+          color: circularColor,
+          flatshading: true
+        };
+
+        return result;
       }
-      
-      // Generate pizza slice triangles
-      for (let i = 0; i < angularSteps; i++) {
-        const next = (i + 1) % angularSteps;
-        faces.push({
-          i: 0,
-          j: 1 + i,
-          k: 1 + next
-        });
-      }
-
-      const circularColor = surface.mode === 'aperture' ? 
-        'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)';
-
-      const result = {
-        type: 'mesh3d',
-        x: vertices.map(v => v.x),
-        y: vertices.map(v => v.y),
-        z: vertices.map(v => v.z),
-        i: faces.map(f => f.i),
-        j: faces.map(f => f.j),
-        k: faces.map(f => f.k),
-        opacity: surface.opacity || 0.3,
-        color: circularColor,
-        flatshading: true
-      };
-
-      return result;
     } else {
       // Rectangular aperture
       const halfHeight = height / 2;
       const halfWidth = width / 2;
       
-      const localCorners = [
-        [0, -halfWidth, -halfHeight],
-        [0, halfWidth, -halfHeight],
-        [0, halfWidth, halfHeight],
-        [0, -halfWidth, halfHeight]
-      ];
-      
-      const worldCorners: { x: number; y: number; z: number }[] = [];
-      
-      const transformLocalPoint = (x: number, y: number, z: number) => {
-        return OpticalSurfaceFactory.transformLocalToWorld(surface, x, y, z);
-      };
-      
-      localCorners.forEach(([x, y, z]) => {
-        const corner = transformLocalPoint(x, y, z);
-        vertices.push(corner);
-        worldCorners.push(corner);
-      });
-      
-      faces.push({ i: 0, j: 1, k: 3 });
-      faces.push({ i: 1, j: 2, k: 3 });
+      if (surface.mode === 'aperture') {
+        // FRAME SHAPE for rectangular apertures
+        // Create a frame with hollow center and blocking rim around the OUTSIDE
+        const frameWidth = Math.min(halfWidth, halfHeight) / 2; // Frame thickness = half of smaller dimension
+        
+        // Define frame vertices: outer blocking rim + inner opening
+        const outerCorners = [
+          [0, -halfWidth - frameWidth, -halfHeight - frameWidth],  // Outer bottom-left (expanded outward)
+          [0, halfWidth + frameWidth, -halfHeight - frameWidth],   // Outer bottom-right (expanded outward)
+          [0, halfWidth + frameWidth, halfHeight + frameWidth],    // Outer top-right (expanded outward)
+          [0, -halfWidth - frameWidth, halfHeight + frameWidth]    // Outer top-left (expanded outward)
+        ];
+        
+        const innerCorners = [
+          [0, -halfWidth, -halfHeight],          // Inner bottom-left (aperture opening)
+          [0, halfWidth, -halfHeight],           // Inner bottom-right (aperture opening)
+          [0, halfWidth, halfHeight],            // Inner top-right (aperture opening)
+          [0, -halfWidth, halfHeight]            // Inner top-left (aperture opening)
+        ];
+        
+        const transformLocalPoint = (x: number, y: number, z: number) => {
+          return OpticalSurfaceFactory.transformLocalToWorld(surface, x, y, z);
+        };
+        
+        // Add outer corners (blocking frame)
+        outerCorners.forEach(([x, y, z]) => {
+          const corner = transformLocalPoint(x, y, z);
+          vertices.push(corner);
+        });
+        
+        // Add inner corners (aperture opening)
+        innerCorners.forEach(([x, y, z]) => {
+          const corner = transformLocalPoint(x, y, z);
+          vertices.push(corner);
+        });
+        
+        // Create frame faces (connect outer blocking rim to inner opening)
+        // Bottom frame strip (blocking area)
+        faces.push({ i: 0, j: 1, k: 4 });  // Outer bottom to inner bottom-left
+        faces.push({ i: 1, j: 5, k: 4 });  // Complete bottom strip
+        
+        // Right frame strip (blocking area)
+        faces.push({ i: 1, j: 2, k: 5 });  // Outer right to inner right-bottom
+        faces.push({ i: 2, j: 6, k: 5 });  // Complete right strip
+        
+        // Top frame strip (blocking area)
+        faces.push({ i: 2, j: 3, k: 6 });  // Outer top to inner top-right
+        faces.push({ i: 3, j: 7, k: 6 });  // Complete top strip
+        
+        // Left frame strip (blocking area)
+        faces.push({ i: 3, j: 0, k: 7 });  // Outer left to inner left-top
+        faces.push({ i: 0, j: 4, k: 7 });  // Complete left strip
 
-      const color = surface.mode === 'aperture' ? 
-        'rgba(100,100,255,0.6)' : 'rgba(255,255,255,0.8)';
+        const frameColor = 'rgba(0, 0, 0, 0.3)'; // Black with 30% opacity for blocking frame
 
-      const result = {
-        type: 'mesh3d',
-        x: vertices.map(v => v.x),
-        y: vertices.map(v => v.y),
-        z: vertices.map(v => v.z),
-        i: faces.map(f => f.i),
-        j: faces.map(f => f.j),
-        k: faces.map(f => f.k),
-        opacity: surface.opacity || 0.3,
-        color: color,
-        flatshading: true,
-        corners: {
-          x: worldCorners.map(c => c.x),
-          y: worldCorners.map(c => c.y),
-          z: worldCorners.map(c => c.z)
-        }
-      };
+        const result = {
+          type: 'mesh3d',
+          x: vertices.map(v => v.x),
+          y: vertices.map(v => v.y),
+          z: vertices.map(v => v.z),
+          i: faces.map(f => f.i),
+          j: faces.map(f => f.j),
+          k: faces.map(f => f.k),
+          opacity: surface.opacity || 0.9,
+          color: frameColor,
+          flatshading: true,
+          corners: {
+            x: vertices.slice(4, 8).map(v => v.x), // Use inner corners for corner markers (aperture opening)
+            y: vertices.slice(4, 8).map(v => v.y),
+            z: vertices.slice(4, 8).map(v => v.z)
+          }
+        };
 
-      return result;
+        return result;
+      } else {
+        // SOLID RECTANGLE for non-aperture rectangular surfaces
+        const localCorners = [
+          [0, -halfWidth, -halfHeight],
+          [0, halfWidth, -halfHeight],
+          [0, halfWidth, halfHeight],
+          [0, -halfWidth, halfHeight]
+        ];
+        
+        const worldCorners: { x: number; y: number; z: number }[] = [];
+        
+        const transformLocalPoint = (x: number, y: number, z: number) => {
+          return OpticalSurfaceFactory.transformLocalToWorld(surface, x, y, z);
+        };
+        
+        localCorners.forEach(([x, y, z]) => {
+          const corner = transformLocalPoint(x, y, z);
+          vertices.push(corner);
+          worldCorners.push(corner);
+        });
+        
+        faces.push({ i: 0, j: 1, k: 3 });
+        faces.push({ i: 1, j: 2, k: 3 });
+
+        const color = 'rgba(255,255,255,0.8)';
+
+        const result = {
+          type: 'mesh3d',
+          x: vertices.map(v => v.x),
+          y: vertices.map(v => v.y),
+          z: vertices.map(v => v.z),
+          i: faces.map(f => f.i),
+          j: faces.map(f => f.j),
+          k: faces.map(f => f.k),
+          opacity: surface.opacity || 0.3,
+          color: color,
+          flatshading: true,
+          corners: {
+            x: worldCorners.map(c => c.x),
+            y: worldCorners.map(c => c.y),
+            z: worldCorners.map(c => c.z)
+          }
+        };
+
+        return result;
+      }
     }
   }
 

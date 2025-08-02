@@ -22,6 +22,7 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
   rayTracingTrigger
 }) => {
   const plotRef = useRef<HTMLDivElement>(null);
+  const cameraStateRef = useRef<any>(null); // Store camera state for persistence
 
   useEffect(() => {
     if (!plotRef.current) return;
@@ -112,12 +113,62 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
                 hoverLines.push(`Radius: ${formatNumber(surface.radius)}`);
               }
               
-              plotData.push({
-                ...mesh,
-                name: displayName,
-                hovertemplate: hoverLines.join('<br>') + '<extra></extra>',
-                showlegend: false
-              });
+              // Validate mesh data before adding to plotData
+              const isValidMeshData = (mesh: any): boolean => {
+                if (!mesh || typeof mesh !== 'object') return false;
+                
+                // Check for required coordinate arrays
+                if (!Array.isArray(mesh.x) || !Array.isArray(mesh.y) || !Array.isArray(mesh.z)) {
+                  return false;
+                }
+                
+                // Check arrays have same length and contain valid numbers
+                const length = mesh.x.length;
+                if (length === 0 || mesh.y.length !== length || mesh.z.length !== length) {
+                  return false;
+                }
+                
+                // Check all coordinates are valid numbers (not NaN, not undefined, not infinite)
+                for (let i = 0; i < length; i++) {
+                  if (!Number.isFinite(mesh.x[i]) || !Number.isFinite(mesh.y[i]) || !Number.isFinite(mesh.z[i])) {
+                    return false;
+                  }
+                }
+                
+                // Check face indices if they exist
+                if (mesh.i && mesh.j && mesh.k) {
+                  if (!Array.isArray(mesh.i) || !Array.isArray(mesh.j) || !Array.isArray(mesh.k)) {
+                    return false;
+                  }
+                  
+                  const faceLength = mesh.i.length;
+                  if (mesh.j.length !== faceLength || mesh.k.length !== faceLength) {
+                    return false;
+                  }
+                  
+                  // Check face indices are valid integers within vertex range
+                  for (let i = 0; i < faceLength; i++) {
+                    const [fi, fj, fk] = [mesh.i[i], mesh.j[i], mesh.k[i]];
+                    if (!Number.isInteger(fi) || !Number.isInteger(fj) || !Number.isInteger(fk) ||
+                        fi < 0 || fj < 0 || fk < 0 || fi >= length || fj >= length || fk >= length) {
+                      return false;
+                    }
+                  }
+                }
+                
+                return true;
+              };
+              
+              if (isValidMeshData(mesh)) {
+                plotData.push({
+                  ...mesh,
+                  name: displayName,
+                  hovertemplate: hoverLines.join('<br>') + '<extra></extra>',
+                  showlegend: false
+                });
+              } else {
+                console.warn(`⚠️ Invalid mesh data for surface ${surface.id}, skipping visualization`);
+              }
 
               // Add normal vectors for this surface
               const normals = SurfaceRenderer.generateNormalVectors(surface);
@@ -437,6 +488,13 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
         // console.log(`Y: ${unifiedMinY.toFixed(1)} to ${unifiedMaxY.toFixed(1)}`);
         // console.log(`Z: ${unifiedMinZ.toFixed(1)} to ${unifiedMaxZ.toFixed(1)}`);
 
+        // Log camera state usage
+        if (cameraStateRef.current) {
+          console.log('📷 Using saved camera state for plot refresh:', cameraStateRef.current);
+        } else {
+          console.log('📷 Using default camera state (first render or no saved state)');
+        }
+
         // Add empty point for axis setup
         plotData.push({
           x: [0],
@@ -494,8 +552,8 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
             },
             aspectmode: 'cube',  // Force equal aspect ratio on all axes
             bgcolor: '#1a1a1a',
-            camera: {
-              eye: { x: 0, y: -2, z: 0 }  // View parallel to X-axis, looking from negative Y (X+ to right)
+            camera: cameraStateRef.current || {
+              eye: { x: 0, y: -2, z: 0 }  // Default view: parallel to X-axis, looking from negative Y
             }
           },
           paper_bgcolor: '#1a1a1a',
@@ -522,6 +580,34 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
         };
 
         await Plotly.newPlot(plotRef.current, plotData, layout, config);
+
+        // Set up camera state persistence - capture camera changes
+        if (plotRef.current) {
+          const plotElement = plotRef.current as any; // Cast to access Plotly methods
+          
+          plotElement.on('plotly_relayout', (eventData: any) => {
+            // Capture camera state when user interacts with the plot
+            if (eventData['scene.camera']) {
+              cameraStateRef.current = eventData['scene.camera'];
+              console.log('📷 Camera state saved:', cameraStateRef.current);
+            }
+          });
+
+          // Also capture initial camera state after first render
+          setTimeout(() => {
+            if (plotElement && plotElement._fullLayout && plotElement._fullLayout.scene) {
+              const currentCamera = plotElement._fullLayout.scene.camera;
+              if (currentCamera && !cameraStateRef.current) {
+                cameraStateRef.current = {
+                  eye: { ...currentCamera.eye },
+                  center: { ...currentCamera.center },
+                  up: { ...currentCamera.up }
+                };
+                console.log('📷 Initial camera state captured:', cameraStateRef.current);
+              }
+            }
+          }, 100);
+        }
 
       } catch (error) {
         console.error('Failed to load Plotly:', error);
