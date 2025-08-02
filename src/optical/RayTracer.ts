@@ -155,6 +155,19 @@ export class RayTracer {
                           localRay.direction.dot(intersection.normal) < 0 && 
                           this.isWithinAperture(intersection.point, surface);
     
+    // Debug logging for cylindrical surfaces only
+    if (surface.shape === 'cylindrical' && intersection.isValid) {
+      const dotProduct = localRay.direction.dot(intersection.normal);
+      const withinAperture = this.isWithinAperture(intersection.point, surface);
+      console.log(`🔍 CYLINDRICAL HIT SURFACE CHECK:`);
+      console.log(`   intersection.isValid: ${intersection.isValid}`);
+      console.log(`   direction·normal: ${dotProduct.toFixed(6)} (should be < 0)`);
+      console.log(`   within aperture: ${withinAperture}`);
+      console.log(`   final rayHitsSurface: ${rayHitsSurface}`);
+      console.log(`   intersection point: (${intersection.point.x.toFixed(3)}, ${intersection.point.y.toFixed(3)}, ${intersection.point.z.toFixed(3)})`);
+      console.log(`   surface height: ${surface.height}, width: ${surface.width}`);
+    }
+    
     if (!rayHitsSurface) {
       if (!useSimplifiedLog) {
         this.log('surface', `Ray misses surface - no interaction, continues with original trajectory`);
@@ -182,7 +195,7 @@ export class RayTracer {
     }
 
     // 4. Ray hits surface - apply surface physics in local coordinates
-    const result = this.applySurfacePhysics(localRay, intersection, surface, isFirstRayOfLight);
+    const result = this.applySurfacePhysics(localRay, intersection, surface);
     
     if (!useSimplifiedLog) {
       this.log('surface', `Physics result:`, { 
@@ -449,9 +462,7 @@ export class RayTracer {
       }
     }
 
-    if (!isFirstRayOfLight) {
-      console.log(`Final ray path has ${rayPath.length} points`);
-    }    // Display any warnings that occurred during ray tracing
+    // Display any warnings that occurred during ray tracing
     const warnings = this.getWarnings();
     if (warnings.length > 0 && !isFirstRayOfLight) {
       this.log('general', `\n⚠️ ${warnings.length} optical design warning(s):`);
@@ -549,9 +560,6 @@ export class RayTracer {
     if (Math.abs(radius) < this.EPSILON) {
       return this.intersectPlane(ray, surface); // Treat as flat if radius ≈ 0
     }
-
-    RayTracer.log('intersection', `Sphere intersection - radius: ${radius} (${radius > 0 ? 'CONVEX' : 'CONCAVE'})`);
-    RayTracer.log('intersection', `Local ray: position=(${ray.position.x},${ray.position.y},${ray.position.z}), direction=(${ray.direction.x},${ray.direction.y},${ray.direction.z})`);
     
     // Ray position and direction in local coordinates (sphere center at origin)
     const O = ray.position;
@@ -565,28 +573,20 @@ export class RayTracer {
     const b = 2 * O.dot(D);
     const c = O.dot(O) - radius * radius;
 
-    RayTracer.log('intersection', `Quadratic: ${a}t² + ${b}t + ${c} = 0`);
-
     const discriminant = b * b - 4 * a * c;
-    RayTracer.log('intersection', `Discriminant: ${discriminant}`);
     
     if (discriminant < 0) {
-      RayTracer.log('intersection', `❌ No intersection (discriminant < 0)`);
       return { point: new Vector3(0, 0, 0), normal: new Vector3(0, 0, 1), distance: 0, isValid: false };
     }
 
     const sqrt_discriminant = Math.sqrt(discriminant);
     const t1 = (-b - sqrt_discriminant) / (2 * a); // First intersection (closer)
     const t2 = (-b + sqrt_discriminant) / (2 * a); // Second intersection (farther)
-    RayTracer.log('intersection', `Solutions: t1=${t1} (first/closer), t2=${t2} (second/farther)`);
 
     // === DETERMINE VALID INTERSECTION BASED ON SURFACE TYPE ===
     const rayDistanceFromCenter = O.length();
     const sphereRadius = Math.abs(radius);
     const isRayInsideSphere = rayDistanceFromCenter < sphereRadius;
-    
-    RayTracer.log('intersection', `Ray distance from center: ${rayDistanceFromCenter.toFixed(3)}, sphere radius: ${sphereRadius.toFixed(3)}`);
-    RayTracer.log('intersection', `Ray position: ${isRayInsideSphere ? 'INSIDE' : 'OUTSIDE'} sphere`);
 
     // Apply sphere intersection rules
     let t: number;
@@ -594,56 +594,45 @@ export class RayTracer {
     
     if (radius > 0) {
       // POSITIVE RADIUS = CONVEX SURFACE
-      RayTracer.log('intersection', `🔵 CONVEX surface (R > 0)`);
       if (isRayInsideSphere) {
         // ANOMALY: Ray inside convex sphere
         warningMessage = `⚠️ ANOMALY: Ray inside convex sphere (R=${radius.toFixed(3)}, ray at distance ${rayDistanceFromCenter.toFixed(3)})`;
-        RayTracer.log('intersection', `❌ ${warningMessage}`);
         this.logSurfaceWarning(surface, warningMessage);
         return { point: new Vector3(0, 0, 0), normal: new Vector3(0, 0, 1), distance: 0, isValid: false };
       } else {
         // Ray outside convex sphere: use FIRST intersection
         t = t1 > this.EPSILON ? t1 : (t2 > this.EPSILON ? t2 : -1);
-        RayTracer.log('intersection', `✅ Ray outside convex sphere, using first intersection: t=${t}`);
       }
     } else {
       // NEGATIVE RADIUS = CONCAVE SURFACE
-      RayTracer.log('intersection', `🔴 CONCAVE surface (R < 0)`);
       // For concave surface: always use SECOND intersection (back side)
       t = t2 > this.EPSILON ? t2 : (t1 > this.EPSILON ? t1 : -1);
-      RayTracer.log('intersection', `✅ Concave surface, using second intersection (back side): t=${t}`);
     }
     
     if (t <= this.EPSILON || t > this.MAX_DISTANCE) {
-      RayTracer.log('intersection', `❌ No valid intersection (t=${t} not in valid range [${this.EPSILON}, ${this.MAX_DISTANCE}])`);
       return { point: new Vector3(0, 0, 0), normal: new Vector3(0, 0, 1), distance: 0, isValid: false };
     }
 
     // === CALCULATE INTERSECTION POINT AND NORMAL ===
     // Hit point in local coordinates (sphere center at origin)
     const hitPoint = O.add(D.multiply(t));
-    RayTracer.log('intersection', `Hit point: (${hitPoint.x.toFixed(3)}, ${hitPoint.y.toFixed(3)}, ${hitPoint.z.toFixed(3)})`);
     
     // Calculate local normal at hit point (vector from sphere center to hit point)
     let localNormal = hitPoint.normalize(); // Normal from center to hit point
     if (radius < 0) {
       localNormal = localNormal.multiply(-1); // Flip for concave surfaces
     }
-    RayTracer.log('intersection', `Local normal: (${localNormal.x.toFixed(3)}, ${localNormal.y.toFixed(3)}, ${localNormal.z.toFixed(3)})`);
 
     // Check circular aperture (semidia) using radial distance from origin
     const radiusSquared = hitPoint.y * hitPoint.y + hitPoint.z * hitPoint.z;
     const aperture = surface.semidia || 10;
     const apertureSquared = aperture * aperture;
-    RayTracer.log('intersection', `Radial distance²: ${radiusSquared.toFixed(6)}, semidia²: ${apertureSquared}`);
     
     // Fix 3: For sphere, y²+z² should be smaller than semidia² (avoid sqrt)
     if (radiusSquared > apertureSquared + 1e-12) {
-      RayTracer.log('intersection', `❌ Hit outside circular aperture`);
       return { point: new Vector3(0, 0, 0), normal: new Vector3(0, 0, 1), distance: 0, isValid: false };
     }
 
-    RayTracer.log('intersection', `✅ Valid spherical intersection found!`);
     return {
       point: hitPoint,
       normal: localNormal,
@@ -657,18 +646,13 @@ export class RayTracer {
    * Handles both circular and rectangular apertures
    */
   private static intersectPlane(ray: Ray, surface: OpticalSurface): RayIntersection {
-     console.log(`Plane intersection - surface at X=0, facing -1,0,0`);
-     console.log(`Local ray: position=${ray.position.x},${ray.position.y},${ray.position.z}, direction=${ray.direction.x},${ray.direction.y},${ray.direction.z}`);
-    
     // Plane is at X = 0 with normal [-1, 0, 0] (facing negative X)
     const localNormal = new Vector3(-1, 0, 0);
     
     // Check if ray is moving toward the surface
     const dotProduct = ray.direction.dot(localNormal);
-    console.log(`Ray·Normal = ${dotProduct} (should be < 0 for approach)`);
     
     if (dotProduct >= 0) {
-      console.log(`❌ Ray moving away from or parallel to surface`);
       this.logSurfaceWarning(
         surface,
         `Ray moving away from or parallel to plane surface (Ray·Normal = ${dotProduct.toFixed(6)})`,
@@ -680,7 +664,6 @@ export class RayTracer {
     
     // Calculate intersection: solve for t where ray.position.x + t * ray.direction.x = 0
     if (Math.abs(ray.direction.x) < this.EPSILON) {
-      console.log(`❌ Ray parallel to surface (direction.x ≈ 0)`);
       this.logSurfaceWarning(
         surface,
         `Ray parallel to plane surface (direction.x = ${ray.direction.x})`,
@@ -691,21 +674,17 @@ export class RayTracer {
     }
     
     const t = -ray.position.x / ray.direction.x;
-    console.log(`Intersection parameter t = ${t}`);
     
     if (t <= this.EPSILON) {
-      console.log(`❌ Intersection behind ray (t ≤ 0)`);
       return { point: new Vector3(0, 0, 0), normal: localNormal, distance: 0, isValid: false };
     }
     
     // Calculate intersection point in YZ plane
     const hitPoint = ray.position.add(ray.direction.multiply(t));
-    console.log(`Hit point: (${hitPoint.x}, ${hitPoint.y}, ${hitPoint.z})`);
     
     // Check aperture bounds based on surface type
     const withinAperture = this.checkPlaneAperture(hitPoint, surface);
     if (!withinAperture) {
-      console.log(`❌ Hit outside aperture bounds`);
       this.logSurfaceWarning(
         surface,
         `Ray hit outside aperture bounds at (${hitPoint.y.toFixed(3)}, ${hitPoint.z.toFixed(3)})`,
@@ -715,7 +694,6 @@ export class RayTracer {
       return { point: new Vector3(0, 0, 0), normal: localNormal, distance: 0, isValid: false };
     }
     
-    console.log(`✅ Valid plane intersection found!`);
     return {
       point: hitPoint,
       normal: localNormal,
@@ -736,8 +714,6 @@ export class RayTracer {
     if (surface.width !== undefined && surface.height !== undefined) {
       const halfWidth = surface.width / 2;
       const halfHeight = surface.height / 2;
-      console.log(`Rectangular aperture: Y=[${-halfWidth}, ${halfWidth}], Z=[${-halfHeight}, ${halfHeight}]`);
-      console.log(`Hit at Y=${y}, Z=${z}`);
       // Fix 1: For plano rectangle, magnitude of YZ should be smaller than half of height in Z, half of width in Y
       return Math.abs(y) <= halfWidth && Math.abs(z) <= halfHeight;
     }
@@ -746,7 +722,6 @@ export class RayTracer {
     if (surface.semidia !== undefined) {
       const radiusSquared = y * y + z * z;
       const semidiaSquared = surface.semidia * surface.semidia;
-      console.log(`Circular aperture: semidia=${surface.semidia}, hit radius²=${radiusSquared}, semidia²=${semidiaSquared}`);
       // Fix 2: For plano sphere, YZ intersects should be smaller than semidia² (avoid sqrt)
       return radiusSquared <= semidiaSquared;
     }
@@ -755,7 +730,6 @@ export class RayTracer {
     const defaultRadius = 10;
     const radiusSquared = y * y + z * z;
     const defaultRadiusSquared = defaultRadius * defaultRadius;
-    console.log(`Default circular aperture: radius=${defaultRadius}, hit radius²=${radiusSquared}`);
     return radiusSquared <= defaultRadiusSquared;
   }
 
@@ -779,20 +753,17 @@ export class RayTracer {
     const height = surface.height || 20; // Total height of cylinder
     const width = surface.width || 20;   // Total width of cylinder
     
-    console.log(`Cylinder intersection - radius: ${radius}, height: ${height}, width: ${width}`);
-    console.log(`Local ray: position=(${ray.position.x},${ray.position.y},${ray.position.z}), direction=(${ray.direction.x},${ray.direction.y},${ray.direction.z})`);
-    
     const O = ray.position;
     const D = ray.direction.normalize();
 
     // === EUREKA STEP 1: Backstabbing check ===
     // Check if np.dot(-v, np.array([-1, 0, 0])) < 0
     if (D.dot(new Vector3(1, 0, 0)) < 0) {
-      console.log(`❌ Backstabbing detected - ray direction incompatible with surface`);
+      console.log(`❌ Cylinder intersection failed: Backstabbing (ray direction incompatible with surface)`);
       return { point: new Vector3(0, 0, 0), normal: new Vector3(0, 0, 1), distance: 0, isValid: false };
     }
 
-    // === EUREKA STEP 2: YZ plane circle intersection ===
+    // === EUREKA STEP 2: XY plane circle intersection ===
     // v_flat = normalize(np.array([v[0], v[1], 0]))
     // t_flat = np.array([t_last[0], t_last[1], 0])
     const v_flat = new Vector3(D.x, D.y, 0).normalize();
@@ -806,10 +777,8 @@ export class RayTracer {
     const dot_v_t = v_flat.dot(t_flat);
     const delta = dot_v_t * dot_v_t - c;
     
-    console.log(`YZ plane intersection: delta=${delta}`);
-    
     if (delta <= 0) {
-      console.log(`❌ No YZ circle intersection`);
+      console.log(`❌ Cylinder intersection failed: No XY circle intersection (delta=${delta.toFixed(6)})`);
       return { point: new Vector3(0, 0, 0), normal: new Vector3(0, 0, 1), distance: 0, isValid: false };
     }
 
@@ -826,67 +795,81 @@ export class RayTracer {
     
     const d1 = t_flat.add(v_flat.multiply(d1_param));
     const d2 = t_flat.add(v_flat.multiply(d2_param));
-    
-    console.log(`YZ intersections: d1=${d1_param} at (${d1.x.toFixed(3)}, ${d1.y.toFixed(3)}), d2=${d2_param} at (${d2.x.toFixed(3)}, ${d2.y.toFixed(3)})`);
 
     // === EUREKA STEP 4: Choose intersection based on radius sign ===
     // if sur.radius > 0: d = d1
     // else: d = d2
     const d_selected = (surface.radius || 0) > 0 ? d1 : d2;
-    const d_param = (surface.radius || 0) > 0 ? d1_param : d2_param;
-    
-    console.log(`Selected intersection: (${d_selected.x.toFixed(3)}, ${d_selected.y.toFixed(3)}) at d=${d_param}`);
 
     // === EUREKA STEP 5: Width validation ===
-    // if abs(d[1] / r) - 1e-6 > sur.width / r / 2: return
-    const normalized_y = Math.abs(d_selected.y / radius);
-    const width_limit = width / (2 * radius);
-    
-    console.log(`Width check: |Y/radius| = ${normalized_y.toFixed(6)}, limit = ${width_limit.toFixed(6)}`);
-    
-    if (normalized_y - 1e-6 > width_limit) {
-      console.log(`❌ Hit outside width limits`);
+    // if abs(d[1]) > sur.width / 2: return
+    if (Math.abs(d_selected.y) > width / 2) {
+      console.log(`❌ Cylinder intersection failed: Outside width limits (|Y|=${Math.abs(d_selected.y).toFixed(3)} > width/2=${(width/2).toFixed(3)})`);
       return { point: new Vector3(0, 0, 0), normal: new Vector3(0, 0, 1), distance: 0, isValid: false };
     }
 
     // === EUREKA STEP 6: Calculate 3D intersection ===
-    // if v[0] == 0: return
+    // Find parameter t where ray intersects the cylindrical surface
+    // For cylinder Y² + Z² = R², solve for t where ray intersects
+    
     if (Math.abs(D.x) < this.EPSILON) {
-      console.log(`❌ Ray parallel to cylinder axis (v[0] = 0)`);
+      console.log(`❌ Cylinder intersection failed: Ray parallel to cylinder axis (|direction.x|=${Math.abs(D.x)} < ${this.EPSILON})`);
       return { point: new Vector3(0, 0, 0), normal: new Vector3(0, 0, 1), distance: 0, isValid: false };
     }
     
-    // dz = t_last + abs(d[0] - t_last[0]) / abs(v[0]) * v
-    const t_3d = Math.abs(d_selected.x - O.x) / Math.abs(D.x);
-    const dz = O.add(D.multiply(t_3d));
+    // We know the XY intersection point d_selected, now find the Z coordinate
+    // Ray equation: P(t) = O + t*D
+    // At intersection: P(t).x = d_selected.x and P(t).y = d_selected.y
+    // From X coordinate: O.x + t*D.x = d_selected.x
+    const t_intersection = (d_selected.x - O.x) / D.x;
     
-    console.log(`3D intersection point: (${dz.x.toFixed(3)}, ${dz.y.toFixed(3)}, ${dz.z.toFixed(3)}) at t=${t_3d}`);
+    if (t_intersection <= this.EPSILON) {
+      console.log(`❌ Cylinder intersection failed: Intersection behind ray (t=${t_intersection.toFixed(6)} <= ${this.EPSILON})`);
+      return { point: new Vector3(0, 0, 0), normal: new Vector3(0, 0, 1), distance: 0, isValid: false };
+    }
+    
+    const intersection3D = O.add(D.multiply(t_intersection));
 
     // === EUREKA STEP 7: Height validation ===
-    // if abs(dz[2]) - 1e-6 > sur.height / 2: return
-    if (Math.abs(dz.z) - 1e-6 > height / 2) {
-      console.log(`❌ Hit outside height limits: |${dz.z}| > ${height/2}`);
+    // if abs(intersection3D[2]) > sur.height / 2: return
+    if (Math.abs(intersection3D.z) > height / 2) {
+      console.log(`❌ Cylinder intersection failed: Outside height limits (|Z|=${Math.abs(intersection3D.z).toFixed(3)} > height/2=${(height/2).toFixed(3)})`);
       return { point: new Vector3(0, 0, 0), normal: new Vector3(0, 0, 1), distance: 0, isValid: false };
     }
 
     // === EUREKA STEP 8: Calculate surface normal ===
-    // n = normalize(-1 * d)
-    const d_for_normal = new Vector3(d_selected.x, d_selected.y, 0);
-    let localNormal = d_for_normal.multiply(-1).normalize();
+    // For cylinder with axis along X, normal is radial in YZ plane
+    // Normal points outward from the cylinder axis to the intersection point
+    // The cylinder axis passes through (X, 0, 0) for any X value
+    // So the normal is the vector from (intersection3D.x, 0, 0) to intersection3D
+    const axisPoint = new Vector3(intersection3D.x, 0, 0);
+    const normalVector = intersection3D.subtract(axisPoint);
     
-    // Ensure normal has negative X component to face incoming rays
-    if (localNormal.x > 0) {
+    let localNormal = normalVector.normalize();
+    
+    // For concave cylinder (negative radius), flip normal inward
+    if ((surface.radius || 0) < 0) {
       localNormal = localNormal.multiply(-1);
     }
+
+    // CRITICAL FIX: Ensure normal points toward the incoming ray for proper refraction
+    // For cylindrical surfaces, we need to check if the normal should be flipped
+    // based on the ray approach direction
+    const dotProduct = localNormal.dot(ray.direction);
+    if (dotProduct > 0) {
+      // Ray is hitting from behind - flip normal to face the ray
+      localNormal = localNormal.multiply(-1);
+      console.log(`🔄 Flipped cylindrical normal to face incoming ray`);
+    }
     
-    console.log(`✅ Valid cylindrical intersection found!`);
-    console.log(`Hit point: (${dz.x.toFixed(3)}, ${dz.y.toFixed(3)}, ${dz.z.toFixed(3)})`);
-    console.log(`Normal: (${localNormal.x.toFixed(3)}, ${localNormal.y.toFixed(3)}, ${localNormal.z.toFixed(3)})`);
+    console.log(`✅ Cylinder intersection successful at (${intersection3D.x.toFixed(3)}, ${intersection3D.y.toFixed(3)}, ${intersection3D.z.toFixed(3)}), t=${t_intersection.toFixed(3)}`);
+    console.log(`   Local normal: (${localNormal.x.toFixed(3)}, ${localNormal.y.toFixed(3)}, ${localNormal.z.toFixed(3)})`);
+    console.log(`   Normal·Ray: ${dotProduct.toFixed(6)} -> ${localNormal.dot(ray.direction).toFixed(6)} after correction`);
     
     return {
-      point: dz,
+      point: intersection3D,
       normal: localNormal,
-      distance: t_3d,
+      distance: t_intersection,
       isValid: true
     };
   }
@@ -901,7 +884,14 @@ export class RayTracer {
       return this.checkPlaneAperture(point, surface);
     }
     
-    // For spherical and cylindrical surfaces, use radial distance check
+    // For cylindrical surfaces, use rectangular bounds checking (height/width)
+    if (surface.shape === 'cylindrical') {
+      const halfHeight = (surface.height || 20) / 2;
+      const halfWidth = (surface.width || 20) / 2;
+      return Math.abs(point.y) <= halfWidth && Math.abs(point.z) <= halfHeight;
+    }
+    
+    // For spherical surfaces, use radial distance check
     const aperture = surface.semidia || surface.aperture || 10; // semidia is the radius
     const apertureSquared = aperture * aperture;
     
@@ -916,15 +906,14 @@ export class RayTracer {
   private static applySurfacePhysics(
     ray: Ray, 
     intersection: RayIntersection, 
-    surface: OpticalSurface,
-    isFirstRayOfLight: boolean = false
+    surface: OpticalSurface
   ): RayTraceResult {
     const mode = surface.mode || 'refraction';
     
     // Handle different surface modes from EUREKA
     switch (mode) {
       case 'refraction':
-        const transmitted = this.calculateRefraction(ray, intersection, surface, isFirstRayOfLight);
+        const transmitted = this.calculateRefraction(ray, intersection, surface);
         return {
           ray,
           intersection,
@@ -944,7 +933,7 @@ export class RayTracer {
       case 'partial':
         // TODO: Implement Fresnel equations for partial reflection/transmission
         // For now, just do refraction
-        const partialTransmitted = this.calculateRefraction(ray, intersection, surface, isFirstRayOfLight);
+        const partialTransmitted = this.calculateRefraction(ray, intersection, surface);
         return {
           ray,
           intersection,
@@ -993,23 +982,10 @@ export class RayTracer {
     const incident = ray.direction.normalize();
     const localNormal = intersection.normal.normalize(); // This is the local normal at hit point
     
-    console.log(`Reflection calculation:`);
-    console.log(`  Incident direction:`, incident);
-    console.log(`  Local normal at hit point:`, localNormal);
-    
     // Law of reflection: reflected = incident - 2 * (incident · normal) * normal
     // The angle of incidence equals angle of reflection
     const dotProduct = incident.dot(localNormal);
     const reflected = incident.subtract(localNormal.multiply(2 * dotProduct));
-    
-    console.log(`  Dot product (I·N):`, dotProduct);
-    console.log(`  Reflected direction:`, reflected);
-    
-    // Verify the reflection is correct (incident and reflected should make equal angles with normal)
-    const incidentAngle = Math.acos(Math.abs(dotProduct)) * 180 / Math.PI;
-    const reflectedDotNormal = reflected.normalize().dot(localNormal);
-    const reflectedAngle = Math.acos(Math.abs(reflectedDotNormal)) * 180 / Math.PI;
-    console.log(`  Incident angle: ${incidentAngle.toFixed(1)}°, Reflected angle: ${reflectedAngle.toFixed(1)}°`);
     
     return new Ray(
       intersection.point,
@@ -1028,8 +1004,7 @@ export class RayTracer {
   private static calculateRefraction(
     ray: Ray, 
     intersection: RayIntersection, 
-    surface: OpticalSurface,
-    isFirstRayOfLight: boolean = false
+    surface: OpticalSurface
   ): Ray | null {
     // Get refractive indices from surface properties
     const n1 = surface.n1 || 1.0; // Incident medium
@@ -1051,7 +1026,6 @@ export class RayTracer {
     }
     
     // Calculate incident angle
-    // Incident angle calculation removed for clean output
     
     // Check for total internal reflection
     const discriminant = 1 - snellRatio * snellRatio * (1 - cosIncident * cosIncident);
@@ -1069,16 +1043,8 @@ export class RayTracer {
     const refracted = incident.multiply(snellRatio)
       .add(localNormal.multiply(snellRatio * cosIncident - cosRefracted));
     
-    if (isFirstRayOfLight) {
-      console.log(`  Refracted direction:`, refracted);
-    }
-    
-    // Verify Snell's law: n1*sin(θ1) should equal n2*sin(θ2)
-    // const sinIncident = Math.sqrt(1 - cosIncident * cosIncident);
-    // const sinRefracted = Math.sqrt(1 - cosRefracted * cosRefracted);
-    // const snellCheck1 = n1 * sinIncident;
-    // const snellCheck2 = n2 * sinRefracted;
-    // console.log(`  Snell's law verification: n1*sin(θ1)=${snellCheck1.toFixed(4)}, n2*sin(θ2)=${snellCheck2.toFixed(4)}`);
+    console.log(`🔍 Refraction debug: n1=${n1}, n2=${n2}, snellRatio=${snellRatio.toFixed(6)}`);
+    console.log(`🔍 Refracted:(${refracted.x.toFixed(6)}, ${refracted.y.toFixed(6)}, ${refracted.z.toFixed(6)})`);
     
     return new Ray(
       intersection.point,
