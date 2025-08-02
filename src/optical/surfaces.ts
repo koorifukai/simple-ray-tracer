@@ -712,11 +712,31 @@ export class SurfaceRenderer {
         
         const localZ = r * Math.sin(theta) * Math.cos(phi);
         const localY = r * Math.sin(theta) * Math.sin(phi);
-        const localX = -r * (1 - Math.cos(theta)); // Surface points relative to vertex
         
+        // CRITICAL: Handle positive vs negative radius for concave/convex surfaces
+        // Positive radius: convex toward +X, surface curves into -X from vertex
+        // Negative radius: concave toward +X, surface curves into +X from vertex
+        const radiusSign = Math.sign(radius);
+        const localX = - 1 * radiusSign * r * (Math.cos(theta) - 1); // Proper concave/convex handling
         const [worldX, worldY, worldZ] = surface.inverseTransform.transformPoint(localX, localY, localZ);
         vertices.push({ x: worldX, y: worldY, z: worldZ });
       }
+    }
+
+    // Apply surface normal * radius shift to position all vertices correctly in world system
+    // NOTE: This shift is also needed for normal vectors and corner markers for consistent positioning
+    const surfaceNormal = surface.normal || new Vector3(-1, 0, 0);
+    const radiusShift = new Vector3(
+      surfaceNormal.x * radius,
+      surfaceNormal.y * radius,
+      surfaceNormal.z * radius
+    );
+    
+    // Shift all vertices by normal * radius to position faces correctly
+    for (let i = 0; i < vertices.length; i++) {
+      vertices[i].x += radiusShift.x;
+      vertices[i].y += radiusShift.y;
+      vertices[i].z += radiusShift.z;
     }
 
     // Generate triangular faces
@@ -958,6 +978,22 @@ export class SurfaceRenderer {
       }
     }
 
+    // Apply surface normal * radius shift to position all vertices correctly in world system
+    // NOTE: This shift is also needed for normal vectors and corner markers for consistent positioning
+    const surfaceNormal = surface.normal || new Vector3(-1, 0, 0);
+    const radiusShift = new Vector3(
+      surfaceNormal.x * radius,
+      surfaceNormal.y * radius,
+      surfaceNormal.z * radius
+    );
+    
+    // Shift all vertices by normal * radius to position faces correctly
+    for (let i = 0; i < vertices.length; i++) {
+      vertices[i].x += radiusShift.x;
+      vertices[i].y += radiusShift.y;
+      vertices[i].z += radiusShift.z;
+    }
+
     // Generate triangular faces
     for (let zi = 0; zi < zSteps; zi++) {
       for (let ti = 0; ti < thetaSteps; ti++) {
@@ -999,6 +1035,14 @@ export class SurfaceRenderer {
     ];
     
     const worldCorners = localCorners.map(([x, y, z]) => transformLocalPoint(x, y, z));
+
+    // Apply surface normal * radius shift to corner markers for consistent positioning
+    // NOTE: Same shift applied to mesh vertices and normal vectors
+    for (let i = 0; i < worldCorners.length; i++) {
+      worldCorners[i].x += radiusShift.x;
+      worldCorners[i].y += radiusShift.y;
+      worldCorners[i].z += radiusShift.z;
+    }
 
     const result = {
       type: 'mesh3d',
@@ -1073,7 +1117,20 @@ export class SurfaceRenderer {
     // Surface apex position (always at center for visualization)
     const apexLocal = new Vector3(0, 0, 0);
     const apexWorld = OpticalSurfaceFactory.transformLocalToWorld(surface, apexLocal.x, apexLocal.y, apexLocal.z);
-    const [apexX, apexY, apexZ] = [apexWorld.x, apexWorld.y, apexWorld.z];
+    let [apexX, apexY, apexZ] = [apexWorld.x, apexWorld.y, apexWorld.z];
+
+    // Apply surface normal * radius shift for consistent positioning with mesh
+    // NOTE: Same shift applied to mesh vertices to ensure normal aligns with visible surface
+    const radius = surface.radius || 0;
+    const surfaceNormal = surface.normal || new Vector3(-1, 0, 0);
+    const radiusShift = new Vector3(
+      surfaceNormal.x * radius,
+      surfaceNormal.y * radius,
+      surfaceNormal.z * radius
+    );
+    apexX += radiusShift.x;
+    apexY += radiusShift.y;
+    apexZ += radiusShift.z;
 
     let normalVec: Vector3;
 
