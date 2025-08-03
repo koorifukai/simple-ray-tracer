@@ -72,12 +72,15 @@ optimization_settings:
   #mode: angle
   param: None`;
 
+import type { ValidationError } from '../optical/YamlValidator';
+
 interface OpticalDesignAppProps {}
 
 export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
   const [yamlContent, setYamlContent] = useState(defaultYaml);
   const [isYamlValid, setIsYamlValid] = useState(true);
   const [yamlError, setYamlError] = useState<string>('');
+  const [validationErrors, setValidationErrors] = useState<ValidationError[]>([]);
   const [parsedData, setParsedData] = useState<any>(null);
   const [lastValidSystem, setLastValidSystem] = useState<any>(null);
   const [fontSize, setFontSize] = useState(13);
@@ -100,9 +103,10 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
     setYamlContent(newYaml);
   }, []);
 
-  const handleYamlValidation = useCallback((isValid: boolean, error?: string) => {
+  const handleYamlValidation = useCallback((isValid: boolean, error?: string, errors?: ValidationError[]) => {
     setIsYamlValid(isValid);
     setYamlError(error || '');
+    setValidationErrors(errors || []);
     
     if (isValid && autoUpdate) {
       try {
@@ -325,10 +329,24 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
                   </span>
                 </>
               ) : (
-                <>
-                  <span>✗</span>
-                  <span>{yamlError}</span>
-                </>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <div>
+                    <span>✗</span>
+                    <span>{yamlError}</span>
+                  </div>
+                  {validationErrors.length > 1 && (
+                    <div style={{ fontSize: '0.9em', color: '#ffaa44', marginLeft: '16px' }}>
+                      {validationErrors.slice(1, 4).map((error, index) => (
+                        <div key={index}>
+                          Line {error.line}: {error.message}
+                        </div>
+                      ))}
+                      {validationErrors.length > 4 && (
+                        <div>... and {validationErrors.length - 4} more errors</div>
+                      )}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           </div>

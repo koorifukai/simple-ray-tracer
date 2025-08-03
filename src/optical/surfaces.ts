@@ -606,7 +606,13 @@ export class OpticalSurfaceFactory {
     const fv1_mag = Math.sqrt(a.x * a.x + a.y * a.y);
     const fv2_mag = Math.sqrt(b.x * b.x + b.y * b.y);
     
-    // Normalize XY projections
+    // Handle case where one or both vectors are purely in Z direction
+    if (fv1_mag < 1e-6 || fv2_mag < 1e-6) {
+      // One or both vectors have no XY component - use direct rotation
+      return this.createRotationMatrixFromNormals(a, b);
+    }
+    
+    // Normalize XY projections (safe now since magnitudes are non-zero)
     const fv1 = new Vector3(a.x / fv1_mag, a.y / fv1_mag, 0);
     const fv2 = new Vector3(b.x / fv2_mag, b.y / fv2_mag, 0);
     

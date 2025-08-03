@@ -493,7 +493,7 @@ export class RayTracer {
         const shadowLightId = this.getNextCascadingLightId(originalLightId);
         
         if (!isFirstTrace) {
-          console.log(`🔍 LIGHT ID CASCADING: ${originalLightId} -> ${originalLightId} & ${shadowLightId}`);
+          console.log(`🔍 LIGHT ID CASCADING: ${originalLightId} -> ${originalLightId} & ${shadowLightId} (PARTIAL surface)`);
         }
         
         let transmittedRayForTracing: Ray;
@@ -646,6 +646,10 @@ export class RayTracer {
         if (!isFirstTrace) {
           this.log('ray', `Ray transmitted, new direction:`, currentRay.direction);
           this.log('ray', `Added transmitted ray segment to path`);
+          // Debug: Show light ID continuation
+          if (currentRay.lightId !== Math.floor(currentRay.lightId)) {
+            console.log(`🔍 FRACTIONAL RAY CONTINUES: Light ID ${currentRay.lightId} continues through ${surface.mode} surface (${surface.id})`);
+          }
         }
         
       } else if (result.reflected) {
@@ -654,6 +658,10 @@ export class RayTracer {
         if (!isFirstTrace) {
           this.log('ray', `Ray reflected, new direction:`, currentRay.direction);
           this.log('ray', `Added reflected ray segment to path`);
+          // Debug: Show light ID continuation  
+          if (currentRay.lightId !== Math.floor(currentRay.lightId)) {
+            console.log(`🔍 FRACTIONAL RAY CONTINUES: Light ID ${currentRay.lightId} continues through ${surface.mode} surface (${surface.id})`);
+          }
         }
         
       } else {
