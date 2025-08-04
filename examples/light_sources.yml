@@ -20,13 +20,13 @@ assemblies:
   - aid: 0
 light_sources:
   - ring:
-      {lid: 0, position: [0,-5,-5], vector: [1,0,0], number: 25, wavelength: 488, type: ring, param: [10,0.5,30]}
-  - linear:
-      {lid: 1, position: [0,-5,5], vector: [1,0,0], number: 25, wavelength: 532, type: linear, param: [10,45]}
-  - uniform:
-      {lid: 2, position: [0,5,-5], vector: [1,0,0], number: 25, wavelength: 589, type: uniform, param: 5}
-  - point:
-      {lid: 3, position: [0,5,5], vector: [1,0,0], number: 25, wavelength: 633, type: point, param: 0.2}
+      {lid: 0, position: [0,-5,-5], vector: [1,1,1], number: 25, wavelength: 488, type: ring, param: [10,0.5,30]}
+    linear:
+      {lid: 1, position: [0,-5,5], vector: [1,1,1], number: 25, wavelength: 532, type: linear, param: [10,45]}
+    uniform:
+      {lid: 2, position: [0,5,-5], vector: [1,1,1], number: 25, wavelength: 589, type: uniform, param: 5}
+    point:
+      {lid: 3, position: [0,5,5], vector: [1,1,1], number: 25, wavelength: 633, type: point, param: 0.2}
   
 optical_trains:
   - a: 

@@ -107,42 +107,70 @@ export class LightSource {
 
   /**
    * Create transformation matrices for light source positioning
-   * Similar to surface transformation matrices
+   * Creates proper rotation + translation to transform rays from local [1,0,0] to desired direction
    */
   private createTransformationMatrices(): void {
-    // Create transformation matrix from light source position and direction
-    // This transforms from local light coordinates to world coordinates
-    this.forwardTransform = Matrix4.createTransformation(this.position, this.getRotationFromDirection());
+    // Create rotation matrix to align local +X axis with desired direction
+    const localForward = new Vector3(1, 0, 0); // Default forward direction
+    const targetDirection = this.direction.normalize();
+    
+    // If direction is already [1,0,0], no rotation needed
+    if (Math.abs(targetDirection.dot(localForward) - 1.0) < 1e-10) {
+      this.forwardTransform = Matrix4.translation(this.position.x, this.position.y, this.position.z);
+    } else if (Math.abs(targetDirection.dot(localForward) + 1.0) < 1e-10) {
+      // Direction is [-1,0,0], need 180° rotation
+      const rotationMatrix = Matrix4.rotationFromAxisAngle(new Vector3(0, 0, 1), Math.PI);
+      const translationMatrix = Matrix4.translation(this.position.x, this.position.y, this.position.z);
+      this.forwardTransform = translationMatrix.multiply(rotationMatrix);
+    } else {
+      // General case: create rotation matrix using cross product
+      const axis = localForward.cross(targetDirection).normalize();
+      const angle = Math.acos(Math.max(-1, Math.min(1, localForward.dot(targetDirection))));
+      
+      const rotationMatrix = Matrix4.rotationFromAxisAngle(axis, angle);
+      const translationMatrix = Matrix4.translation(this.position.x, this.position.y, this.position.z);
+      this.forwardTransform = translationMatrix.multiply(rotationMatrix);
+    }
+    
     this.inverseTransform = this.forwardTransform.inverse();
   }
 
   /**
-   * Calculate rotation angles from direction vector
-   * Similar to how surfaces calculate their orientation
+   * Set direction from angles: [azimuth, elevation] in degrees
+   * [0,0] = parallel to +X axis
+   * [45,-45] = 45° right-handed rotation about Z, then -45° elevation
    */
-  private getRotationFromDirection(): Vector3 {
-    const dir = this.direction.normalize();
+  setDirectionFromAngles(azimuth: number, elevation: number): void {
+    const azimuthRad = azimuth * Math.PI / 180;
+    const elevationRad = elevation * Math.PI / 180;
     
-    // Calculate Euler angles to align local X-axis with direction vector
-    // Local coordinate system: X = forward (direction), Y = right, Z = up
-    const rotY = Math.atan2(-dir.z, dir.x); // Rotation around Y-axis
-    const rotZ = Math.atan2(dir.y, Math.sqrt(dir.x * dir.x + dir.z * dir.z)); // Rotation around Z-axis
+    // Start with +X direction [1,0,0]
+    // Apply azimuth rotation about Z-axis (right-handed)
+    // Then apply elevation rotation (negative elevation = downward)
+    const cosAz = Math.cos(azimuthRad);
+    const sinAz = Math.sin(azimuthRad);
+    const cosEl = Math.cos(elevationRad);
+    const sinEl = Math.sin(elevationRad);
     
-    return new Vector3(0, rotY, rotZ); // No rotation around X-axis (roll)
+    this.direction = new Vector3(
+      cosAz * cosEl,  // X component
+      sinAz * cosEl,  // Y component  
+      sinEl           // Z component
+    ).normalize();
   }
 
   /**
    * Generate linear array of rays (equivalent to Python linear())
-   * Creates rays in local coordinate system then transforms to world
+   * Creates rays in local coordinate system with +X as forward direction
    */
   linear(width: number, dial: number = 0): void {
     this.sourceType = 'linear';
     this.rays = [];
 
-    // Create linear array in local Y-Z plane (perpendicular to X-axis direction)
+    // Generate rays in local coordinate system: +X = forward, Y-Z plane = perpendicular
     // Add 90° offset so dial=0 points to 12 o'clock (positive Z)
     const dialRad = (dial + 90) * Math.PI / 180;
-    const positions: Vector3[] = [];
+    const rayData: { position: Vector3, direction: Vector3 }[] = [];
 
     for (let i = 0; i < this.numberOfRays; i++) {
       const t = this.numberOfRays > 1 ? (i / (this.numberOfRays - 1)) * 2 - 1 : 0; // -1 to 1
@@ -152,23 +180,27 @@ export class LightSource {
       const localY = localOffset * Math.cos(dialRad);
       const localZ = localOffset * Math.sin(dialRad);
       
-      // Position is offset from origin in local coordinate system
-      positions.push(new Vector3(0, localY, localZ));
+      // Local position offset, local direction is always +X
+      const localPosition = new Vector3(0, localY, localZ);
+      const localDirection = new Vector3(1, 0, 0); // Always forward in local space
+      
+      rayData.push({ position: localPosition, direction: localDirection });
     }
 
-    // Transform to world coordinates and create rays
-    this.createRaysFromPositions(positions);
+    // Transform all rays to world coordinates
+    this.createRaysFromLocalData(rayData);
   }
 
   /**
    * Generate ring pattern of rays (equivalent to Python ring())
+   * Creates rays in local coordinate system with +X as forward direction
    */
   ring(radius: number, aspectRatio: number = 1, dial: number = 0): void {
     this.sourceType = 'ring';
     this.rays = [];
 
     const dialRad = (dial * Math.PI) / 180;
-    const positions: Vector3[] = [];
+    const rayData: { position: Vector3, direction: Vector3 }[] = [];
 
     // Calculate ellipse parameters
     let w = 1, h = 1;
@@ -187,24 +219,32 @@ export class LightSource {
       const rotY = localY * Math.cos(dialRad) - localZ * Math.sin(dialRad);
       const rotZ = localY * Math.sin(dialRad) + localZ * Math.cos(dialRad);
 
-      positions.push(new Vector3(0, rotY, rotZ));
+      // Local position offset, local direction is always +X
+      const localPosition = new Vector3(0, rotY, rotZ);
+      const localDirection = new Vector3(1, 0, 0); // Always forward in local space
+      
+      rayData.push({ position: localPosition, direction: localDirection });
     }
 
-    this.createRaysFromPositions(positions);
+    this.createRaysFromLocalData(rayData);
   }
 
   /**
    * Generate uniform hexagonal grid (equivalent to Python uniform())
+   * Creates rays in local coordinate system with +X as forward direction
    */
   uniform(radius: number): void {
     this.sourceType = 'uniform';
     this.rays = [];
 
-    const positions: Vector3[] = [];
+    const rayData: { position: Vector3, direction: Vector3 }[] = [];
     
     // Center point
     if (this.numberOfRays > 0) {
-      positions.push(new Vector3(0, 0, 0));
+      rayData.push({ 
+        position: new Vector3(0, 0, 0), 
+        direction: new Vector3(1, 0, 0) 
+      });
     }
 
     // Generate remaining rays in concentric circles
@@ -219,7 +259,11 @@ export class LightSource {
         const angle = (i / raysInThisLayer) * 2 * Math.PI;
         const localY = layerRadius * Math.cos(angle);
         const localZ = layerRadius * Math.sin(angle);
-        positions.push(new Vector3(0, localY, localZ));
+        
+        rayData.push({ 
+          position: new Vector3(0, localY, localZ), 
+          direction: new Vector3(1, 0, 0) 
+        });
         raysAdded++;
         
         if (raysAdded >= this.numberOfRays) break;
@@ -227,18 +271,19 @@ export class LightSource {
       layer++;
     }
 
-    this.createRaysFromPositions(positions);
+    this.createRaysFromLocalData(rayData);
   }
 
   /**
    * Generate Gaussian distribution (equivalent to Python gaussian())
+   * Creates rays in local coordinate system with +X as forward direction
    */
   gaussian(halfESquare: number): void {
     this.sourceType = 'gaussian';
     this.rays = [];
 
     const sigma = halfESquare / (2 * Math.sqrt(2));
-    const positions: Vector3[] = [];
+    const rayData: { position: Vector3, direction: Vector3 }[] = [];
 
     for (let i = 0; i < this.numberOfRays; i++) {
       // Box-Muller transform for normal distribution
@@ -249,24 +294,28 @@ export class LightSource {
 
       const localY = z0 * sigma;
       const localZ = z1 * sigma;
-      positions.push(new Vector3(0, localY, localZ));
+      
+      rayData.push({ 
+        position: new Vector3(0, localY, localZ), 
+        direction: new Vector3(1, 0, 0) 
+      });
     }
 
-    this.createRaysFromPositions(positions);
+    this.createRaysFromLocalData(rayData);
   }
 
   /**
    * Generate point source with divergence (equivalent to Python point())
-   * Creates divergent rays from a single point
+   * Creates divergent rays from a single point in local coordinate system
    */
   point(divergence: number = 0): void {
     this.sourceType = 'point';
     this.divergence = divergence;
     this.rays = [];
 
+    const rayData: { position: Vector3, direction: Vector3 }[] = [];
+
     if (divergence > 0) {
-      const directions: Vector3[] = [];
-      
       // Generate exactly numberOfRays directions within cone
       for (let i = 0; i < this.numberOfRays; i++) {
         // Generate random direction within cone using spherical coordinates
@@ -278,44 +327,39 @@ export class LightSource {
         const localY = Math.sin(phi) * Math.cos(theta); // Right component  
         const localZ = Math.sin(phi) * Math.sin(theta); // Up component
         
-        directions.push(new Vector3(localX, localY, localZ));
+        rayData.push({ 
+          position: new Vector3(0, 0, 0), // All rays start from origin in local space
+          direction: new Vector3(localX, localY, localZ) 
+        });
       }
-
-      this.createRaysFromDirections(directions);
     } else {
-      // No divergence: generate numberOfRays identical rays all pointing in same direction
+      // No divergence: generate numberOfRays identical rays all pointing in +X direction
       for (let i = 0; i < this.numberOfRays; i++) {
-        this.rays.push(new Ray(this.position, this.direction, this.wavelength, this.lid));
+        rayData.push({ 
+          position: new Vector3(0, 0, 0), 
+          direction: new Vector3(1, 0, 0) 
+        });
       }
     }
+
+    this.createRaysFromLocalData(rayData);
   }
 
   /**
-   * Create rays from local positions (transform and orient)
-   * Uses proper transformation matrix like surfaces
+   * Create rays from local position and direction data
+   * Applies unified transformation to both position and direction
    */
-  private createRaysFromPositions(localPositions: Vector3[]): void {
-    localPositions.forEach(localPos => {
-      // Transform local position to world coordinates using transformation matrix
-      const worldPosition = this.forwardTransform.transformPointV3(localPos);
+  private createRaysFromLocalData(rayData: { position: Vector3, direction: Vector3 }[]): void {
+    this.rays = [];
+    
+    rayData.forEach(data => {
+      // Transform local position to world coordinates
+      const worldPosition = this.forwardTransform.transformPointV3(data.position);
       
-      // All rays have same direction for position-based sources
-      const ray = new Ray(worldPosition, this.direction, this.wavelength, this.lid);
-      this.rays.push(ray);
-    });
-  }
-
-  /**
-   * Create rays from local directions (for divergent sources)
-   * Uses proper transformation matrix like surfaces
-   */
-  private createRaysFromDirections(localDirections: Vector3[]): void {
-    localDirections.forEach(localDir => {
-      // Transform local direction to world coordinates using transformation matrix
-      const worldDirection = this.forwardTransform.transformVectorV3(localDir);
+      // Transform local direction to world coordinates  
+      const worldDirection = this.forwardTransform.transformVectorV3(data.direction);
       
-      // All rays start from same position for direction-based sources
-      const ray = new Ray(this.position, worldDirection, this.wavelength, this.lid);
+      const ray = new Ray(worldPosition, worldDirection, this.wavelength, this.lid);
       this.rays.push(ray);
     });
   }
@@ -390,11 +434,36 @@ export class LightSourceFactory {
       sourceData.position?.[2] || 0
     );
 
-    const direction = new Vector3(
-      sourceData.vector?.[0] || 1,
-      sourceData.vector?.[1] || 0,
-      sourceData.vector?.[2] || 0
-    ).normalize();
+    let direction: Vector3;
+    
+    // Support both vector and angles for direction specification
+    if (sourceData.angles && Array.isArray(sourceData.angles)) {
+      // Use angles: [azimuth, elevation] in degrees
+      const azimuth = sourceData.angles[0] || 0;
+      const elevation = sourceData.angles[1] || 0;
+      
+      // Calculate direction from angles
+      const azimuthRad = azimuth * Math.PI / 180;
+      const elevationRad = elevation * Math.PI / 180;
+      
+      const cosAz = Math.cos(azimuthRad);
+      const sinAz = Math.sin(azimuthRad);
+      const cosEl = Math.cos(elevationRad);
+      const sinEl = Math.sin(elevationRad);
+      
+      direction = new Vector3(
+        cosAz * cosEl,  // X component
+        sinAz * cosEl,  // Y component  
+        sinEl           // Z component
+      ).normalize();
+    } else {
+      // Use vector direction (existing behavior)
+      direction = new Vector3(
+        sourceData.vector?.[0] || 1,
+        sourceData.vector?.[1] || 0,
+        sourceData.vector?.[2] || 0
+      ).normalize();
+    }
 
     const light = new LightSource(
       sourceData.lid || 0,

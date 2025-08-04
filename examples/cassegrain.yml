@@ -1,10 +1,4 @@
 display_settings:
-  figsize: [7, 7]
-  theme: dark_background
-  lens_display_theta: 10
-  lens_display_phi: 20
-  ray_display_density: 0.8
-  obj_display_density: 0.5
   fill_with_grey: False
   show_grid: True
 assemblies:
@@ -28,7 +22,7 @@ surfaces:
       {sid: 1, shape: plano, height: 20, width: 20, mode: absorption}    
 light_sources:
   - l1:
-      {lid: 0, position: [0,5,0], vector: [1,0,0], number: 25, wavelength: 488, type: ring, param: 40}
+      {lid: 0, position: [0,5,0], vector: [1,0,0], number: 25, wavelength: 488, type: ring, param: 80}
 optical_trains:
   - light: 
      {lid: 0}
@@ -37,7 +31,7 @@ optical_trains:
     beam_spliter: 
      {aid: 1, position: [400,0,0], normal: [-1,0,1]}
     detector_1:
-     {sid: 0, position: [500,0,0], normal: [-1,0,0]}
+     {sid: 0, position: [475,0,0], normal: [-1,0,0]}
     detector_2:
-     {sid: 1, position: [400,0,100], normal: [0,0,-1]}
+     {sid: 1, position: [400,0,75], normal: [0,0,-1]}
     

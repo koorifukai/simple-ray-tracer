@@ -201,9 +201,9 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
     }
   }, [isYamlValid, yamlContent]);
 
-
-
-
+  const handleTutorial = useCallback(() => {
+    window.open('https://github.com/koorifukai/simple-ray-tracer', '_blank');
+  }, []);
 
   const increaseFontSize = useCallback(() => {
     setFontSize(prev => Math.min(prev + 1, 24));
@@ -220,6 +220,9 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
         <div className="menubar-left">
           <h1 className="menubar-title">Simple Ray Tracer</h1>
           <div className="menubar-buttons">
+            <button className="menu-button" onClick={handleTutorial}>
+              Tutorial
+            </button>
             <button className="menu-button" onClick={handleNewSystem}>
               New System
             </button>
@@ -274,9 +277,6 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
               </button>
             </div>
           </div>
-        </div>
-        <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-          {parsedData?.assemblies?.[0] ? ' ' : 'No system loaded'}
         </div>
       </div>
 
@@ -361,7 +361,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
                   ? `   `
                   : lastValidSystem?.assemblies?.[0] 
                     ? `  `
-                    : "Optical System Visualization"
+                    : "Ray Tracer Visualization"
               }
               yamlContent={autoUpdate ? (isYamlValid ? yamlContent : undefined) : lastRayTracedYaml}
             />
