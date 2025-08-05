@@ -1,6 +1,8 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { YamlEditor } from './YamlEditor';
 import { EmptyPlot3D } from '../visualization/EmptyPlot3D';
+import { IntersectionPlot } from './IntersectionPlot';
+import { RayIntersectionCollector } from './RayIntersectionCollector';
 import * as yaml from 'js-yaml';
 
 // Default optical system YAML
@@ -81,6 +83,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
   const [autoUpdate, setAutoUpdate] = useState(true);
   const [lastRayTracedYaml, setLastRayTracedYaml] = useState(defaultYaml);
   const [analysisType, setAnalysisType] = useState<'None' | 'Spot Diagram' | 'Ray Hit Map' | 'Tabular Display'>('None');
+  const [selectedSurface, setSelectedSurface] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Initialize with default system
@@ -189,6 +192,95 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
     setAnalysisType(event.target.value as 'None' | 'Spot Diagram' | 'Ray Hit Map' | 'Tabular Display');
   }, []);
 
+  // Control ray intersection data collection based on analysis type
+  useEffect(() => {
+    const collector = RayIntersectionCollector.getInstance();
+    
+    if (analysisType === 'Ray Hit Map' || analysisType === 'Spot Diagram') {
+      collector.startCollection();
+      console.log(`🎯 Started ray intersection data collection for ${analysisType.toLowerCase()} analysis`);
+    } else {
+      collector.stopCollection();
+      if (analysisType !== 'None') {
+        console.log('🔄 Stopped ray intersection data collection (analysis type changed)');
+      }
+    }
+    
+    // Cleanup function
+    return () => {
+      collector.stopCollection();
+    };
+  }, [analysisType]);
+
+  // Extract available surfaces from parsed YAML data and hit data
+  const getAvailableSurfaces = useCallback(() => {
+    if (!parsedData) return [];
+    
+    const surfaces: Array<{id: string, label: string}> = [];
+    
+    // If we're in intersection analysis mode and have collected data, use that
+    if (analysisType === 'Ray Hit Map' || analysisType === 'Spot Diagram') {
+      const collector = RayIntersectionCollector.getInstance();
+      const availableSurfaces = collector.getAvailableSurfaces();
+      
+      if (availableSurfaces.length > 0) {
+        return availableSurfaces.map(surface => ({
+          id: surface.id,
+          label: surface.assemblyName 
+            ? `${surface.assemblyName}: ${surface.name} (${surface.intersectionCount} hits)`
+            : `surface: ${surface.name} (${surface.intersectionCount} hits)`
+        }));
+      }
+    }
+    
+    // Fallback to YAML structure if no hit data available
+    // Add surfaces from assemblies
+    if (parsedData.assemblies && Array.isArray(parsedData.assemblies)) {
+      parsedData.assemblies.forEach((assembly: any, assemblyIndex: number) => {
+        const assemblyId = assembly.aid?.toString() || `${assemblyIndex}`;
+        
+        // Check if assembly has a name/identifier from optical trains
+        let assemblyName = `assembly ${assemblyId}`;
+        if (parsedData.optical_trains && Array.isArray(parsedData.optical_trains)) {
+          // Find optical train element that references this assembly
+          parsedData.optical_trains.forEach((trainGroup: any) => {
+            Object.entries(trainGroup).forEach(([trainName, trainData]: [string, any]) => {
+              if (trainData.aid?.toString() === assemblyId) {
+                assemblyName = trainName;
+              }
+            });
+          });
+        }
+        
+        // Add each surface in the assembly
+        Object.keys(assembly).forEach(surfaceKey => {
+          if (surfaceKey !== 'aid') {
+            surfaces.push({
+              id: `assembly_${assemblyId}_${surfaceKey}`,
+              label: assemblyName !== `assembly ${assemblyId}` 
+                ? `${assemblyName}: ${surfaceKey}`
+                : `surface: ${surfaceKey}`
+            });
+          }
+        });
+      });
+    }
+    
+    // Add standalone surfaces
+    if (parsedData.surfaces && Array.isArray(parsedData.surfaces)) {
+      parsedData.surfaces.forEach((surfaceGroup: any) => {
+        Object.keys(surfaceGroup).forEach(surfaceKey => {
+          surfaces.push({
+            id: `surface_${surfaceKey}`,
+            label: `surface: ${surfaceKey}`
+          });
+        });
+      });
+    }
+    
+    return surfaces;
+  }, [parsedData, analysisType]);
+
   return (
     <div className="app-container">
       {/* Menu Bar */}
@@ -290,13 +382,44 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
           {/* Analysis Panel */}
           {analysisType !== 'None' && (
             <div className="analysis-panel">
-              <div className="analysis-header">
-                {analysisType}
-              </div>
               <div className="analysis-content">
-                <div className="placeholder-content">
-                  <p>{analysisType} functionality will be implemented here</p>
-                </div>
+                {analysisType === 'Ray Hit Map' || analysisType === 'Spot Diagram' ? (
+                  <div className="hit-map-layout">
+                    {/* Left side - Compact surface list */}
+                    <div className="surface-list-container">
+                      <div className="surface-list">
+                        {getAvailableSurfaces().map(surface => (
+                          <div 
+                            key={surface.id}
+                            className={`surface-item ${selectedSurface === surface.id ? 'selected' : ''}`}
+                            onClick={() => setSelectedSurface(surface.id)}
+                          >
+                            {surface.label}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    
+                    {/* Right side - Full height intersection plot */}
+                    <div className="hit-map-container">
+                      {selectedSurface ? (
+                        <IntersectionPlot 
+                          surfaceId={selectedSurface}
+                          analysisType={analysisType as 'Hit Map' | 'Spot Diagram'}
+                          yamlContent={yamlContent}
+                        />
+                      ) : (
+                        <div className="hit-map-empty">
+                          <p>Select a surface</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="placeholder-content">
+                    <p>{analysisType} functionality will be implemented here</p>
+                  </div>
+                )}
               </div>
             </div>
           )}

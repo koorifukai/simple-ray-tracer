@@ -7,6 +7,7 @@
 import { Vector3 } from '../math/Matrix4';
 import { Ray } from './LightSource';
 import type { OpticalSurface } from './surfaces';
+import { RayIntersectionCollector } from '../components/RayIntersectionCollector';
 
 /**
  * Surface warning for optical design issues
@@ -339,6 +340,22 @@ export class RayTracer {
     result.intersection.point = this.transformPointToGlobal(intersection.point, surface);
     result.intersection.normal = this.transformVectorToGlobal(intersection.normal, surface);
 
+    // Collect hit data for analysis (if collection is active)
+    if (intersection.isValid && rayHitsSurface) {
+      const collector = RayIntersectionCollector.getInstance();
+      collector.recordHit(
+        ray,
+        surface,
+        result.intersection.point,
+        result.intersection.normal,
+        intersection.distance,
+        true, // isValid
+        result.isBlocked,
+        ray.direction,
+        result.transmitted?.direction || result.reflected?.direction
+      );
+    }
+
     return result;
   }
 
@@ -350,6 +367,10 @@ export class RayTracer {
   static traceRaySequential(ray: Ray, surfaces: OpticalSurface[]): Ray[] {
     // Clear warnings at the start of each ray trace
     this.clearWarnings();
+    
+    // Record ray tracing for statistics
+    const collector = RayIntersectionCollector.getInstance();
+    collector.recordRayTrace(ray);
     
     // Check if this is the first ray of this light source
     const isFirstRayOfLight = !this.firstRayProcessed.has(ray.lightId);

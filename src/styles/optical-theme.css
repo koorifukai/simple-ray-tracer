@@ -130,17 +130,23 @@ body {
   align-items: center;
   gap: 8px;
   margin-left: 16px;
-  font-size: 12px;
+  font-size: 13px; /* Match menu button font size */
   color: var(--text-secondary);
+}
+
+.analysis-control label {
+  color: var(--text-primary); /* Make label more prominent */
+  font-weight: 500; /* Add some weight to match button style */
 }
 
 .analysis-dropdown {
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
   color: var(--text-primary);
-  padding: 4px 8px;
-  border-radius: 3px;
-  font-size: 11px;
+  padding: 6px 12px; /* Match menu button padding */
+  border-radius: 4px; /* Match menu button border radius */
+  font-size: 13px; /* Match menu button font size */
+  font-weight: 500; /* Add weight to match button style */
   min-width: 120px;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -264,7 +270,9 @@ input:checked + .toggle-slider:before {
 
 /* Analysis Panel */
 .analysis-panel {
-  flex: 0 0 40%;
+  flex: 0 1 auto; /* Changed from 0 0 40% to allow shrinking */
+  max-height: 400px; /* Limit maximum height */
+  min-height: 250px; /* Ensure minimum usable height */
   border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -283,9 +291,10 @@ input:checked + .toggle-slider:before {
 
 .analysis-content {
   flex: 1;
-  padding: 16px;
-  overflow-y: auto;
+  padding: 0; /* Remove padding to maximize space */
+  overflow: hidden; /* Let children handle overflow */
   color: var(--text-primary);
+  min-height: 0; /* Allow flex shrinking */
 }
 
 .placeholder-content {
@@ -296,6 +305,89 @@ input:checked + .toggle-slider:before {
 .placeholder-content p {
   margin: 8px 0;
   line-height: 1.4;
+}
+
+/* Hit map layout - compact, full height */
+.hit-map-layout {
+  display: flex;
+  gap: 8px;
+  height: 100%;
+  padding: 8px;
+  min-height: 0; /* Allow shrinking */
+}
+
+/* Left side - Compact surface list */
+.surface-list-container {
+  flex: 0 0 200px; /* Fixed width instead of flexible */
+  min-width: 180px;
+  max-width: 220px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0; /* Allow shrinking */
+  margin-right: 12px; /* Add spacing between list and plot */
+}
+
+.surface-list {
+  flex: 1; /* Take up remaining space */
+  overflow-y: auto; /* Enable scrolling */
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background-color: var(--bg-secondary);
+  min-height: 150px; /* Minimum height for scrolling to work */
+}
+
+.surface-item {
+  padding: 8px 10px; /* Slightly more padding */
+  font-size: 12px; /* Slightly larger font */
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: var(--text-primary);
+  white-space: nowrap; /* Prevent text wrapping */
+  overflow: hidden;
+  text-overflow: ellipsis; /* Add ellipsis for long names */
+}
+
+.surface-item:last-child {
+  border-bottom: none;
+}
+
+.surface-item:hover {
+  background-color: var(--bg-tertiary);
+}
+
+.surface-item.selected {
+  background-color: var(--accent);
+  color: white;
+}
+
+/* Right side - Larger hit map taking remaining space */
+.hit-map-container {
+  flex: 1; /* Take remaining space */
+  min-width: 250px; /* Minimum width */
+  min-height: 250px; /* Minimum height */
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  position: relative;
+  order: 2; /* Move to the right */
+}
+
+.hit-map-canvas {
+  width: 100%;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--bg-primary);
+}
+
+.hit-map-empty {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 11px;
 }
 
 .visualization-panel {
