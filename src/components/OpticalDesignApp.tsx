@@ -1,7 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { YamlEditor } from './YamlEditor';
 import { EmptyPlot3D } from '../visualization/EmptyPlot3D';
-import { wavelengthToRGB, rgbToCSSColor } from '../optical/wavelength';
 import * as yaml from 'js-yaml';
 
 // Default optical system YAML
@@ -72,20 +71,16 @@ optimization_settings:
   #mode: angle
   param: None`;
 
-import type { ValidationError } from '../optical/YamlValidator';
-
 interface OpticalDesignAppProps {}
 
 export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
   const [yamlContent, setYamlContent] = useState(defaultYaml);
   const [isYamlValid, setIsYamlValid] = useState(true);
   const [yamlError, setYamlError] = useState<string>('');
-  const [validationErrors, setValidationErrors] = useState<ValidationError[]>([]);
   const [parsedData, setParsedData] = useState<any>(null);
-  const [lastValidSystem, setLastValidSystem] = useState<any>(null);
-  const [fontSize, setFontSize] = useState(13);
-  const [autoUpdate, setAutoUpdate] = useState(true); // Toggle for auto ray tracing
-  const [lastRayTracedYaml, setLastRayTracedYaml] = useState(defaultYaml); // Track last ray traced content
+  const [autoUpdate, setAutoUpdate] = useState(true);
+  const [lastRayTracedYaml, setLastRayTracedYaml] = useState(defaultYaml);
+  const [analysisType, setAnalysisType] = useState<'None' | 'Spot Diagram' | 'Ray Hit Map' | 'Tabular Display'>('None');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Initialize with default system
@@ -93,7 +88,6 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
     try {
       const defaultSystem = yaml.load(defaultYaml) as any;
       setParsedData(defaultSystem);
-      setLastValidSystem(defaultSystem);
     } catch (error) {
       console.error('Failed to parse default YAML:', error);
     }
@@ -103,25 +97,19 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
     setYamlContent(newYaml);
   }, []);
 
-  const handleYamlValidation = useCallback((isValid: boolean, error?: string, errors?: ValidationError[]) => {
+  const handleYamlValidation = useCallback((isValid: boolean, error?: string) => {
     setIsYamlValid(isValid);
     setYamlError(error || '');
-    setValidationErrors(errors || []);
     
     if (isValid && autoUpdate) {
       try {
         const parsed = yaml.load(yamlContent) as any;
         setParsedData(parsed);
         setLastRayTracedYaml(yamlContent);
-        // Keep track of the last valid system
-        if (parsed && typeof parsed === 'object' && parsed.name) {
-          setLastValidSystem(parsed);
-        }
       } catch (err) {
         setParsedData(null);
       }
     } else if (!autoUpdate) {
-      // When auto-update is off, don't update ray tracing but still validate YAML syntax
       console.log('⏸️ Auto-update paused - YAML syntax valid but ray tracing not updated');
     } else {
       setParsedData(null);
@@ -142,7 +130,6 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
       };
       reader.readAsText(file);
     }
-    // Reset the file input
     if (event.target) {
       event.target.value = '';
     }
@@ -169,15 +156,11 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
     setAutoUpdate(newAutoUpdate);
     console.log(`🔄 Auto-update ${newAutoUpdate ? 'enabled' : 'disabled'}`);
     
-    // If turning auto-update back on and YAML is valid, immediately update ray tracing
     if (newAutoUpdate && isYamlValid) {
       try {
         const parsed = yaml.load(yamlContent) as any;
         setParsedData(parsed);
         setLastRayTracedYaml(yamlContent);
-        if (parsed && typeof parsed === 'object' && parsed.name) {
-          setLastValidSystem(parsed);
-        }
         console.log('✅ Auto-update re-enabled - ray tracing updated immediately');
       } catch (err) {
         console.error('❌ Failed to update ray tracing when re-enabling auto-update:', err);
@@ -191,9 +174,6 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
         const parsed = yaml.load(yamlContent) as any;
         setParsedData(parsed);
         setLastRayTracedYaml(yamlContent);
-        if (parsed && typeof parsed === 'object' && parsed.name) {
-          setLastValidSystem(parsed);
-        }
         console.log('🔄 Manual ray tracing update triggered');
       } catch (err) {
         console.error('❌ Failed to manually update ray tracing:', err);
@@ -205,12 +185,8 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
     window.open('https://github.com/koorifukai/simple-ray-tracer', '_blank');
   }, []);
 
-  const increaseFontSize = useCallback(() => {
-    setFontSize(prev => Math.min(prev + 1, 24));
-  }, []);
-
-  const decreaseFontSize = useCallback(() => {
-    setFontSize(prev => Math.max(prev - 1, 8));
+  const handleAnalysisChange = useCallback((event: React.ChangeEvent<HTMLSelectElement>) => {
+    setAnalysisType(event.target.value as 'None' | 'Spot Diagram' | 'Ray Hit Map' | 'Tabular Display');
   }, []);
 
   return (
@@ -233,148 +209,108 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
               Export YAML
             </button>
 
-            {/* Auto-update toggle switch */}
-            <div className="auto-update-control">
-              <label className="toggle-switch">
-                <input
-                  type="checkbox"
-                  checked={autoUpdate}
-                  onChange={handleToggleAutoUpdate}
-                />
-                <span className="toggle-slider"></span>
-              </label>
-              <span className="toggle-label">
-                Auto Ray Trace: {autoUpdate ? 'ON' : 'OFF'}
-              </span>
-              {!autoUpdate && (
-                <button 
-                  className="menu-button manual-update-btn" 
-                  onClick={handleManualUpdate}
-                  disabled={!isYamlValid}
-                  title="Manually update ray tracing with current YAML"
-                >
-                  Update Now
-                </button>
-              )}
+            {/* Secondary dropdown */}
+            <div className="analysis-control">
+              <label htmlFor="analysis-select">Secondary:</label>
+              <select 
+                id="analysis-select"
+                value={analysisType}
+                onChange={handleAnalysisChange}
+                className="analysis-dropdown"
+              >
+                <option value="None">None</option>
+                <option value="Spot Diagram">Spot Diagram</option>
+                <option value="Ray Hit Map">Ray Hit Map</option>
+                <option value="Tabular Display">Tabular Display</option>
+              </select>
             </div>
+          </div>
+        </div>
 
-            <div className="font-controls">
-              Font:
+        {/* Auto-update toggle switch - moved to rightmost */}
+        <div className="menubar-right">
+          <div className="auto-update-control">
+            <label className="toggle-switch">
+              <input
+                type="checkbox"
+                checked={autoUpdate}
+                onChange={handleToggleAutoUpdate}
+              />
+              <span className="toggle-slider"></span>
+            </label>
+            <span className="toggle-label">
+              Auto Refresh: {autoUpdate ? 'ON' : 'OFF'}
+            </span>
+            {!autoUpdate && (
               <button 
-                className="font-button" 
-                onClick={decreaseFontSize}
-                title="Decrease font size"
+                className="menu-button manual-update-btn" 
+                onClick={handleManualUpdate}
+                disabled={!isYamlValid}
+                title="Manually update ray tracing with current YAML"
               >
-                ↓
+                Update Now
               </button>
-              <span style={{ minWidth: '24px', textAlign: 'center' }}>{fontSize}</span>
-              <button 
-                className="font-button" 
-                onClick={increaseFontSize}
-                title="Increase font size"
-              >
-                ↑
-              </button>
-            </div>
+            )}
           </div>
         </div>
       </div>
 
       {/* Main Content */}
       <div className="main-content">
-        {/* YAML Editor Panel */}
-        <div className="yaml-panel">
-          <div className="yaml-editor-container">
-            <YamlEditor 
-              value={yamlContent}
-              onChange={handleYamlChange}
-              onValidationChange={handleYamlValidation}
-              fontSize={fontSize}
-            />
-            <div className={`yaml-status ${isYamlValid ? 'success' : 'error'}`}>
-              {isYamlValid ? (
-                <>
-                  <span>✓</span>
-                  <span>
-                    Valid YAML - {parsedData?.assemblies?.[0] ? Object.keys(parsedData.assemblies[0]).filter(k => k !== 'aid').length : 0} surfaces, 
-                    {' '}{parsedData?.light_sources?.length || 0} light sources,
-                    {' '}{parsedData?.surfaces?.length || 0} standalone surfaces
-                    {parsedData?.light_sources && parsedData.light_sources.length > 0 && (
-                      <span style={{ marginLeft: '8px' }}>
-                        λ: {parsedData.light_sources.map((source: any, i: number) => {
-                          const sourceObj = Object.values(source)[0] as any;
-                          const wavelength = sourceObj?.wavelength;
-                          if (wavelength) {
-                            const color = rgbToCSSColor(wavelengthToRGB(wavelength));
-                            return (
-                              <span 
-                                key={i}
-                                title={`${wavelength}nm`}
-                                style={{ 
-                                  display: 'inline-block',
-                                  width: '12px',
-                                  height: '12px',
-                                  backgroundColor: color,
-                                  border: '1px solid #666',
-                                  marginLeft: '2px',
-                                  borderRadius: '2px'
-                                }}
-                              />
-                            );
-                          }
-                          return null;
-                        })}
-                      </span>
-                    )}
-                  </span>
-                </>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+        {/* Left Column */}
+        <div className="left-column">
+          {/* YAML Editor Panel */}
+          <div className={`yaml-panel ${analysisType !== 'None' ? 'with-analysis' : ''}`}>
+            <div className="yaml-editor-container">
+              <YamlEditor 
+                value={yamlContent}
+                onChange={handleYamlChange}
+                onValidationChange={handleYamlValidation}
+              />
+              <div className={`yaml-status ${isYamlValid ? 'success' : 'error'}`}>
+                {isYamlValid ? (
+                  <>
+                    <span>✓</span>
+                    <span>
+                      Valid YAML - {parsedData?.assemblies?.[0] ? Object.keys(parsedData.assemblies[0]).filter(k => k !== 'aid').length : 0} surfaces, 
+                      {' '}{parsedData?.light_sources?.length || 0} light sources,
+                      {' '}{parsedData?.surfaces?.length || 0} standalone surfaces
+                    </span>
+                  </>
+                ) : (
                   <div>
                     <span>✗</span>
                     <span>{yamlError}</span>
                   </div>
-                  {validationErrors.length > 1 && (
-                    <div style={{ fontSize: '0.9em', color: '#ffaa44', marginLeft: '16px' }}>
-                      {validationErrors.slice(1, 4).map((error, index) => (
-                        <div key={index}>
-                          Line {error.line}: {error.message}
-                        </div>
-                      ))}
-                      {validationErrors.length > 4 && (
-                        <div>... and {validationErrors.length - 4} more errors</div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
+
+          {/* Analysis Panel */}
+          {analysisType !== 'None' && (
+            <div className="analysis-panel">
+              <div className="analysis-header">
+                {analysisType}
+              </div>
+              <div className="analysis-content">
+                <div className="placeholder-content">
+                  <p>{analysisType} functionality will be implemented here</p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Visualization Panel */}
         <div className="visualization-panel">
           <div className="visualization-container">
             <EmptyPlot3D 
-              title={
-                parsedData?.assemblies?.[0] 
-                  ? `   `
-                  : lastValidSystem?.assemblies?.[0] 
-                    ? `  `
-                    : "Ray Tracer Visualization"
-              }
+              title="Ray Tracer Visualization"
               yamlContent={autoUpdate ? (isYamlValid ? yamlContent : undefined) : lastRayTracedYaml}
             />
           </div>
         </div>
-      </div>
-
-      {/* Lower Panel (for future expansion) */}
-      <div className="lower-panel">
-        <div className="panel-header">
-          Analysis Tools (Spot Diagrams, Sequential Design)
-        </div>
-        {/* Future: Spot diagrams, ray fans, etc. */}
       </div>
 
       {/* Hidden file input */}

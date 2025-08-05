@@ -60,6 +60,11 @@ body {
   gap: 24px;
 }
 
+.menubar-right {
+  display: flex;
+  align-items: center;
+}
+
 .menubar-title {
   font-size: 16px;
   font-weight: 600;
@@ -117,6 +122,38 @@ body {
 .font-button:hover {
   background: var(--accent);
   border-color: var(--accent);
+}
+
+/* Analysis dropdown control */
+.analysis-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 16px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.analysis-dropdown {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 4px 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  min-width: 120px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.analysis-dropdown:hover {
+  border-color: var(--accent);
+}
+
+.analysis-dropdown:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.2);
 }
 
 /* Auto-update toggle control */
@@ -198,15 +235,67 @@ input:checked + .toggle-slider:before {
   display: flex;
   overflow: hidden;
   width: 100%;
+  height: calc(100vh - 48px); /* Full height minus menubar */
+}
+
+/* Left column contains YAML and optional analysis panel */
+.left-column {
+  width: 40%;
+  min-width: 400px;
+  height: 100%; /* Ensure full height */
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
 }
 
 .yaml-panel {
-  width: 40%;
-  min-width: 400px;
-  border-right: 1px solid var(--border);
+  flex: 1;
   display: flex;
   flex-direction: column;
   background-color: var(--bg-secondary);
+  overflow: hidden; /* Prevent overflow */
+}
+
+/* YAML panel when analysis is active - shrink to 60% height */
+.yaml-panel.with-analysis {
+  flex: 0 0 60%;
+  max-height: 60%; /* Force height constraint */
+}
+
+/* Analysis Panel */
+.analysis-panel {
+  flex: 0 0 40%;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg-secondary);
+}
+
+.analysis-header {
+  background-color: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.analysis-content {
+  flex: 1;
+  padding: 16px;
+  overflow-y: auto;
+  color: var(--text-primary);
+}
+
+.placeholder-content {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.placeholder-content p {
+  margin: 8px 0;
+  line-height: 1.4;
 }
 
 .visualization-panel {
@@ -233,6 +322,8 @@ input:checked + .toggle-slider:before {
   flex: 1;
   display: flex;
   flex-direction: column;
+  min-height: 0; /* Allow container to shrink */
+  overflow: hidden; /* Prevent overflow issues */
 }
 
 .yaml-editor {
