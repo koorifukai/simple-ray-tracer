@@ -109,6 +109,12 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
         const parsed = yaml.load(yamlContent) as any;
         setParsedData(parsed);
         setLastRayTracedYaml(yamlContent);
+        
+        // Clear intersection data when YAML changes to prevent accumulation
+        const collector = RayIntersectionCollector.getInstance();
+        collector.clearData();
+        console.log('🧹 Cleared intersection data due to YAML update');
+        
       } catch (err) {
         setParsedData(null);
       }
@@ -177,7 +183,12 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
         const parsed = yaml.load(yamlContent) as any;
         setParsedData(parsed);
         setLastRayTracedYaml(yamlContent);
-        console.log('🔄 Manual ray tracing update triggered');
+        
+        // Clear intersection data when manually updating to prevent accumulation
+        const collector = RayIntersectionCollector.getInstance();
+        collector.clearData();
+        console.log('🔄 Manual ray tracing update triggered - intersection data cleared');
+        
       } catch (err) {
         console.error('❌ Failed to manually update ray tracing:', err);
       }
@@ -227,8 +238,8 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
         return availableSurfaces.map(surface => ({
           id: surface.id,
           label: surface.assemblyName 
-            ? `${surface.assemblyName}: ${surface.name} (${surface.intersectionCount} hits)`
-            : `surface: ${surface.name} (${surface.intersectionCount} hits)`
+            ? `Assem: ${surface.assemblyName}, Surf: ${surface.name} (${surface.intersectionCount} hits)`
+            : `Surf: ${surface.name} (${surface.intersectionCount} hits)`
         }));
       }
     }
@@ -258,8 +269,8 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
             surfaces.push({
               id: `assembly_${assemblyId}_${surfaceKey}`,
               label: assemblyName !== `assembly ${assemblyId}` 
-                ? `${assemblyName}: ${surfaceKey}`
-                : `surface: ${surfaceKey}`
+                ? `Assem: ${assemblyName}, Surf: ${surfaceKey}`
+                : `Surf: ${surfaceKey}`
             });
           }
         });
@@ -272,7 +283,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
         Object.keys(surfaceGroup).forEach(surfaceKey => {
           surfaces.push({
             id: `surface_${surfaceKey}`,
-            label: `surface: ${surfaceKey}`
+            label: `Surf: ${surfaceKey}`
           });
         });
       });
@@ -407,6 +418,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
                           surfaceId={selectedSurface}
                           analysisType={analysisType as 'Hit Map' | 'Spot Diagram'}
                           yamlContent={yamlContent}
+                          systemData={parsedData}
                         />
                       ) : (
                         <div className="hit-map-empty">

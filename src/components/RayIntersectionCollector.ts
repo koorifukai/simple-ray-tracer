@@ -89,18 +89,20 @@ export class RayIntersectionCollector {
   }
   
   /**
-   * Start collecting ray hit data
+   * Start collecting ray intersection data
    */
   startCollection(): void {
     this.isCollecting = true;
     this.clearData();
+    console.log('🎯 RayIntersectionCollector: Collection started, data cleared');
   }
   
   /**
-   * Stop collecting ray hit data
+   * Stop collecting ray intersection data
    */
   stopCollection(): void {
     this.isCollecting = false;
+    console.log('🔄 RayIntersectionCollector: Collection stopped');
   }
   
   /**
@@ -137,7 +139,17 @@ export class RayIntersectionCollector {
     incidentDirection: Vector3,
     exitDirection?: Vector3
   ): void {
-    if (!this.isCollecting || !isValid) return;
+    if (!this.isCollecting) {
+      console.log('🔕 RayIntersectionCollector: Not collecting, ignoring hit');
+      return;
+    }
+    
+    if (!isValid) {
+      console.log('🔕 RayIntersectionCollector: Invalid hit, ignoring');
+      return;
+    }
+    
+    console.log(`🎯 RayIntersectionCollector: Recording hit on surface ${surface.id}`);
     
     // Generate unique ray identifier
     const rayId = `${ray.lightId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -191,6 +203,8 @@ export class RayIntersectionCollector {
     this.intersectionData.totalIntersections++;
     this.intersectionData.wavelengths.add(ray.wavelength);
     this.intersectionData.lightSources.add(Math.floor(ray.lightId));
+    
+    console.log(`📊 RayIntersectionCollector: Total intersections: ${this.intersectionData.totalIntersections}, Surface: ${surface.id}`);
   }
   
   /**
@@ -199,6 +213,10 @@ export class RayIntersectionCollector {
   recordRayTrace(_ray: Ray): void {
     if (!this.isCollecting) return;
     this.intersectionData.totalRays++;
+    
+    if (this.intersectionData.totalRays % 10 === 0) {
+      console.log(`📊 RayIntersectionCollector: Total rays traced: ${this.intersectionData.totalRays}`);
+    }
   }
   
   /**
@@ -283,21 +301,5 @@ export class RayIntersectionCollector {
       wavelengthCount: this.intersectionData.wavelengths.size,
       lightSourceCount: this.intersectionData.lightSources.size
     };
-  }
-  
-  // Backward compatibility methods for existing code
-  
-  /**
-   * @deprecated Use getIntersectionData() instead
-   */
-  getHitData(): RayIntersectionData {
-    return this.getIntersectionData();
-  }
-  
-  /**
-   * @deprecated Use getSurfaceIntersectionData() instead
-   */
-  getSurfaceHitData(surfaceId: string): SurfaceIntersectionData | undefined {
-    return this.getSurfaceIntersectionData(surfaceId);
   }
 }
