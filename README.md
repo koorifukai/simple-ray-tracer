@@ -2,7 +2,6 @@
 
 A TypeScript/React optical design application for **optical engineering ray tracing** (lens design, optical systems). This tool implements classical ray tracing methodology for professional optical design workflows.
 
-![Cassegrain Telescope Ray Tracing](Cassegrain%20tutorial.png)
 
 ---
 
@@ -35,6 +34,7 @@ npm run test         # Run ground truth validation tests from console
 
 This tutorial walks through the complete Cassegrain telescope example (`examples/cassegrain.yml`), explaining every line and parameter.
 
+![Cassegrain Telescope Ray Tracing](examples/Cassegrain%20tutorial.png)
 ### **Complete Example File**
 
 ```yaml
@@ -260,7 +260,7 @@ optical_trains:
 
 ### **Tutorial 2: Light Sources - Multiple Ray Patterns**
 
-![Light Sources Tutorial](Lights%20tutorial.png)
+![Light Sources Tutorial](examples/Lights%20tutorial.png)
 
 The light sources example (`examples/light_sources.yml`) demonstrates the four different ray pattern types available in Simple Ray Tracer. This tutorial shows how to create and position multiple light sources with different characteristics.
 
@@ -288,7 +288,7 @@ This example is perfect for understanding how different light sources create dis
 
 ### **Tutorial 3: Amici Prism - Relative Positioning & Dial Rotation**
 
-![Amici Prism Tutorial](Amici%20tutorial.png)
+![Amici Prism Tutorial](examples/Amici%20tutorial.png)
 
 The Amici prism example (`examples/amici.yml`) demonstrates advanced surface positioning using relative coordinates and dial rotation. This tutorial showcases how to build complex optical assemblies where surfaces are positioned relative to each other.
 

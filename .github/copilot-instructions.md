@@ -30,7 +30,8 @@ This is a TypeScript/React optical design application built with Vite. This is f
 - Use proper type imports (`import type { }`) for type-only imports
 - Dark theme throughout (optical design preference)
 - Descriptive variable names for optical concepts (surfaces, rays, materials)
-- When interacting with terminal commands, do not connect multiple commands with `&&` or `;`. Instead, run each command separately to ensure clarity and avoid confusion.
+- When interacting with terminal commands, do not connect multiple commands with `&&` or `;`. Instead, run each command separately to ensure clarity and avoid confusion. When you plan to run multiple commands, tell me in advance so I can run them one by one.
+-Once the browser is alive, hot reload should be working, so dont worry about npm run dev or npm run build unless you have a good reason (e.g. you are adding a new dependency or changing the build config or suspect some changes may result in build error.).
 
 ## Git
 - You do no have the permission to interact with Git commands.

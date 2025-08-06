@@ -35,8 +35,6 @@ assemblies:
       {relative: 0.5, shape: spherical, radius: 196.417,  semidia: 20,  mode: refraction, n2: 1.62041}
     s11:
       {relative: 6.858, shape: spherical, radius: -67.148, semidia: 20,  mode: refraction, n1: 1.62041}
-    s12:
-      {relative: [57.315,0,0], shape: plano, height: 50, width: 50,  mode: absorption}
 
 surfaces:
   - focus:
@@ -61,6 +59,8 @@ optical_trains:
      {lid: 2}
     l:
      {aid: 0, position: [0,0,0], angles: [0,0]}
+    s:
+     {sid: 0, position: [133,0,0], angles: [0,0]}
 
 optimization_settings:
   iterations: 20

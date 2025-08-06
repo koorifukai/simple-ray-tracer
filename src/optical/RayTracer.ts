@@ -337,6 +337,7 @@ export class RayTracer {
     }
 
     // Transform intersection back to global coordinates
+    const localHitPoint = intersection.point.clone(); // Preserve local coordinates for analysis
     result.intersection.point = this.transformPointToGlobal(intersection.point, surface);
     result.intersection.normal = this.transformVectorToGlobal(intersection.normal, surface);
 
@@ -353,7 +354,7 @@ export class RayTracer {
         result.isBlocked,
         ray.direction,
         result.transmitted?.direction || result.reflected?.direction,
-        intersection.point                // Local hit point (before transform)
+        localHitPoint                     // TRUE local coordinates (before transform)
       );
     }
 
