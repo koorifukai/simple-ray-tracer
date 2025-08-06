@@ -346,13 +346,14 @@ export class RayTracer {
       collector.recordHit(
         ray,
         surface,
-        result.intersection.point,
-        result.intersection.normal,
+        result.intersection.point,         // Global hit point
+        result.intersection.normal,       // Global normal
         intersection.distance,
         true, // isValid
         result.isBlocked,
         ray.direction,
-        result.transmitted?.direction || result.reflected?.direction
+        result.transmitted?.direction || result.reflected?.direction,
+        intersection.point                // Local hit point (before transform)
       );
     }
 

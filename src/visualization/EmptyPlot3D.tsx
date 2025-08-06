@@ -5,6 +5,7 @@ import { SurfaceRenderer } from '../optical/surfaces';
 import { Vector3 } from '../math/Matrix4';
 import { Ray } from '../optical/LightSource';
 import { RayTracer } from '../optical/RayTracer';
+import { RayIntersectionCollector } from '../components/RayIntersectionCollector';
 
 declare const Plotly: any;
 
@@ -276,6 +277,26 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
 
           // Add light source indicators and trace rays
           try {
+            // Clear ray tracing data at the beginning of each new session to prevent mixing data from different systems
+            RayTracer.resetFirstRayTracking();
+            RayTracer.clearWarnings();
+            console.log('🧹 Cleared ray tracer state for new tracing session');
+            
+            // CRITICAL FIX: Clear and start intersection data collection BEFORE ray tracing
+            // This ensures clean data for each ray tracing session
+            const collector = RayIntersectionCollector.getInstance();
+            
+            // Always clear data before starting new ray tracing to prevent mixing
+            collector.clearData();
+            console.log('🧹 VISUALIZATION: Cleared intersection data for new ray tracing session');
+            
+            if (!collector.isCollectionActive()) {
+              collector.startCollection();
+              console.log('🎯 VISUALIZATION: Started intersection data collection for upcoming ray trace');
+            } else {
+              console.log('🎯 VISUALIZATION: Intersection collection already active');
+            }
+            
             // console.log('System light sources:', opticalSystem.lightSources);
             
             opticalSystem.lightSources.forEach((source, index) => {

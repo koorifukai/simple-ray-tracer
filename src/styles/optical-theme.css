@@ -262,21 +262,21 @@ input:checked + .toggle-slider:before {
   overflow: hidden; /* Prevent overflow */
 }
 
-/* YAML panel when analysis is active - shrink to 60% height */
+/* YAML panel when analysis is active - 60% of column height */
 .yaml-panel.with-analysis {
-  flex: 0 0 60%;
-  max-height: 60%; /* Force height constraint */
+  height: 60%; /* Fixed 60% for YAML editor */
+  min-height: 300px; /* Minimum height for YAML editor */
+  flex: none; /* Override flex to enforce fixed height */
 }
 
-/* Analysis Panel */
+/* Analysis Panel - base styling */
 .analysis-panel {
-  flex: 0 1 auto; /* Changed from 0 0 40% to allow shrinking */
-  max-height: 400px; /* Limit maximum height */
-  min-height: 250px; /* Ensure minimum usable height */
   border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   background-color: var(--bg-secondary);
+  height: 40%; /* Fixed 40% for secondary panel */
+  flex: none; /* Override flex to enforce fixed height */
 }
 
 .analysis-header {
@@ -371,6 +371,8 @@ input:checked + .toggle-slider:before {
   border-radius: 4px;
   position: relative;
   order: 2; /* Move to the right */
+  /* Ensure container maintains reasonable aspect ratio */
+  max-height: 100%; /* Prevent vertical overflow */
 }
 
 .hit-map-canvas {

@@ -53,21 +53,116 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
     }));
   };
 
-  // Get surface name for title
-  const getSurfaceName = (): string => {
-    const collector = RayIntersectionCollector.getInstance();
-    const surfaceData = collector.getSurfaceIntersectionData(surfaceId);
+  // Generate 2D surface cross-section geometry for background rendering
+  const generateSurfaceGeometry = (surface: any): any[] => {
+    const shapes: any[] = [];
+    const surfaceColor = 'rgba(255,255,255,0.2)'; // Standard background color
     
-    if (surfaceData) {
-      return surfaceData.assemblyName 
-        ? `${surfaceData.assemblyName}: ${surfaceData.surfaceName}`
-        : surfaceData.surfaceName;
+    console.log('🎨 Generating 2D surface geometry:', {
+      shape: surface.shape,
+      semidia: surface.semidia,
+      height: surface.height,
+      width: surface.width
+    });
+    
+    // Determine surface type and create appropriate 2D cross-section
+    const shape = surface.shape || 'plano'; // Default to plano if not specified
+    
+    if (shape === 'spherical' || shape === 'plano') {
+      // Spherical and plano surfaces: render as circle using semidia
+      const radius = surface.semidia || 25; // Default 25mm radius if not specified
+      
+      shapes.push({
+        type: 'circle',
+        xref: 'x',
+        yref: 'y',
+        x0: -radius,
+        y0: -radius,
+        x1: radius,
+        y1: radius,
+        line: {
+          color: 'rgba(255,255,255,0.4)', // Slightly visible border
+          width: 1
+        },
+        fillcolor: surfaceColor,
+        layer: 'below'
+      });
+      
+      console.log(`✅ Generated circular cross-section: radius=${radius}mm`);
+      
+    } else if (shape === 'cylindrical') {
+      // Cylindrical surfaces: render as rectangle using height × width
+      const height = surface.height || 50;
+      const width = surface.width || 50;
+      
+      shapes.push({
+        type: 'rect',
+        xref: 'x',
+        yref: 'y',
+        x0: -width/2,
+        y0: -height/2,
+        x1: width/2,
+        y1: height/2,
+        line: {
+          color: 'rgba(255,255,255,0.4)',
+          width: 1
+        },
+        fillcolor: surfaceColor,
+        layer: 'below'
+      });
+      
+      console.log(`✅ Generated rectangular cross-section: ${width}×${height}mm`);
+      
+    } else if (surface.height && surface.width) {
+      // Surfaces with explicit height/width: render as rectangle
+      const height = surface.height;
+      const width = surface.width;
+      
+      shapes.push({
+        type: 'rect',
+        xref: 'x',
+        yref: 'y',
+        x0: -width/2,
+        y0: -height/2,
+        x1: width/2,
+        y1: height/2,
+        line: {
+          color: 'rgba(255,255,255,0.4)',
+          width: 1
+        },
+        fillcolor: surfaceColor,
+        layer: 'below'
+      });
+      
+      console.log(`✅ Generated explicit rectangular cross-section: ${width}×${height}mm`);
+      
+    } else if (surface.semidia) {
+      // Fallback: if we have semidia, render as circle
+      const radius = surface.semidia;
+      
+      shapes.push({
+        type: 'circle',
+        xref: 'x',
+        yref: 'y',
+        x0: -radius,
+        y0: -radius,
+        x1: radius,
+        y1: radius,
+        line: {
+          color: 'rgba(255,255,255,0.4)',
+          width: 1
+        },
+        fillcolor: surfaceColor,
+        layer: 'below'
+      });
+      
+      console.log(`✅ Generated fallback circular cross-section: radius=${radius}mm`);
     }
     
-    return surfaceId;
+    return shapes;
   };
 
-  // Get surface shape for cross-section background
+  // Get surface from YAML data and generate 2D cross-section
   const getSurfaceShape = (): any[] => {
     let system: any = systemData;
     
@@ -93,7 +188,6 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
     
     // Find the surface in the system
     let targetSurface: any = null;
-    let surfaceColor = 'rgba(255,255,255,0.1)'; // Default
     
     console.log('🔍 Looking for surface:', surfaceId);
     console.log('🔍 System structure:', {
@@ -115,11 +209,6 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
           const assembly = system.assemblies.find((a: any) => a.aid?.toString() === assemblyId);
           if (assembly && assembly[surfaceKey]) {
             targetSurface = assembly[surfaceKey];
-            // Use consistent colors from main 3D plot
-            const colors = ['rgba(255,0,0,0.15)', 'rgba(0,255,0,0.15)', 'rgba(0,0,255,0.15)', 
-                           'rgba(255,255,0,0.15)', 'rgba(255,0,255,0.15)', 'rgba(0,255,255,0.15)'];
-            const assemblyIndex = parseInt(assemblyId) || 0;
-            surfaceColor = colors[assemblyIndex % colors.length];
             console.log('✅ Found assembly surface:', targetSurface);
           }
         }
@@ -134,7 +223,6 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
         for (const surfaceGroup of system.surfaces) {
           if (surfaceGroup[surfaceKey]) {
             targetSurface = surfaceGroup[surfaceKey];
-            surfaceColor = 'rgba(255,165,0,0.15)'; // Orange for standalone
             console.log('✅ Found standalone surface:', targetSurface);
             break;
           }
@@ -147,68 +235,9 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
     
     if (!targetSurface) return [];
     
-    // Create shape based on surface type
-    const shapes: any[] = [];
-    
-    // Get surface properties - use semidia from YAML for radius
-    const diameter = targetSurface.semidia ? targetSurface.semidia * 2 : (targetSurface.diameter || 50);
-    const radius = diameter / 2;
-    
-    console.log('🎨 Surface shape debug:', {
-      surfaceId,
-      shape: targetSurface.shape,
-      semidia: targetSurface.semidia,
-      diameter,
-      radius,
-      width: targetSurface.width,
-      height: targetSurface.height
-    });
-    
-    if (targetSurface.shape === 'spherical' || targetSurface.shape === 'plano' || !targetSurface.shape) {
-      // Draw circular aperture for spherical and plano surfaces
-      shapes.push({
-        type: 'circle',
-        xref: 'x',
-        yref: 'y',
-        x0: -radius,
-        y0: -radius,
-        x1: radius,
-        y1: radius,
-        line: {
-          color: surfaceColor.replace('0.15', '0.4'), // Slightly more opaque border
-          width: 2
-        },
-        fillcolor: surfaceColor,
-        layer: 'below'
-      });
-    } else if (targetSurface.width && targetSurface.height) {
-      // Draw rectangular aperture for surfaces with width/height
-      const width = targetSurface.width;
-      const height = targetSurface.height;
-      shapes.push({
-        type: 'rect',
-        xref: 'x',
-        yref: 'y',
-        x0: -width/2,
-        y0: -height/2,
-        x1: width/2,
-        y1: height/2,
-        line: {
-          color: surfaceColor.replace('0.15', '0.4'),
-          width: 2
-        },
-        fillcolor: surfaceColor,
-        layer: 'below'
-      });
-    }
-    
-    console.log('🎨 Generated shapes:', shapes);
-    
-    return shapes;
+    // Use the new 2D surface geometry generator
+    return generateSurfaceGeometry(targetSurface);
   };
-
-  // Use the same wavelength color function as the main 3D plot
-  // (imported from '../optical/wavelength')
 
   // Create single plot for Hit Map
   const createHitMapPlot = (data: IntersectionPoint[]) => {
@@ -222,10 +251,6 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
           name: 'No data'
         }],
         layout: {
-          title: {
-            text: `${getSurfaceName()} - No Intersection Data`,
-            font: { color: '#ccc', size: 14 }
-          },
           xaxis: {
             title: 'Y Position (mm)',
             color: '#ccc',
@@ -262,18 +287,10 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
 
     console.log(`📊 Hit Map: Processing ${data.length} points from ${new Set(data.map(p => Math.floor(p.lightId))).size} light sources`);
     console.log(`📊 Hit Map: Wavelength groups:`, Array.from(wavelengthGroups.keys()));
-    
-    // Calculate coordinate bounds for centering (to create local coordinate system)
-    const yCoords = data.map(p => p.y);
-    const zCoords = data.map(p => p.z);
-    const centerY = yCoords.length > 0 ? (Math.min(...yCoords) + Math.max(...yCoords)) / 2 : 0;
-    const centerZ = zCoords.length > 0 ? (Math.min(...zCoords) + Math.max(...zCoords)) / 2 : 0;
-    
-    console.log(`📊 Coordinate transformation: center Y=${centerY.toFixed(3)}, center Z=${centerZ.toFixed(3)}`);
 
     const traces = Array.from(wavelengthGroups.entries()).map(([wavelength, points]) => ({
-      x: points.map(p => p.y - centerY), // Convert to local coordinates
-      y: points.map(p => p.z - centerZ), // Convert to local coordinates
+      x: points.map(p => p.y),
+      y: points.map(p => p.z),
       type: 'scatter' as const,
       mode: 'markers' as const,
       marker: {
@@ -288,10 +305,6 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
     return {
       data: traces,
       layout: {
-        title: {
-          text: `${getSurfaceName()} - Ray Intersection Map`,
-          font: { color: '#ccc', size: 14 }
-        },
         xaxis: {
           title: 'Y Position (mm)',
           color: '#ccc',
@@ -308,21 +321,18 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
           zeroline: true,
           zerolinecolor: '#666',
           scaleanchor: 'x', // Equal aspect ratio
-          scaleratio: 1
+          scaleratio: 1,
+          constrain: 'domain' // Robust equal scaling constraint
         },
         plot_bgcolor: '#1e1e1e',
         paper_bgcolor: '#1e1e1e',
         font: { color: '#ccc' },
-        showlegend: true,
-        legend: {
-          x: 1.02,
-          y: 1,
-          bgcolor: 'rgba(30,30,30,0.8)',
-          bordercolor: '#666',
-          borderwidth: 1
-        },
         margin: { l: 60, r: 80, t: 40, b: 50 },
-        shapes: getSurfaceShape() // Add surface cross-section shape
+        shapes: getSurfaceShape(), // Add surface cross-section shape
+        autosize: true, // Let plot size to container
+        // Enforce strict aspect ratio maintenance
+        dragmode: 'pan', // Prevent zoom distortion
+        selectdirection: 'any'
       }
     };
   };
@@ -376,10 +386,6 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
     return {
       data: traces,
       layout: {
-        title: {
-          text: `${getSurfaceName()} - Spot Diagram (All Light Sources)`,
-          font: { color: '#ccc', size: 14 }
-        },
         xaxis: {
           title: 'Y Position (mm)',
           color: '#ccc',
@@ -396,21 +402,19 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
           zeroline: true,
           zerolinecolor: '#666',
           scaleanchor: 'x',
-          scaleratio: 1
+          scaleratio: 1,
+          constrain: 'domain' // Robust equal scaling constraint
         },
         plot_bgcolor: '#1e1e1e',
         paper_bgcolor: '#1e1e1e',
         font: { color: '#ccc' },
-        showlegend: true,
-        legend: {
-          x: 1.02,
-          y: 1,
-          bgcolor: 'rgba(30,30,30,0.8)',
-          bordercolor: '#666',
-          borderwidth: 1
-        },
+        showlegend: false,
         margin: { l: 60, r: 80, t: 40, b: 50 },
-        shapes: getSurfaceShape() // Add surface cross-section shape
+        shapes: getSurfaceShape(), // Add surface cross-section shape
+        autosize: true, // Let plot size to container
+        // Enforce strict aspect ratio maintenance
+        dragmode: 'pan', // Prevent zoom distortion  
+        selectdirection: 'any'
       }
     };
   };
@@ -458,16 +462,45 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
     };
   }, [surfaceId, analysisType, yamlContent]);
 
-  // Handle window resize
+  // Handle window resize with robust aspect ratio enforcement
   useEffect(() => {
     const handleResize = () => {
-      if (plotlyInstanceRef.current) {
-        Plotly.Plots.resize(plotRef.current!);
+      if (plotlyInstanceRef.current && plotRef.current) {
+        // First resize the plot
+        Plotly.Plots.resize(plotRef.current);
+        
+        // Then re-enforce aspect ratio constraints with additional safeguards
+        const update = {
+          'yaxis.scaleanchor': 'x',
+          'yaxis.scaleratio': 1,
+          'yaxis.constrain': 'domain',
+          // Additional constraints to prevent axis collapse
+          'xaxis.fixedrange': false,
+          'yaxis.fixedrange': false,
+          'dragmode': 'pan'
+        };
+        
+        // Use a timeout to ensure the resize completes before enforcing constraints
+        setTimeout(() => {
+          Plotly.relayout(plotRef.current, update).catch((error: any) => {
+            console.warn('Error updating plot aspect ratio after resize:', error);
+          });
+        }, 100);
       }
     };
 
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    // Add debouncing to prevent excessive relayout calls
+    let resizeTimeout: NodeJS.Timeout;
+    const debouncedHandleResize = () => {
+      clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(handleResize, 150);
+    };
+
+    window.addEventListener('resize', debouncedHandleResize);
+    return () => {
+      window.removeEventListener('resize', debouncedHandleResize);
+      clearTimeout(resizeTimeout);
+    };
   }, []);
 
   return (

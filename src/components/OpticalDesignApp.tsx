@@ -83,6 +83,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
   const [autoUpdate, setAutoUpdate] = useState(true);
   const [lastRayTracedYaml, setLastRayTracedYaml] = useState(defaultYaml);
   const [analysisType, setAnalysisType] = useState<'None' | 'Spot Diagram' | 'Ray Hit Map' | 'Tabular Display'>('None');
+  const [refreshTrigger, setRefreshTrigger] = useState(0); // Used to trigger secondary panel refresh
   const [selectedSurface, setSelectedSurface] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -113,7 +114,14 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
         // Clear intersection data when YAML changes to prevent accumulation
         const collector = RayIntersectionCollector.getInstance();
         collector.clearData();
-        console.log('🧹 Cleared intersection data due to YAML update');
+        
+        // Trigger secondary analysis refresh if active
+        if (analysisType === 'Ray Hit Map' || analysisType === 'Spot Diagram') {
+          setRefreshTrigger(prev => prev + 1);
+          console.log('🧹 Cleared intersection data due to YAML update and triggered secondary analysis refresh');
+        } else {
+          console.log('🧹 Cleared intersection data due to YAML update');
+        }
         
       } catch (err) {
         setParsedData(null);
@@ -123,7 +131,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
     } else {
       setParsedData(null);
     }
-  }, [yamlContent, autoUpdate]);
+  }, [yamlContent, autoUpdate, analysisType]);
 
   const handleImport = useCallback(() => {
     fileInputRef.current?.click();
@@ -170,12 +178,19 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
         const parsed = yaml.load(yamlContent) as any;
         setParsedData(parsed);
         setLastRayTracedYaml(yamlContent);
-        console.log('✅ Auto-update re-enabled - ray tracing updated immediately');
+        
+        // Trigger secondary analysis refresh if active when re-enabling auto-update
+        if (analysisType === 'Ray Hit Map' || analysisType === 'Spot Diagram') {
+          setRefreshTrigger(prev => prev + 1);
+          console.log('✅ Auto-update re-enabled - ray tracing updated immediately with secondary analysis refresh');
+        } else {
+          console.log('✅ Auto-update re-enabled - ray tracing updated immediately');
+        }
       } catch (err) {
         console.error('❌ Failed to update ray tracing when re-enabling auto-update:', err);
       }
     }
-  }, [autoUpdate, isYamlValid, yamlContent]);
+  }, [autoUpdate, isYamlValid, yamlContent, analysisType]);
 
   const handleManualUpdate = useCallback(() => {
     if (isYamlValid) {
@@ -187,13 +202,20 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
         // Clear intersection data when manually updating to prevent accumulation
         const collector = RayIntersectionCollector.getInstance();
         collector.clearData();
-        console.log('🔄 Manual ray tracing update triggered - intersection data cleared');
+        
+        // Trigger secondary analysis refresh if active
+        if (analysisType === 'Ray Hit Map' || analysisType === 'Spot Diagram') {
+          setRefreshTrigger(prev => prev + 1);
+          console.log('🔄 Manual ray tracing update triggered - intersection data cleared and secondary analysis refreshed');
+        } else {
+          console.log('🔄 Manual ray tracing update triggered - intersection data cleared');
+        }
         
       } catch (err) {
         console.error('❌ Failed to manually update ray tracing:', err);
       }
     }
-  }, [isYamlValid, yamlContent]);
+  }, [isYamlValid, yamlContent, analysisType]);
 
   const handleTutorial = useCallback(() => {
     window.open('https://github.com/koorifukai/simple-ray-tracer', '_blank');
@@ -222,6 +244,27 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
       collector.stopCollection();
     };
   }, [analysisType]);
+
+  // Refresh secondary analysis when needed (only when auto-refresh is enabled)
+  useEffect(() => {
+    const startTime = performance.now();
+    console.log(`🔄 Secondary analysis useEffect triggered: analysisType=${analysisType}, isYamlValid=${isYamlValid}, autoUpdate=${autoUpdate}`);
+    
+    if (analysisType === 'Ray Hit Map' || analysisType === 'Spot Diagram') {
+      if (isYamlValid && parsedData && autoUpdate) { // Only refresh when auto-update is enabled
+        // Trigger secondary analysis refresh - data should already be available from ray tracing
+        console.log(`🔄 Starting secondary analysis refresh for ${analysisType}...`);
+        
+        // Increment refresh trigger to force re-render of visualization
+        setRefreshTrigger(prev => prev + 1);
+        
+        const endTime = performance.now();
+        console.log(`🔄 Secondary analysis refresh completed for ${analysisType} in ${(endTime - startTime).toFixed(2)}ms (auto-refresh enabled)`);
+      } else {
+        console.log(`⏸️ Secondary analysis refresh skipped: autoUpdate=${autoUpdate}, isYamlValid=${isYamlValid}, hasParsedData=${!!parsedData}`);
+      }
+    }
+  }, [analysisType, isYamlValid, parsedData, autoUpdate]); // Now includes autoUpdate dependency
 
   // Extract available surfaces from parsed YAML data and hit data
   const getAvailableSurfaces = useCallback(() => {
@@ -392,9 +435,9 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
 
           {/* Analysis Panel */}
           {analysisType !== 'None' && (
-            <div className="analysis-panel">
+            <div className={`analysis-panel ${analysisType.toLowerCase().replace(/ /g, '-')}`}>
               <div className="analysis-content">
-                {analysisType === 'Ray Hit Map' || analysisType === 'Spot Diagram' ? (
+                {analysisType === 'Ray Hit Map' ? (
                   <div className="hit-map-layout">
                     {/* Left side - Compact surface list */}
                     <div className="surface-list-container">
@@ -416,7 +459,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
                       {selectedSurface ? (
                         <IntersectionPlot 
                           surfaceId={selectedSurface}
-                          analysisType={analysisType as 'Hit Map' | 'Spot Diagram'}
+                          analysisType={'Hit Map' as 'Hit Map' | 'Spot Diagram'}
                           yamlContent={yamlContent}
                           systemData={parsedData}
                         />
@@ -443,6 +486,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
             <EmptyPlot3D 
               title="Ray Tracer Visualization"
               yamlContent={autoUpdate ? (isYamlValid ? yamlContent : undefined) : lastRayTracedYaml}
+              key={refreshTrigger} // Force re-render when secondary analysis changes
             />
           </div>
         </div>

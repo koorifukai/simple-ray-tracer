@@ -78,6 +78,7 @@ export class RayIntersectionCollector {
   };
   
   private isCollecting = false;
+  private surfaceOrder: string[] = []; // Track surface insertion order
   
   private constructor() {}
   
@@ -92,9 +93,11 @@ export class RayIntersectionCollector {
    * Start collecting ray intersection data
    */
   startCollection(): void {
+    const startTime = performance.now();
     this.isCollecting = true;
     this.clearData();
-    console.log('🎯 RayIntersectionCollector: Collection started, data cleared');
+    const endTime = performance.now();
+    console.log(`🎯 RayIntersectionCollector: Collection started, data cleared in ${(endTime - startTime).toFixed(2)}ms`);
   }
   
   /**
@@ -116,6 +119,9 @@ export class RayIntersectionCollector {
    * Clear all collected data
    */
   clearData(): void {
+    const beforeCount = this.intersectionData.totalIntersections;
+    const beforeSurfaces = this.intersectionData.surfaces.size;
+    
     this.intersectionData = {
       surfaces: new Map(),
       totalRays: 0,
@@ -123,6 +129,9 @@ export class RayIntersectionCollector {
       wavelengths: new Set(),
       lightSources: new Set()
     };
+    this.surfaceOrder = []; // Clear surface order tracking
+    
+    console.log(`🧹 RayIntersectionCollector: Cleared data - removed ${beforeCount} intersections from ${beforeSurfaces} surfaces`);
   }
   
   /**
@@ -137,7 +146,8 @@ export class RayIntersectionCollector {
     isValid: boolean,
     wasBlocked: boolean,
     incidentDirection: Vector3,
-    exitDirection?: Vector3
+    exitDirection?: Vector3,
+    localHitPoint?: Vector3  // Add local coordinates parameter
   ): void {
     if (!this.isCollecting) {
       console.log('🔕 RayIntersectionCollector: Not collecting, ignoring hit');
@@ -149,7 +159,9 @@ export class RayIntersectionCollector {
       return;
     }
     
-    console.log(`🎯 RayIntersectionCollector: Recording hit on surface ${surface.id}`);
+    console.log(`🎯 RayIntersectionCollector: Recording hit on surface ${surface.id}, dial=${(surface as any).dial || 'none'}`);
+    console.log(`🎯 RayIntersectionCollector: Local hit point: (${localHitPoint?.x.toFixed(3)}, ${localHitPoint?.y.toFixed(3)}, ${localHitPoint?.z.toFixed(3)})`);
+    console.log(`🎯 RayIntersectionCollector: Global hit point: (${hitPoint.x.toFixed(3)}, ${hitPoint.y.toFixed(3)}, ${hitPoint.z.toFixed(3)})`);
     
     // Generate unique ray identifier
     const rayId = `${ray.lightId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -179,9 +191,14 @@ export class RayIntersectionCollector {
       isValid,
       wasBlocked,
       
-      // Calculate cross-section coordinates (drop X component)
-      crossSectionY: hitPoint.y,
-      crossSectionZ: hitPoint.z
+      // Calculate cross-section coordinates in local surface coordinate system
+      // MUST use provided local coordinates - no fallback transformation
+      crossSectionY: localHitPoint ? 
+        (console.log(`✅ RayIntersectionCollector: Using direct local coordinates Y=${localHitPoint.y.toFixed(3)} for surface ${surface.id}`), localHitPoint.y) : 
+        (console.error(`❌ MISSING LOCAL COORDINATES for surface ${surface.id} - intersection points will be incorrect!`), 0),
+      crossSectionZ: localHitPoint ? 
+        (console.log(`✅ RayIntersectionCollector: Using direct local coordinates Z=${localHitPoint.z.toFixed(3)} for surface ${surface.id}`), localHitPoint.z) : 
+        (console.error(`❌ MISSING LOCAL COORDINATES for surface ${surface.id} - intersection points will be incorrect!`), 0)
     };
     
     // Add to surface intersection data
@@ -194,6 +211,8 @@ export class RayIntersectionCollector {
         surface,
         intersectionPoints: []
       });
+      // Track surface insertion order for consistent display
+      this.surfaceOrder.push(surfaceKey);
     }
     
     const surfaceData = this.intersectionData.surfaces.get(surfaceKey)!;
@@ -245,22 +264,20 @@ export class RayIntersectionCollector {
   getAvailableSurfaces(): Array<{id: string, name: string, assemblyName?: string, intersectionCount: number}> {
     const surfaces: Array<{id: string, name: string, assemblyName?: string, intersectionCount: number}> = [];
     
-    for (const [surfaceId, surfaceData] of this.intersectionData.surfaces) {
-      surfaces.push({
-        id: surfaceId,
-        name: surfaceData.surfaceName,
-        assemblyName: surfaceData.assemblyName,
-        intersectionCount: surfaceData.intersectionPoints.length
-      });
+    // Use surface insertion order to preserve optical train sequence
+    for (const surfaceId of this.surfaceOrder) {
+      const surfaceData = this.intersectionData.surfaces.get(surfaceId);
+      if (surfaceData) {
+        surfaces.push({
+          id: surfaceId,
+          name: surfaceData.surfaceName,
+          assemblyName: surfaceData.assemblyName,
+          intersectionCount: surfaceData.intersectionPoints.length
+        });
+      }
     }
     
-    // Sort by intersection count (descending) then by name
-    return surfaces.sort((a, b) => {
-      if (b.intersectionCount !== a.intersectionCount) {
-        return b.intersectionCount - a.intersectionCount;
-      }
-      return a.name.localeCompare(b.name);
-    });
+    return surfaces;
   }
   
   /**
