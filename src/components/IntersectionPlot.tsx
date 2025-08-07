@@ -31,17 +31,24 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
   // Get intersection data from collector
   const getIntersectionData = (): IntersectionPoint[] => {
     const collector = RayIntersectionCollector.getInstance();
+    
+    console.log(`📊 IntersectionPlot: Requesting data for surface ID: "${surfaceId}"`);
+    console.log(`📊 IntersectionPlot: Available surfaces in collector:`, collector.getAvailableSurfaces().map(s => ({
+      id: s.id,
+      numericalId: s.numericalId ?? 'undefined',
+      name: s.name
+    })));
+    
     const surfaceData = collector.getSurfaceIntersectionData(surfaceId);
     
-    console.log(`📊 IntersectionPlot: Checking data for surface ${surfaceId}`);
-    console.log(`📊 IntersectionPlot: Surface data:`, surfaceData);
+    console.log(`📊 IntersectionPlot: Surface data for "${surfaceId}":`, surfaceData);
     
     if (!surfaceData || surfaceData.intersectionPoints.length === 0) {
-      console.log('📊 IntersectionPlot: No intersection data available');
+      console.log(`📊 IntersectionPlot: No intersection data available for surface "${surfaceId}"`);
       return [];
     }
     
-    console.log(`📊 IntersectionPlot: Found ${surfaceData.intersectionPoints.length} intersection points`);
+    console.log(`📊 IntersectionPlot: Found ${surfaceData.intersectionPoints.length} intersection points for surface "${surfaceId}"`);
     
     return surfaceData.intersectionPoints.map(hit => ({
       y: hit.crossSectionY,
@@ -186,9 +193,41 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
     return shapes;
   };
 
-  // Get surface from YAML data and generate 2D cross-section
+  // Get surface from intersection data and generate 2D cross-section
   const getSurfaceShape = (): any[] => {
-    console.log('🎨 SURFACE RENDERING: Starting surface cross-section rendering...');
+    console.log(`🎨 SURFACE RENDERING: Starting surface cross-section rendering for surface ID: "${surfaceId}"`);
+    
+    // Check if this is a numerical ID (indicates we're using the unified system)
+    const isNumericalId = /^\d+$/.test(surfaceId);
+    
+    // PRIORITY 1: Get surface from intersection data using numerical ID lookup
+    const collector = RayIntersectionCollector.getInstance();
+    const surfaceData = collector.getSurfaceIntersectionData(surfaceId);
+    
+    if (surfaceData && surfaceData.surface) {
+      const surface = surfaceData.surface;
+      console.log(`✅ SURFACE LOOKUP: Found surface "${surfaceId}" (numerical ID: ${surface.numericalId}) in intersection data`);
+      console.log('🎨 Surface properties:', {
+        shape: surface.shape,
+        height: surface.height,
+        width: surface.width,
+        semidia: surface.semidia,
+        radius: surface.radius
+      });
+      
+      // Generate 2D cross-section geometry using the surface object
+      return generateSurfaceGeometry(surface);
+    }
+    
+    // If we're using numerical IDs but no intersection data yet, wait for ray tracing to complete
+    if (isNumericalId) {
+      console.log(`⏳ SURFACE RENDERING: Numerical ID "${surfaceId}" detected but no intersection data available yet - waiting for ray tracing to complete`);
+      return []; // Return empty shapes, don't try YAML fallback for numerical IDs
+    }
+    
+    // PRIORITY 2: Fallback to YAML lookup (for fallback cases when no intersection data)
+    console.log('🎨 SURFACE RENDERING: No intersection data available, falling back to YAML lookup...');
+    
     let system: any = systemData;
     
     // If no system data provided, try to parse YAML
@@ -214,126 +253,88 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
 
     console.log('🎨 SURFACE RENDERING: System data available, looking for surface:', surfaceId);
 
-    // Smart unified surface lookup system (Method 1-4)
+    // YAML structure lookup for assemblies with direct surface properties
     let targetSurface: any = null;
-
-    // Method 1: Direct lookup in optical_trains (element names, which may reference surfaces by sid)
-    if (system.optical_trains) {
-      for (const [trainName, trainElements] of Object.entries(system.optical_trains)) {
-        if (Array.isArray(trainElements)) {
-          const foundElement = trainElements.find((element: any) => {
-            // Check if element name matches our surface ID
-            if (typeof element === 'string') {
-              return element === surfaceId;
-            } else if (typeof element === 'object' && element !== null) {
-              // Check if object has name or id that matches
-              return element.name === surfaceId || element.id === surfaceId;
+    
+    // If surfaceId is a numerical ID (like "4"), we need to map it back to surface names
+    let surfaceKeyToFind = surfaceId;
+    
+    if (isNumericalId) {
+      console.log(`🔍 SURFACE LOOKUP: Numerical ID "${surfaceId}" detected, mapping to surface names...`);
+      
+      // Build a mapping of numerical IDs to surface names
+      const surfaceMapping: {[key: string]: string} = {};
+      let currentNumericalId = 0;
+      
+      // Map assembly surfaces (s1, s2, s3, etc.)
+      if (system.assemblies && Array.isArray(system.assemblies)) {
+        for (const assembly of system.assemblies) {
+          Object.keys(assembly).forEach(surfaceKey => {
+            if (surfaceKey !== 'aid') {
+              surfaceMapping[currentNumericalId.toString()] = surfaceKey;
+              currentNumericalId++;
             }
-            return false;
           });
-          
-          if (foundElement) {
-            console.log(`🎨 SURFACE LOOKUP (Method 1): Found element "${surfaceId}" in optical train "${trainName}"`);
-            
-            // Found element in train - now look up actual surface definition
-            // Check if element references a surface (by sid)
-            let surfaceReference = null;
-            if (typeof foundElement === 'string') {
-              surfaceReference = foundElement;
-            } else if (foundElement.sid) {
-              surfaceReference = foundElement.sid;
-            }
-            
-            if (surfaceReference && system.surfaces) {
-              targetSurface = system.surfaces[surfaceReference];
-              if (targetSurface) {
-                console.log(`✅ SURFACE LOOKUP (Method 1): Found surface definition for "${surfaceReference}":`, {
-                  shape: targetSurface.shape,
-                  height: targetSurface.height,
-                  width: targetSurface.width,
-                  semidia: targetSurface.semidia
-                });
-                break;
-              }
-            }
-          }
-        }
-      }
-    }
-
-    // Method 2: Direct lookup in assemblies (if element is an assembly surface)
-    if (!targetSurface && system.assemblies) {
-      for (const [assemblyName, assembly] of Object.entries(system.assemblies)) {
-        if (typeof assembly === 'object' && assembly !== null && (assembly as any).surfaces) {
-          const assemblyObject = assembly as { surfaces?: any };
-          if (assemblyObject.surfaces) {
-            const foundSurface = assemblyObject.surfaces[surfaceId];
-            if (foundSurface) {
-              console.log(`✅ SURFACE LOOKUP (Method 2): Found surface "${surfaceId}" in assembly "${assemblyName}"`);
-              targetSurface = foundSurface;
-              break;
-            }
-          }
-        }
-      }
-    }
-
-    // Method 3: Direct lookup in surfaces (standalone surfaces)
-    if (!targetSurface && system.surfaces) {
-      targetSurface = system.surfaces[surfaceId];
-      if (targetSurface) {
-        console.log(`✅ SURFACE LOOKUP (Method 3): Found surface "${surfaceId}" in surfaces definitions`);
-      }
-    }
-
-    // Method 4: Fallback - search all surfaces for any match
-    if (!targetSurface) {
-      console.log('🎨 SURFACE LOOKUP (Method 4): Attempting comprehensive search...');
-      
-      // Search in assemblies first
-      if (system.assemblies) {
-        for (const [assemblyName, assembly] of Object.entries(system.assemblies)) {
-          if (typeof assembly === 'object' && assembly !== null && (assembly as any).surfaces) {
-            const assemblyObject = assembly as { surfaces?: any };
-            if (assemblyObject.surfaces) {
-              for (const [sid, surface] of Object.entries(assemblyObject.surfaces)) {
-                if (sid === surfaceId) {
-                  console.log(`✅ SURFACE LOOKUP (Method 4): Found surface "${surfaceId}" in assembly "${assemblyName}"`);
-                  targetSurface = surface;
-                  break;
-                }
-              }
-              if (targetSurface) break;
-            }
-          }
         }
       }
       
-      // Search in standalone surfaces
-      if (!targetSurface && system.surfaces) {
-        for (const [sid, surface] of Object.entries(system.surfaces)) {
-          if (sid === surfaceId) {
-            console.log(`✅ SURFACE LOOKUP (Method 4): Found surface "${surfaceId}" in surfaces`);
-            targetSurface = surface;
-            break;
-          }
+      // Map standalone surfaces (focus, stop, etc.)
+      if (system.optical_trains && Array.isArray(system.optical_trains)) {
+        system.optical_trains.forEach((trainGroup: any) => {
+          Object.entries(trainGroup).forEach(([trainName, trainData]: [string, any]) => {
+            if (trainData.sid !== undefined) {
+              surfaceMapping[currentNumericalId.toString()] = trainName;
+              currentNumericalId++;
+            }
+          });
+        });
+      }
+      
+      surfaceKeyToFind = surfaceMapping[surfaceId];
+      console.log(`🔍 SURFACE MAPPING: Numerical ID "${surfaceId}" maps to surface "${surfaceKeyToFind}"`);
+      console.log(`🔍 Full mapping:`, surfaceMapping);
+      
+      if (!surfaceKeyToFind) {
+        console.warn(`❌ NUMERICAL ID MAPPING FAILED: No surface found for numerical ID "${surfaceId}"`);
+        return [];
+      }
+    }
+
+    // Method 1: Look in assemblies (each assembly has direct surface properties s1, s2, etc.)
+    if (system.assemblies && Array.isArray(system.assemblies)) {
+      for (const assembly of system.assemblies) {
+        if (assembly[surfaceKeyToFind]) {
+          console.log(`✅ SURFACE LOOKUP: Found surface "${surfaceKeyToFind}" in assembly aid=${assembly.aid}`);
+          targetSurface = assembly[surfaceKeyToFind];
+          break;
+        }
+      }
+    }
+
+    // Method 2: Look in standalone surfaces (surfaces array with named objects)
+    if (!targetSurface && system.surfaces && Array.isArray(system.surfaces)) {
+      for (const surfaceGroup of system.surfaces) {
+        if (surfaceGroup[surfaceKeyToFind]) {
+          console.log(`✅ SURFACE LOOKUP: Found surface "${surfaceKeyToFind}" in standalone surfaces`);
+          targetSurface = surfaceGroup[surfaceKeyToFind];
+          break;
         }
       }
     }
 
     if (!targetSurface) {
-      console.warn(`❌ SURFACE LOOKUP FAILED: Could not find surface "${surfaceId}" in system data`);
+      console.warn(`❌ SURFACE LOOKUP FAILED: Could not find surface "${surfaceKeyToFind}" (original: "${surfaceId}") in system data`);
       console.log('🔍 Available surfaces:', {
-        surfaces: system.surfaces ? Object.keys(system.surfaces) : 'none',
-        assemblies: system.assemblies ? Object.keys(system.assemblies) : 'none',
-        optical_trains: system.optical_trains ? Object.keys(system.optical_trains) : 'none'
+        assemblies: system.assemblies ? system.assemblies.map((a: any) => Object.keys(a).filter((k: string) => k !== 'aid')) : 'none',
+        surfaces: system.surfaces ? system.surfaces.map((s: any) => Object.keys(s)) : 'none'
       });
       return [];
     }
 
     // Generate 2D cross-section geometry using the found surface
     console.log('🎨 SURFACE RENDERING: Generating geometry for found surface:', {
-      surfaceId,
+      originalSurfaceId: surfaceId,
+      actualSurfaceKey: surfaceKeyToFind,
       shape: targetSurface.shape,
       height: targetSurface.height,
       width: targetSurface.width,

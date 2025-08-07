@@ -336,6 +336,17 @@ input:checked + .toggle-slider:before {
   min-height: 150px; /* Minimum height for scrolling to work */
 }
 
+.surface-list h3 {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  background-color: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+  text-align: center;
+}
+
 .surface-item {
   padding: 8px 10px; /* Slightly more padding */
   font-size: 12px; /* Slightly larger font */
@@ -359,6 +370,18 @@ input:checked + .toggle-slider:before {
 .surface-item.selected {
   background-color: var(--accent);
   color: white;
+}
+
+.no-surfaces {
+  padding: 12px 10px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.no-surfaces p {
+  margin: 4px 0;
+  font-size: 11px;
 }
 
 /* Right side - Larger hit map taking remaining space */

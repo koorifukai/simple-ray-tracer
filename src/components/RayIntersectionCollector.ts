@@ -79,6 +79,12 @@ export class RayIntersectionCollector {
   
   private isCollecting = false;
   private surfaceOrder: string[] = []; // Track surface insertion order
+  private lastLoggedCount = 0; // Track last logged surface count to reduce spam
+  
+  // Performance optimization: cache surface list to avoid repeated array operations
+  private cachedSurfaceList: Array<{id: string, name: string, assemblyName?: string, intersectionCount: number, numericalId?: number}> | null = null;
+  private cachedSurfaceCount = 0;
+  private cachedTotalIntersections = 0;
   
   private constructor() {}
   
@@ -130,6 +136,12 @@ export class RayIntersectionCollector {
       lightSources: new Set()
     };
     this.surfaceOrder = []; // Clear surface order tracking
+    this.lastLoggedCount = 0; // Reset logged count
+    
+    // Invalidate cache
+    this.cachedSurfaceList = null;
+    this.cachedSurfaceCount = 0;
+    this.cachedTotalIntersections = 0;
     
     console.log(`🧹 RayIntersectionCollector: Cleared data - removed ${beforeCount} intersections from ${beforeSurfaces} surfaces`);
   }
@@ -159,7 +171,7 @@ export class RayIntersectionCollector {
       return;
     }
     
-    console.log(`🎯 RayIntersectionCollector: Recording hit on surface ${surface.id}, dial=${(surface as any).dial || 'none'}`);
+    console.log(`🎯 RayIntersectionCollector: Recording hit on surface ${surface.id} (numerical ID: ${surface.numericalId})`);
     console.log(`🎯 RayIntersectionCollector: Local hit point: (${localHitPoint?.x.toFixed(3)}, ${localHitPoint?.y.toFixed(3)}, ${localHitPoint?.z.toFixed(3)})`);
     console.log(`🎯 RayIntersectionCollector: Global hit point: (${hitPoint.x.toFixed(3)}, ${hitPoint.y.toFixed(3)}, ${hitPoint.z.toFixed(3)})`);
     
@@ -201,8 +213,8 @@ export class RayIntersectionCollector {
         (console.error(`❌ MISSING LOCAL COORDINATES for surface ${surface.id} - intersection points will be incorrect!`), 0)
     };
     
-    // Add to surface intersection data
-    const surfaceKey = surface.id;
+    // Use numerical ID as the primary storage key
+    const surfaceKey = surface.numericalId?.toString() || surface.id;
     if (!this.intersectionData.surfaces.has(surfaceKey)) {
       this.intersectionData.surfaces.set(surfaceKey, {
         surfaceId: surface.id,
@@ -223,7 +235,7 @@ export class RayIntersectionCollector {
     this.intersectionData.wavelengths.add(ray.wavelength);
     this.intersectionData.lightSources.add(Math.floor(ray.lightId));
     
-    console.log(`📊 RayIntersectionCollector: Total intersections: ${this.intersectionData.totalIntersections}, Surface: ${surface.id}`);
+    console.log(`📊 RayIntersectionCollector: Total intersections: ${this.intersectionData.totalIntersections}, Surface: ${surface.id} (numerical: ${surface.numericalId})`);
   }
   
   /**
@@ -252,29 +264,75 @@ export class RayIntersectionCollector {
   }
   
   /**
-   * Get intersection data for a specific surface
+   * Get intersection data for a specific surface by numerical ID or string ID
    */
   getSurfaceIntersectionData(surfaceId: string): SurfaceIntersectionData | undefined {
-    return this.intersectionData.surfaces.get(surfaceId);
+    console.log(`🔍 RayIntersectionCollector: Looking for surface "${surfaceId}"`);
+    console.log(`🔍 Available surface keys in storage:`, Array.from(this.intersectionData.surfaces.keys()));
+    
+    // First try exact match (for numerical IDs)
+    let surfaceData = this.intersectionData.surfaces.get(surfaceId);
+    
+    if (!surfaceData) {
+      // If no exact match, try to find by string ID (fallback)
+      for (const [, data] of this.intersectionData.surfaces) {
+        if (data.surfaceId === surfaceId || data.surface.id === surfaceId) {
+          console.log(`🔍 Found surface by string ID match: ${data.surface.id} (numerical: ${data.surface.numericalId})`);
+          surfaceData = data;
+          break;
+        }
+      }
+    }
+    
+    console.log(`🔍 RayIntersectionCollector: Surface lookup for "${surfaceId}" - ${surfaceData ? 'FOUND' : 'NOT FOUND'}`);
+    if (surfaceData) {
+      console.log(`🔍 Found surface details: string ID="${surfaceData.surface.id}", numerical ID=${surfaceData.surface.numericalId}`);
+    }
+    return surfaceData;
   }
   
   /**
    * Get list of all surfaces with intersection data
+   * OPTIMIZED: Cached result with invalidation strategy
    */
-  getAvailableSurfaces(): Array<{id: string, name: string, assemblyName?: string, intersectionCount: number}> {
-    const surfaces: Array<{id: string, name: string, assemblyName?: string, intersectionCount: number}> = [];
+  getAvailableSurfaces(): Array<{id: string, name: string, assemblyName?: string, intersectionCount: number, numericalId?: number}> {
+    // Cache the result to avoid repeated array operations during monitoring
+    const currentCount = this.intersectionData.surfaces.size;
+    const currentTotalIntersections = this.intersectionData.totalIntersections;
+    
+    // Only rebuild the array if the data has actually changed
+    if (this.cachedSurfaceList && 
+        this.cachedSurfaceCount === currentCount && 
+        this.cachedTotalIntersections === currentTotalIntersections) {
+      return this.cachedSurfaceList;
+    }
+    
+    const surfaces: Array<{id: string, name: string, assemblyName?: string, intersectionCount: number, numericalId?: number}> = [];
     
     // Use surface insertion order to preserve optical train sequence
     for (const surfaceId of this.surfaceOrder) {
       const surfaceData = this.intersectionData.surfaces.get(surfaceId);
       if (surfaceData) {
         surfaces.push({
-          id: surfaceId,
+          id: surfaceId, // This is now the numerical ID or fallback string ID
           name: surfaceData.surfaceName,
           assemblyName: surfaceData.assemblyName,
-          intersectionCount: surfaceData.intersectionPoints.length
+          intersectionCount: surfaceData.intersectionPoints.length,
+          numericalId: surfaceData.surface.numericalId
         });
       }
+    }
+    
+    // Cache the result
+    this.cachedSurfaceList = surfaces;
+    this.cachedSurfaceCount = currentCount;
+    this.cachedTotalIntersections = currentTotalIntersections;
+    
+    // Only log when explicitly requested or when surface count changes significantly
+    if (surfaces.length !== this.lastLoggedCount) {
+      console.log(`📊 RayIntersectionCollector: Available surfaces (${surfaces.length}):`, 
+        surfaces.map(s => `${s.id} (${s.name}, numerical: ${s.numericalId})`));
+      this.lastLoggedCount = surfaces.length;
     }
     
     return surfaces;

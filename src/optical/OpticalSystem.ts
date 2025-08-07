@@ -79,6 +79,9 @@ export class OpticalSystemParser {
       opticalTrains: []
     };
 
+    // Counter for numerical surface IDs (assigned in order of creation)
+    let surfaceCounter = 0;
+
     // Parse display settings
     if (data.display_settings) {
       system.displaySettings = {
@@ -290,7 +293,8 @@ export class OpticalSystemParser {
         const surface = Surfaces.OpticalSurfaceFactory.createSurface(
           element.trainName, // Use train element name as unique identifier
           mergedSurfaceData, 
-          element.position
+          element.position,
+          surfaceCounter++   // Assign numerical ID and increment
         );
         
         system.surfaces.push(surface);
@@ -314,8 +318,12 @@ export class OpticalSystemParser {
           element.position, 
           element.normal, 
           element.trainName, // Use train element name as unique identifier prefix
-          element.dial       // Pass assembly-level dial for two-stage rotation
+          element.dial,      // Pass assembly-level dial for two-stage rotation
+          surfaceCounter     // Pass current surface counter for numerical IDs
         );
+        
+        // Update counter with the number of surfaces created
+        surfaceCounter += assemblySurfaces.length;
         
         system.surfaces.push(...assemblySurfaces);
         console.log(`  Added ${assemblySurfaces.length} surfaces from assembly "${element.trainName}"`);

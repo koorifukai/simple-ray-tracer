@@ -20,6 +20,7 @@ export type SurfaceMode = 'inactive' | 'refraction' | 'reflection' | 'partial' |
  */
 export interface OpticalSurface {
   id: string;
+  numericalId?: number;    // Sequential numerical ID assigned during system build
   shape: SurfaceShape;
   mode: SurfaceMode;
   
@@ -78,11 +79,13 @@ export class OpticalSurfaceFactory {
   static createSurface(
     id: string, 
     surfaceData: any, 
-    position: Vector3 = new Vector3(0, 0, 0)
+    position: Vector3 = new Vector3(0, 0, 0),
+    numericalId?: number
   ): OpticalSurface {
     
     const surface: OpticalSurface = {
       id,
+      numericalId,
       shape: surfaceData.shape || 'spherical',
       mode: surfaceData.mode || 'refraction',
       position: position.clone(),
@@ -91,6 +94,11 @@ export class OpticalSurfaceFactory {
       inverseTransform: new Matrix4().identity(), // Will be computed below
       opacity: 0.3 // Default transparent white
     };
+
+    // Debug log for numerical ID assignment
+    if (numericalId !== undefined) {
+      console.log(`  Surface ${id} assigned numerical ID: ${numericalId}`);
+    }
 
     // Geometric properties
     if (surfaceData.radius !== undefined) {
@@ -245,11 +253,12 @@ export class OpticalSurfaceFactory {
     assemblyOffset: Vector3 = new Vector3(0, 0, 0),
     assemblyNormal?: Vector3,
     assemblyId?: string,
-    assemblyDial?: number
+    assemblyDial?: number,
+    surfaceCounterStart?: number
   ): OpticalSurface[] {
     
     // Build assembly in local coordinates, then place globally
-    const localSurfaces = this.buildLocalAssembly(assemblyData, assemblyId);
+    const localSurfaces = this.buildLocalAssembly(assemblyData, assemblyId, surfaceCounterStart);
     const globalSurfaces = this.placeAssemblyGlobally(localSurfaces, assemblyOffset, assemblyNormal, assemblyDial);
 
     return globalSurfaces;
@@ -260,9 +269,10 @@ export class OpticalSurfaceFactory {
    * This creates the internal structure of the assembly without any global transformations
    * Following EUREKA methodology: store relative positions and normals for later transformation
    */
-  private static buildLocalAssembly(assemblyData: any, assemblyId?: string): OpticalSurface[] {
+  private static buildLocalAssembly(assemblyData: any, assemblyId?: string, surfaceCounterStart?: number): OpticalSurface[] {
     const surfaces: OpticalSurface[] = [];
     let currentPosition = new Vector3(0, 0, 0); // Start at local origin
+    let surfaceCounter = surfaceCounterStart || 0; // Start from provided counter or 0
 
     // Get surface keys in order (s1, s2, s3, etc.) and sort them numerically
     const surfaceKeys = Object.keys(assemblyData)
@@ -358,6 +368,7 @@ export class OpticalSurfaceFactory {
       // Create surface with basic properties (no redundant transformation)
       const surface: OpticalSurface = {
         id: key,
+        numericalId: surfaceCounter++, // Assign numerical ID and increment
         shape: surfaceData.shape || 'spherical',
         mode: surfaceData.mode || 'refraction',
         position: currentPosition.clone(),
@@ -378,6 +389,9 @@ export class OpticalSurfaceFactory {
       if (assemblyId) {
         surface.assemblyId = assemblyId;
         surface.elementIndex = elementIndex + 1;
+        
+        // Debug log for numerical ID assignment
+        console.log(`  Surface ${key} assigned numerical ID: ${surface.numericalId}`);
       }
       
       // Store relative normal for global placement
