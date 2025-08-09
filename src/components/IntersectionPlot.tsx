@@ -697,7 +697,7 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
       const color = getWavelengthColor(wavelength);
       
       traces.push({
-        x: points.map(p => p.y), // Y position on surface
+        x: points.map(p => -p.y), // COORDINATE FIX: Mirror horizontal coordinates to match optical convention
         y: points.map(p => p.z), // Z position on surface
         type: 'scatter',
         mode: 'markers',
