@@ -721,9 +721,9 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
     const globalBounds = getGlobalSpotDiagramBounds();
     
     // For individual light centering, calculate the center of THIS light's data
-    const allY = data.map(p => p.y);
+    const allFlippedY = data.map(p => -p.y); // Flip Y coordinates to match plotting
     const allZ = data.map(p => p.z);
-    const lightYCenter = allY.length > 0 ? (Math.min(...allY) + Math.max(...allY)) / 2 : globalBounds.center.y;
+    const lightYCenter = allFlippedY.length > 0 ? (Math.min(...allFlippedY) + Math.max(...allFlippedY)) / 2 : globalBounds.center.y;
     const lightZCenter = allZ.length > 0 ? (Math.min(...allZ) + Math.max(...allZ)) / 2 : globalBounds.center.z;
     
     // Use global scale but center on this light's data
