@@ -38,17 +38,17 @@ assemblies:
 
 surfaces:
   - focus:
-      {sid: 0, shape: plano, height: 50, width: 50, mode: refraction}
+      {sid: 0, shape: plano, height: 50, width: 50, mode: absorption}
   - stop:
       {sid: 1, shape: plano, height: 6, width: 3, mode: aperture}
   
 light_sources:
   - l1:
-      {lid: 0, position: [-10,0,-16], vector: [1,0,0.249328], number: 8, wavelength: 633, type: linear, param: 20}
+      {lid: 0, position: [-10,0,-16], vector: [1,0,0.249328], number: 18, wavelength: 633, type: uniform, param: 18}
   - l2:
-      {lid: 1, position: [-10,0,-12], vector: [1,0,0.176327], number: 8, wavelength: 532, type: linear, param: 20}
+      {lid: 1, position: [-10,0,-12], vector: [1,0,0.176327], number: 18, wavelength: 532, type: uniform, param: 18}
   - l3:
-      {lid: 2, position: [-10,0,0], vector: [1,0,0], number: 8, wavelength: 488, type: linear, param: 20}
+      {lid: 2, position: [-10,0,0], vector: [1,0,0], number: 18, wavelength: 488, type: uniform, param: 18}
   
 optical_trains:
   - r: 

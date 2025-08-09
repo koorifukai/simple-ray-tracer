@@ -262,9 +262,9 @@ input:checked + .toggle-slider:before {
   overflow: hidden; /* Prevent overflow */
 }
 
-/* YAML panel when analysis is active - 60% of column height */
+/* YAML panel when analysis is active - 57% of column height */
 .yaml-panel.with-analysis {
-  height: 60%; /* Fixed 60% for YAML editor */
+  height: 57%; /* Fixed 57% for YAML editor */
   min-height: 300px; /* Minimum height for YAML editor */
   flex: none; /* Override flex to enforce fixed height */
 }
@@ -275,7 +275,7 @@ input:checked + .toggle-slider:before {
   display: flex;
   flex-direction: column;
   background-color: var(--bg-secondary);
-  height: 40%; /* Fixed 40% for secondary panel */
+  height: 43%; /* Fixed 43% for secondary panel */
   flex: none; /* Override flex to enforce fixed height */
 }
 
