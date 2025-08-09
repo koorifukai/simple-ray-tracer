@@ -7,8 +7,9 @@ import * as yaml from 'js-yaml';
 
 // Default optical system YAML
 const defaultYaml = `
+#mode: Gaussian 28 example 
 display_settings:
-  show_grid: False
+  show_grid: True
   density_for_intensity: True
 
 assemblies:
@@ -85,6 +86,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
   const [analysisType, setAnalysisType] = useState<'None' | 'Spot Diagram' | 'Ray Hit Map' | 'Tabular Display'>('None');
   const [refreshTrigger, setRefreshTrigger] = useState(0); // Used to trigger secondary panel refresh
   const [selectedSurface, setSelectedSurface] = useState<string>('');
+  const [selectedLight, setSelectedLight] = useState<string>(''); // For spot diagram light source selection
   const [intersectionDataTrigger, setIntersectionDataTrigger] = useState(0); // Track intersection data updates
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -121,6 +123,11 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
         const collector = RayIntersectionCollector.getInstance();
         collector.clearData();
         console.log('🧹 Cleared intersection data due to YAML update');
+        
+        // Restart collection if we're in analysis mode
+        if (analysisType === 'Ray Hit Map' || analysisType === 'Spot Diagram') {
+          collector.startCollection(true); // Clear data for new system
+        }
         
         // Reset selected surface to prevent stale selections
         setSelectedSurface('');
@@ -252,12 +259,20 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
   }, []);
 
   const handleAnalysisChange = useCallback((event: React.ChangeEvent<HTMLSelectElement>) => {
-    setAnalysisType(event.target.value as 'None' | 'Spot Diagram' | 'Ray Hit Map' | 'Tabular Display');
+    const newAnalysisType = event.target.value as 'None' | 'Spot Diagram' | 'Ray Hit Map' | 'Tabular Display';
     
-    // Reset selected surface when analysis type changes
+    // Check if we have existing data before switching
+    const collector = RayIntersectionCollector.getInstance();
+    const existingData = collector.getAvailableSurfaces();
+    console.log(`🔄 Analysis type change: ${analysisType} → ${newAnalysisType}, existing data: ${existingData.length} surfaces`);
+    
+    setAnalysisType(newAnalysisType);
+    
+    // Reset selected surface/light when analysis type changes
     setSelectedSurface('');
-    console.log('🔄 Reset selected surface due to analysis type change');
-  }, []);
+    setSelectedLight('');
+    console.log('🔄 Reset selected surface/light due to analysis type change');
+  }, [analysisType]);
 
   // Control ray intersection data collection based on analysis type
   useEffect(() => {
@@ -266,33 +281,42 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
     if (analysisType === 'Ray Hit Map' || analysisType === 'Spot Diagram') {
       // Only start collection if not already collecting to avoid duplicates
       if (!collector.isCollectionActive()) {
-        collector.startCollection();
+        // Don't clear data when switching analysis types - preserve existing data
+        collector.startCollection(false);
         console.log(`🎯 Started ray intersection data collection for ${analysisType.toLowerCase()} analysis`);
+      } else {
+        console.log(`🎯 Ray intersection data collection already active for ${analysisType.toLowerCase()} analysis`);
       }
     } else {
-      collector.stopCollection();
-      if (analysisType !== 'None') {
-        console.log('🔄 Stopped ray intersection data collection (analysis type changed)');
+      // Only stop collection when explicitly switching to 'None' or other non-analysis types
+      if (collector.isCollectionActive()) {
+        collector.stopCollection();
+        console.log('🔄 Stopped ray intersection data collection (analysis type changed to non-analysis mode)');
       }
     }
     
-    // Cleanup function
-    return () => {
-      // Only stop if we started it in this effect
-      if (analysisType === 'Ray Hit Map' || analysisType === 'Spot Diagram') {
-        collector.stopCollection();
-      }
-    };
+    // NO cleanup function - let data persist across analysis type switches
+    // Data will only be cleared when explicitly switching to 'None' or component unmounts
   }, [analysisType]);
 
   // Monitor intersection data availability and trigger re-renders
   useEffect(() => {
     if (analysisType === 'Ray Hit Map' || analysisType === 'Spot Diagram') {
+      const collector = RayIntersectionCollector.getInstance();
+      
+      // Check if we already have data immediately
+      const existingData = collector.getAvailableSurfaces();
+      if (existingData.length > 0) {
+        console.log(`🎯 Found existing intersection data: ${existingData.length} surfaces - no monitoring needed`);
+        setIntersectionDataTrigger(prev => prev + 1);
+        return; // No need to monitor if we already have data
+      }
+      
+      console.log(`🔍 Starting intersection data monitoring for ${analysisType} (no existing data)`);
       let lastCount = 0;
       let checkCount = 0;
       
       const checkInterval = setInterval(() => {
-        const collector = RayIntersectionCollector.getInstance();
         const availableSurfaces = collector.getAvailableSurfaces();
         checkCount++;
         
@@ -410,6 +434,56 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
     
     return surfaces;
   }, [parsedData, analysisType, intersectionDataTrigger]); // Added intersectionDataTrigger dependency
+
+  // Extract available light sources for spot diagram
+  const getAvailableLightSources = useCallback(() => {
+    if (!parsedData) return [];
+    
+    const lightSources: Array<{id: string, label: string, wavelength?: number}> = [];
+    
+    // For spot diagram, we need to get light sources that have intersection data
+    if (analysisType === 'Spot Diagram') {
+      const collector = RayIntersectionCollector.getInstance();
+      const availableSurfaces = collector.getAvailableSurfaces();
+      
+      // Extract unique light IDs from intersection data
+      const lightIds = new Set<string>();
+      
+      availableSurfaces.forEach(surface => {
+        const surfaceData = collector.getSurfaceIntersectionData(surface.id);
+        if (surfaceData && surfaceData.intersectionPoints) {
+          surfaceData.intersectionPoints.forEach(point => {
+            lightIds.add(point.lightId.toString());
+          });
+        }
+      });
+      
+      // Convert to light source array with labels
+      Array.from(lightIds).sort((a, b) => parseInt(a) - parseInt(b)).forEach(lightId => {
+        // Try to get wavelength from YAML data
+        let wavelength = 'unknown';
+        if (parsedData.light_sources && Array.isArray(parsedData.light_sources)) {
+          parsedData.light_sources.forEach((sourceGroup: any) => {
+            Object.entries(sourceGroup).forEach(([, sourceData]: [string, any]) => {
+              if (sourceData.lid?.toString() === lightId) {
+                wavelength = `${sourceData.wavelength}nm`;
+              }
+            });
+          });
+        }
+        
+        lightSources.push({
+          id: lightId,
+          label: `Light ${lightId} (${wavelength})`,
+          wavelength: wavelength !== 'unknown' ? parseInt(wavelength.replace('nm', '')) : undefined
+        });
+      });
+      
+      console.log(`📊 OpticalDesignApp: Available light sources for spot diagram:`, lightSources);
+    }
+    
+    return lightSources;
+  }, [parsedData, analysisType, intersectionDataTrigger]);
 
   return (
     <div className="app-container">
@@ -549,6 +623,46 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
                       ) : (
                         <div className="hit-map-empty">
                           <p>Select a surface</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : analysisType === 'Spot Diagram' ? (
+                  <div className="hit-map-layout">
+                    {/* Left side - Compact light source list */}
+                    <div className="surface-list-container">
+                      <div className="surface-list">
+                        <h3>Light Sources</h3>
+                        {getAvailableLightSources().map(lightSource => (
+                          <div 
+                            key={lightSource.id}
+                            className={`surface-item ${selectedLight === lightSource.id ? 'selected' : ''}`}
+                            onClick={() => setSelectedLight(lightSource.id)}
+                          >
+                            {lightSource.label}
+                          </div>
+                        ))}
+                        {getAvailableLightSources().length === 0 && (
+                          <div className="no-surfaces">
+                            <p>No light sources with ray hits available</p>
+                            <p>Ray trace must complete first</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* Right side - Spot diagram plot */}
+                    <div className="hit-map-container">
+                      {selectedLight ? (
+                        <IntersectionPlot 
+                          surfaceId={selectedLight} // Pass light ID for spot diagram
+                          analysisType={'Spot Diagram' as 'Hit Map' | 'Spot Diagram'}
+                          yamlContent={yamlContent}
+                          systemData={parsedData}
+                        />
+                      ) : (
+                        <div className="hit-map-empty">
+                          <p>Select a light source</p>
                         </div>
                       )}
                     </div>

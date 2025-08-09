@@ -97,13 +97,21 @@ export class RayIntersectionCollector {
   
   /**
    * Start collecting ray intersection data
+   * @param clearExistingData Whether to clear existing data (default: false)
    */
-  startCollection(): void {
+  startCollection(clearExistingData: boolean = false): void {
     const startTime = performance.now();
     this.isCollecting = true;
-    this.clearData();
-    const endTime = performance.now();
-    console.log(`🎯 RayIntersectionCollector: Collection started, data cleared in ${(endTime - startTime).toFixed(2)}ms`);
+    
+    if (clearExistingData) {
+      this.clearData();
+      const endTime = performance.now();
+      console.log(`🎯 RayIntersectionCollector: Collection started, data cleared in ${(endTime - startTime).toFixed(2)}ms`);
+    } else {
+      const endTime = performance.now();
+      const existingSurfaces = this.intersectionData.surfaces.size;
+      console.log(`🎯 RayIntersectionCollector: Collection started, preserving ${existingSurfaces} existing surfaces (${(endTime - startTime).toFixed(2)}ms)`);
+    }
   }
   
   /**

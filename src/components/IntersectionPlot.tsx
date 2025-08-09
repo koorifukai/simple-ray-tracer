@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import Plotly from 'plotly.js-dist-min';
-import { RayIntersectionCollector } from './RayIntersectionCollector';
+import { RayIntersectionCollector, type RayIntersectionPoint, type SurfaceIntersectionData } from './RayIntersectionCollector';
 import { getWavelengthColor } from '../optical/wavelength';
 
 interface IntersectionPoint {
@@ -32,32 +32,78 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
   const getIntersectionData = (): IntersectionPoint[] => {
     const collector = RayIntersectionCollector.getInstance();
     
-    console.log(`📊 IntersectionPlot: Requesting data for surface ID: "${surfaceId}"`);
-    console.log(`📊 IntersectionPlot: Available surfaces in collector:`, collector.getAvailableSurfaces().map(s => ({
-      id: s.id,
-      numericalId: s.numericalId ?? 'undefined',
-      name: s.name
-    })));
-    
-    const surfaceData = collector.getSurfaceIntersectionData(surfaceId);
-    
-    console.log(`📊 IntersectionPlot: Surface data for "${surfaceId}":`, surfaceData);
-    
-    if (!surfaceData || surfaceData.intersectionPoints.length === 0) {
-      console.log(`📊 IntersectionPlot: No intersection data available for surface "${surfaceId}"`);
-      return [];
+    if (analysisType === 'Spot Diagram') {
+      // For spot diagram, surfaceId is actually a light ID
+      const lightId = parseInt(surfaceId);
+      console.log(`📊 IntersectionPlot: Creating spot diagram for light ID: ${lightId}`);
+      
+      // Find all surfaces that this light intersects
+      const availableSurfaces = collector.getAvailableSurfaces();
+      const surfacesWithLight: {surfaceId: string, points: any[]}[] = [];
+      
+      availableSurfaces.forEach(surface => {
+        const surfaceData = collector.getSurfaceIntersectionData(surface.id);
+        if (surfaceData && surfaceData.intersectionPoints) {
+          const lightPoints = surfaceData.intersectionPoints.filter(point => point.lightId === lightId);
+          if (lightPoints.length > 0) {
+            surfacesWithLight.push({
+              surfaceId: surface.id,
+              points: lightPoints
+            });
+          }
+        }
+      });
+      
+      console.log(`📊 IntersectionPlot: Light ${lightId} intersects ${surfacesWithLight.length} surfaces:`, 
+        surfacesWithLight.map(s => s.surfaceId));
+      
+      if (surfacesWithLight.length === 0) {
+        console.log(`📊 IntersectionPlot: No intersection data for light ${lightId}`);
+        return [];
+      }
+      
+      // Use the last surface (highest numerical ID or last in array)
+      const lastSurface = surfacesWithLight[surfacesWithLight.length - 1];
+      console.log(`📊 IntersectionPlot: Using last surface "${lastSurface.surfaceId}" with ${lastSurface.points.length} points for spot diagram`);
+      
+      return lastSurface.points.map(hit => ({
+        y: hit.crossSectionY,
+        z: hit.crossSectionZ,
+        wavelength: hit.wavelength,
+        intensity: hit.intensity,
+        rayId: hit.rayId,
+        lightId: hit.lightId
+      }));
+      
+    } else {
+      // Original logic for hit map
+      console.log(`📊 IntersectionPlot: Requesting data for surface ID: "${surfaceId}"`);
+      console.log(`📊 IntersectionPlot: Available surfaces in collector:`, collector.getAvailableSurfaces().map(s => ({
+        id: s.id,
+        numericalId: s.numericalId ?? 'undefined',
+        name: s.name
+      })));
+      
+      const surfaceData = collector.getSurfaceIntersectionData(surfaceId);
+      
+      console.log(`📊 IntersectionPlot: Surface data for "${surfaceId}":`, surfaceData);
+      
+      if (!surfaceData || surfaceData.intersectionPoints.length === 0) {
+        console.log(`📊 IntersectionPlot: No intersection data available for surface "${surfaceId}"`);
+        return [];
+      }
+      
+      console.log(`📊 IntersectionPlot: Found ${surfaceData.intersectionPoints.length} intersection points for surface "${surfaceId}"`);
+      
+      return surfaceData.intersectionPoints.map(hit => ({
+        y: hit.crossSectionY,
+        z: hit.crossSectionZ,
+        wavelength: hit.wavelength,
+        intensity: hit.intensity,
+        rayId: hit.rayId,
+        lightId: hit.lightId
+      }));
     }
-    
-    console.log(`📊 IntersectionPlot: Found ${surfaceData.intersectionPoints.length} intersection points for surface "${surfaceId}"`);
-    
-    return surfaceData.intersectionPoints.map(hit => ({
-      y: hit.crossSectionY,
-      z: hit.crossSectionZ,
-      wavelength: hit.wavelength,
-      intensity: hit.intensity,
-      rayId: hit.rayId,
-      lightId: hit.lightId
-    }));
   };
 
   // Generate 2D surface cross-section geometry for background rendering
@@ -491,6 +537,233 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
     };
   };
 
+  // Calculate global spot diagram bounds for consistent scaling across all light sources
+  // EUREKA Approach: Find the maximum extent of any individual light source
+  const getGlobalSpotDiagramBounds = () => {
+    const collector = RayIntersectionCollector.getInstance();
+    const availableSurfaces = collector.getAvailableSurfaces();
+    
+    if (availableSurfaces.length === 0) {
+      return { yMin: -0.3, yMax: 0.3, zMin: -0.3, zMax: 0.3, center: { y: 0, z: 0 } };
+    }
+    
+    // Find the actual last surface in the optical train (same logic as spot diagram)
+    let lastSurfaceData: SurfaceIntersectionData | undefined = undefined;
+    
+    // Use the last surface in optical train sequence (highest numerical ID)
+    for (let i = availableSurfaces.length - 1; i >= 0; i--) {
+      const surface = availableSurfaces[i];
+      const surfaceData = collector.getSurfaceIntersectionData(surface.id);
+      if (surfaceData && surfaceData.intersectionPoints.length > 0) {
+        lastSurfaceData = surfaceData;
+        console.log(`🎯 GLOBAL BOUNDS: Using surface "${surface.id}" (numerical: ${surface.numericalId}) as last surface with ${surfaceData.intersectionPoints.length} intersections`);
+        break;
+      }
+    }
+    
+    if (!lastSurfaceData) {
+      console.log('🎯 GLOBAL BOUNDS: No surface data found, using 0.6mm default view');
+      return { yMin: -0.3, yMax: 0.3, zMin: -0.3, zMax: 0.3, center: { y: 0, z: 0 } };
+    }
+    
+    const validSurfaceData: SurfaceIntersectionData = lastSurfaceData;
+    
+    if (validSurfaceData.intersectionPoints.length === 0) {
+      console.log('🎯 GLOBAL BOUNDS: No intersection points found, using 0.6mm default view');
+      return { yMin: -0.3, yMax: 0.3, zMin: -0.3, zMax: 0.3, center: { y: 0, z: 0 } };
+    }
+    
+    // EUREKA APPROACH: Group points by light ID and find maximum extent of any light
+    const allPoints: RayIntersectionPoint[] = validSurfaceData.intersectionPoints;
+    console.log(`🎯 GLOBAL BOUNDS: Analyzing ${allPoints.length} total intersection points on final surface`);
+    
+    // Group intersection points by light ID
+    const lightGroups = new Map<number, RayIntersectionPoint[]>();
+    allPoints.forEach(point => {
+      const lightId = Math.floor(point.lightId);
+      if (!lightGroups.has(lightId)) {
+        lightGroups.set(lightId, []);
+      }
+      lightGroups.get(lightId)!.push(point);
+    });
+    
+    console.log(`🎯 GLOBAL BOUNDS: Found ${lightGroups.size} light sources:`, Array.from(lightGroups.keys()));
+    
+    // Calculate extent (size) for each light source
+    let maxLightExtent = 0;
+    const lightExtents: {lightId: number, yRange: number, zRange: number, maxExtent: number}[] = [];
+    
+    lightGroups.forEach((points, lightId) => {
+      const lightY = points.map(p => p.crossSectionY);
+      const lightZ = points.map(p => p.crossSectionZ);
+      
+      const minY = Math.min(...lightY);
+      const maxY = Math.max(...lightY);
+      const minZ = Math.min(...lightZ);
+      const maxZ = Math.max(...lightZ);
+      
+      const yRange = maxY - minY;
+      const zRange = maxZ - minZ;
+      const lightExtent = Math.max(yRange, zRange);
+      
+      lightExtents.push({ lightId, yRange, zRange, maxExtent: lightExtent });
+      
+      if (lightExtent > maxLightExtent) {
+        maxLightExtent = lightExtent;
+      }
+      
+      console.log(`🎯 LIGHT ${lightId}: Y:[${minY.toFixed(6)}, ${maxY.toFixed(6)}] range=${yRange.toFixed(6)}mm, Z:[${minZ.toFixed(6)}, ${maxZ.toFixed(6)}] range=${zRange.toFixed(6)}mm, max extent=${lightExtent.toFixed(6)}mm`);
+    });
+    
+    // Handle edge case: if all lights have zero extent
+    if (maxLightExtent === 0) {
+      console.log('🎯 GLOBAL BOUNDS: All lights have zero extent, using 0.6mm default view');
+      return { yMin: -0.3, yMax: 0.3, zMin: -0.3, zMax: 0.3, center: { y: 0, z: 0 } };
+    }
+    
+    // Use 1.2x padding around the maximum light extent
+    const paddedRange = maxLightExtent * 1.2;
+    
+    console.log(`🎯 GLOBAL BOUNDS: Maximum light extent = ${maxLightExtent.toFixed(6)}mm`);
+    console.log(`🎯 GLOBAL BOUNDS: Final view range = ${paddedRange.toFixed(6)}mm (1.2x padding)`);
+    console.log(`🎯 GLOBAL BOUNDS: Light extents:`, lightExtents.map(l => `Light ${l.lightId}: ${l.maxExtent.toFixed(6)}mm`));
+    
+    const bounds = {
+      yMin: -paddedRange / 2,
+      yMax: paddedRange / 2,
+      zMin: -paddedRange / 2,
+      zMax: paddedRange / 2,
+      center: { y: 0, z: 0 }
+    };
+    
+    return bounds;
+  };
+
+  // Create spot diagram plot (pure spot pattern, no geometry)
+  const createSpotDiagram = (data: IntersectionPoint[]) => {
+    console.log(`🎯 SPOT DIAGRAM: Creating plot with ${data.length} intersection points`);
+    
+    if (data.length === 0) {
+      console.log('🎯 SPOT DIAGRAM: No data available, using 0.6mm default view');
+      return {
+        data: [{
+          x: [],
+          y: [],
+          type: 'scatter',
+          mode: 'markers',
+          name: 'No Data'
+        }],
+        layout: {
+          xaxis: { 
+            title: 'Y Position (mm)', 
+            range: [-0.3, 0.3],
+            constrain: 'domain',
+            color: '#ccc' 
+          },
+          yaxis: { 
+            title: 'Z Position (mm)', 
+            range: [-0.3, 0.3],
+            constrain: 'domain',
+            color: '#ccc',
+            scaleanchor: 'x',
+            scaleratio: 1 
+          },
+          plot_bgcolor: '#1e1e1e',
+          paper_bgcolor: '#1e1e1e',
+          font: { color: '#ccc' },
+          showlegend: false,
+          margin: { l: 60, r: 80, t: 40, b: 50 },
+          autosize: true,
+          dragmode: 'pan'
+        }
+      };
+    }
+
+    // Group points by wavelength for color coding
+    const wavelengthGroups = new Map<number, IntersectionPoint[]>();
+    data.forEach(point => {
+      if (!wavelengthGroups.has(point.wavelength)) {
+        wavelengthGroups.set(point.wavelength, []);
+      }
+      wavelengthGroups.get(point.wavelength)!.push(point);
+    });
+
+    console.log(`🎯 SPOT DIAGRAM: Found ${wavelengthGroups.size} wavelengths:`, Array.from(wavelengthGroups.keys()));
+
+    // Create traces for each wavelength
+    const traces: any[] = [];
+    
+    wavelengthGroups.forEach((points, wavelength) => {
+      const color = getWavelengthColor(wavelength);
+      
+      traces.push({
+        x: points.map(p => p.y), // Y position on surface
+        y: points.map(p => p.z), // Z position on surface
+        type: 'scatter',
+        mode: 'markers',
+        marker: {
+          color: color,
+          size: 6,
+          opacity: 0.7
+        },
+        name: `${wavelength}nm`,
+        hovertemplate: 
+          '<b>Spot Position</b><br>' +
+          'Y: %{x:.3f} mm<br>' +
+          'Z: %{y:.3f} mm<br>' +
+          'Wavelength: ' + wavelength + 'nm<br>' +
+          '<extra></extra>',
+        showlegend: wavelengthGroups.size > 1 // Only show legend if multiple wavelengths
+      });
+    });
+
+    // Use global bounds for consistent scaling across all light sources
+    const globalBounds = getGlobalSpotDiagramBounds();
+    
+    // For individual light centering, calculate the center of THIS light's data
+    const allY = data.map(p => p.y);
+    const allZ = data.map(p => p.z);
+    const lightYCenter = allY.length > 0 ? (Math.min(...allY) + Math.max(...allY)) / 2 : globalBounds.center.y;
+    const lightZCenter = allZ.length > 0 ? (Math.min(...allZ) + Math.max(...allZ)) / 2 : globalBounds.center.z;
+    
+    // Use global scale but center on this light's data
+    const rangeSize = globalBounds.yMax - globalBounds.yMin;
+    const yMin = lightYCenter - rangeSize / 2;
+    const yMax = lightYCenter + rangeSize / 2;
+    const zMin = lightZCenter - rangeSize / 2;
+    const zMax = lightZCenter + rangeSize / 2;
+
+    console.log(`🎯 SPOT DIAGRAM: Using global scale (${rangeSize.toFixed(6)}mm), centered on light data: Y:[${yMin.toFixed(6)}, ${yMax.toFixed(6)}], Z:[${zMin.toFixed(6)}, ${zMax.toFixed(6)}]`);
+
+    return {
+      data: traces,
+      layout: {
+        xaxis: { 
+          title: 'Y Position (mm)',
+          range: [yMin, yMax],
+          constrain: 'domain',
+          color: '#ccc'
+        },
+        yaxis: { 
+          title: 'Z Position (mm)',
+          range: [zMin, zMax],
+          constrain: 'domain',
+          color: '#ccc',
+          scaleanchor: 'x', // Ensure equal scaling with x-axis
+          scaleratio: 1
+        },
+        plot_bgcolor: '#1e1e1e',
+        paper_bgcolor: '#1e1e1e',
+        font: { color: '#ccc' },
+        showlegend: wavelengthGroups.size > 1,
+        margin: { l: 60, r: 80, t: 40, b: 50 },
+        autosize: true,
+        dragmode: 'pan',
+        selectdirection: 'any'
+      }
+    };
+  };
+
   // Create multiple plots for Spot Diagram (grouped by lid) - UNUSED (Spot Diagram kept blank)
   // const createSpotDiagramPlots = (data: IntersectionPoint[]) => {
   //   if (data.length === 0) {
@@ -599,26 +872,8 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
     if (analysisType === 'Hit Map') {
       plotConfig = createHitMapPlot(data);
     } else {
-      console.log('📊 PLOT UPDATE: Spot diagram analysis not displayed (keeping blank as requested)');
-      // Return empty plot for spot diagram to keep it blank
-      plotConfig = {
-        data: [{
-          x: [],
-          y: [],
-          type: 'scatter',
-          mode: 'markers',
-          name: 'Spot Diagram (blank)'
-        }],
-        layout: {
-          xaxis: { title: 'Y Position (mm)', color: '#ccc' },
-          yaxis: { title: 'Z Position (mm)', color: '#ccc' },
-          plot_bgcolor: '#1e1e1e',
-          paper_bgcolor: '#1e1e1e',
-          font: { color: '#ccc' },
-          showlegend: false,
-          margin: { l: 60, r: 80, t: 40, b: 50 }
-        }
-      };
+      console.log('📊 PLOT UPDATE: Creating spot diagram for selected light source');
+      plotConfig = createSpotDiagram(data);
     }
 
     console.log(`📊 PLOT UPDATE: Created plot config with ${plotConfig.data.length} traces`);
