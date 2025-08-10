@@ -107,7 +107,6 @@ export class OpticalSystemParser {
     if (data.optical_trains && Array.isArray(data.optical_trains)) {
       data.optical_trains.forEach((trainGroup: any) => {
         Object.entries(trainGroup).forEach(([trainName, trainData]: [string, any]) => {
-          console.log(`\n=== Processing optical train element: ${trainName} ===`);
           
           // Get absolute position for this element (independent positioning)
           const absolutePosition = new Vector3(

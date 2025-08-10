@@ -99,7 +99,6 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
       // Clear any existing intersection data when initializing
       const collector = RayIntersectionCollector.getInstance();
       collector.clearData();
-      console.log('🧹 Cleared intersection data during app initialization');
     } catch (error) {
       console.error('Failed to parse default YAML:', error);
     }
@@ -122,7 +121,6 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
         // Clear intersection data when YAML changes
         const collector = RayIntersectionCollector.getInstance();
         collector.clearData();
-        console.log('🧹 Cleared intersection data due to YAML update');
         
         // Restart collection if we're in analysis mode
         if (analysisType === 'Ray Hit Map' || analysisType === 'Spot Diagram') {
@@ -134,11 +132,9 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
         
         // Reset intersection data trigger to unlock UI from old state
         setIntersectionDataTrigger(0);
-        console.log('🔄 Reset intersection data trigger to unlock UI');
         
         // Single trigger for all updates - no conditional logic for analysis type
         setRefreshTrigger(prev => prev + 1);
-        console.log('🔄 YAML updated - ray tracing triggered');
         
       } catch (err) {
         setParsedData(null);
@@ -165,11 +161,9 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
         // Clear intersection data when importing new file
         const collector = RayIntersectionCollector.getInstance();
         collector.clearData();
-        console.log('🧹 Cleared intersection data when importing new YAML file');
         
         // Reset intersection data trigger to unlock UI from old state
         setIntersectionDataTrigger(0);
-        console.log('🔄 Reset intersection data trigger after YAML import');
       };
       reader.readAsText(file);
     }
@@ -196,17 +190,14 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
     // Clear intersection data when creating new system
     const collector = RayIntersectionCollector.getInstance();
     collector.clearData();
-    console.log('🧹 Cleared intersection data when creating new system');
     
     // Reset intersection data trigger to unlock UI from old state
     setIntersectionDataTrigger(0);
-    console.log('🔄 Reset intersection data trigger for new system');
   }, []);
 
   const handleToggleAutoUpdate = useCallback(() => {
     const newAutoUpdate = !autoUpdate;
     setAutoUpdate(newAutoUpdate);
-    console.log(`🔄 Auto-update ${newAutoUpdate ? 'enabled' : 'disabled'}`);
     
     if (newAutoUpdate && isYamlValid) {
       try {
@@ -242,17 +233,32 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
         
         // Reset intersection data trigger to unlock UI from old state
         setIntersectionDataTrigger(0);
-        console.log('🔄 Reset intersection data trigger for manual update');
         
         // Single trigger for all updates - no conditional logic for analysis type
         setRefreshTrigger(prev => prev + 1);
-        console.log('🔄 Manual ray tracing update triggered - intersection data cleared and surface selection reset');
         
       } catch (err) {
         console.error('❌ Failed to manually update ray tracing:', err);
       }
     }
   }, [isYamlValid, yamlContent]);
+
+  // Keyboard shortcut for manual update (Ctrl+S)
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.ctrlKey && event.key === 's') {
+        event.preventDefault(); // Prevent browser's save dialog
+        if (!autoUpdate && isYamlValid) {
+          handleManualUpdate();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [autoUpdate, isYamlValid, handleManualUpdate]);
 
   const handleTutorial = useCallback(() => {
     window.open('https://github.com/koorifukai/simple-ray-tracer', '_blank');
@@ -283,15 +289,11 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
       if (!collector.isCollectionActive()) {
         // Don't clear data when switching analysis types - preserve existing data
         collector.startCollection(false);
-        console.log(`🎯 Started ray intersection data collection for ${analysisType.toLowerCase()} analysis`);
-      } else {
-        console.log(`🎯 Ray intersection data collection already active for ${analysisType.toLowerCase()} analysis`);
       }
     } else {
       // Only stop collection when explicitly switching to 'None' or other non-analysis types
       if (collector.isCollectionActive()) {
         collector.stopCollection();
-        console.log('🔄 Stopped ray intersection data collection (analysis type changed to non-analysis mode)');
       }
     }
     
@@ -307,7 +309,6 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
       // Check if we already have data immediately
       const existingData = collector.getAvailableSurfaces();
       if (existingData.length > 0) {
-        console.log(`🎯 Found existing intersection data: ${existingData.length} surfaces - no monitoring needed`);
         setIntersectionDataTrigger(prev => prev + 1);
         return; // No need to monitor if we already have data
       }
@@ -324,12 +325,10 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
         if (availableSurfaces.length !== lastCount && availableSurfaces.length > 0) {
           lastCount = availableSurfaces.length;
           setIntersectionDataTrigger(prev => prev + 1);
-          console.log(`🔄 Intersection data detected - triggering surface list update (${availableSurfaces.length} surfaces)`);
         }
         
         // Stop checking after 20 attempts (10 seconds) if no data appears
         if (checkCount > 20 && availableSurfaces.length === 0) {
-          console.log('⏱️ Stopping intersection data monitoring - no data after 10 seconds');
           clearInterval(checkInterval);
         }
         
@@ -342,7 +341,6 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
             if (currentSurfaces.length !== lastCount) {
               lastCount = currentSurfaces.length;
               setIntersectionDataTrigger(prev => prev + 1);
-              console.log(`🔄 Surface count changed - updating list (${currentSurfaces.length} surfaces)`);
             }
           }, 2000); // Check every 2 seconds instead of 500ms
           
@@ -542,9 +540,9 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
                 className="menu-button manual-update-btn" 
                 onClick={handleManualUpdate}
                 disabled={!isYamlValid}
-                title="Manually update ray tracing with current YAML"
+                title="Manually update ray tracing with current YAML (Ctrl+S)"
               >
-                Update Now
+                Update (Ctrl+S)
               </button>
             )}
           </div>

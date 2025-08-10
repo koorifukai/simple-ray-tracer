@@ -98,6 +98,30 @@ body {
   cursor: not-allowed;
 }
 
+/* Manual Update Button - Green styling to make it prominent */
+.manual-update-btn {
+  background: var(--success) !important;
+  border-color: var(--success) !important;
+  color: white !important;
+  font-weight: 500;
+  box-shadow: 0 2px 4px rgba(40, 167, 69, 0.3);
+}
+
+.manual-update-btn:hover:not(:disabled) {
+  background: #218838 !important;
+  border-color: #218838 !important;
+  box-shadow: 0 3px 6px rgba(40, 167, 69, 0.4);
+  transform: translateY(-1px);
+}
+
+.manual-update-btn:disabled {
+  background: var(--bg-tertiary) !important;
+  border-color: var(--border) !important;
+  color: var(--text-muted) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
 .font-controls {
   display: flex;
   align-items: center;

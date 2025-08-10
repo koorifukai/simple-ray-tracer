@@ -248,19 +248,6 @@ export class RayTracer {
                           localRay.direction.dot(intersection.normal) < 0 && 
                           this.isWithinAperture(intersection.point, surface);
     
-    // Debug logging for cylindrical surfaces only
-    if (surface.shape === 'cylindrical' && intersection.isValid) {
-      const dotProduct = localRay.direction.dot(intersection.normal);
-      const withinAperture = this.isWithinAperture(intersection.point, surface);
-      console.log(`🔍 CYLINDRICAL HIT SURFACE CHECK:`);
-      console.log(`   intersection.isValid: ${intersection.isValid}`);
-      console.log(`   direction·normal: ${dotProduct.toFixed(6)} (should be < 0)`);
-      console.log(`   within aperture: ${withinAperture}`);
-      console.log(`   final rayHitsSurface: ${rayHitsSurface}`);
-      console.log(`   intersection point: (${intersection.point.x.toFixed(3)}, ${intersection.point.y.toFixed(3)}, ${intersection.point.z.toFixed(3)})`);
-      console.log(`   surface height: ${surface.height}, width: ${surface.width}`);
-    }
-    
     if (!rayHitsSurface) {
       if (!useSimplifiedLog) {
         this.log('surface', `Ray misses surface - no interaction, continues with original trajectory`);
@@ -1114,107 +1101,63 @@ export class RayTracer {
    * - Radius r defines circular cross-section in YZ plane
    * 
    * INTERSECTION STRATEGY (EUREKA Method):
-   * 1. Project to YZ plane intersection with circle of radius r
-   * 2. Validate Y coordinate is within width limits (normalized)
-   * 3. Calculate full 3D intersection and validate Z height limits
+   * 1. Backstabbing check: ray.direction · (-1,0,0) >= 0 rejects
+   * 2. Solve quadratic for YZ plane cylinder intersection
+   * 3. Choose correct root based on radius sign
+   * 4. Validate Y coordinate within width limits
+   * 5. Validate Z coordinate within height limits
    */
   private static intersectCylinder(ray: Ray, surface: OpticalSurface): RayIntersection {
     const radius = Math.abs(surface.radius || 10);
-    const height = surface.height || 20; // Total height of cylinder
-    const width = surface.width || 20;   // Total width of cylinder
+    const height = surface.height || 20;
+    const width = surface.width || 20;
     
     const O = ray.position;
     const D = ray.direction.normalize();
 
     // === EUREKA STEP 1: Backstabbing check ===
-    // Check if np.dot(-v, np.array([-1, 0, 0])) < 0
-    if (D.dot(new Vector3(1, 0, 0)) < 0) {
-      console.log(`❌ Cylinder intersection failed: Backstabbing (ray direction incompatible with surface)`);
+    if (D.dot(new Vector3(-1, 0, 0)) >= 0) {
       return { point: new Vector3(0, 0, 0), normal: new Vector3(0, 0, 1), distance: 0, isValid: false };
     }
 
     // === EUREKA STEP 2: XY plane circle intersection ===
-    // v_flat = normalize(np.array([v[0], v[1], 0]))
-    // t_flat = np.array([t_last[0], t_last[1], 0])
-    const v_flat = new Vector3(D.x, D.y, 0).normalize();
-    const t_flat = new Vector3(O.x, O.y, 0);
+    const a = D.x * D.x + D.y * D.y;
+    const b = 2.0 * (O.x * D.x + O.y * D.y);
+    const c = O.x * O.x + O.y * O.y - radius * radius;
     
-    // c = np.linalg.norm(t_flat)
-    // c = c * c - r * r
-    const c = t_flat.dot(t_flat) - radius * radius;
-    
-    // delta = (np.dot(v_flat, t_flat)) ** 2 - c
-    const dot_v_t = v_flat.dot(t_flat);
-    const delta = dot_v_t * dot_v_t - c;
-    
-    if (delta <= 0) {
-      console.log(`❌ Cylinder intersection failed: No XY circle intersection (delta=${delta.toFixed(6)})`);
-      return { point: new Vector3(0, 0, 0), normal: new Vector3(0, 0, 1), distance: 0, isValid: false };
-    }
-
-    // === EUREKA STEP 3: Calculate intersection points ===
-    // d = -np.dot(v_flat, t_flat)
-    // d1 = d - np.sqrt(delta)
-    // d2 = d + np.sqrt(delta)
-    // d1 = t_flat + d1 * v_flat
-    // d2 = t_flat + d2 * v_flat
-    const d = -dot_v_t;
-    const sqrt_delta = Math.sqrt(delta);
-    const d1_param = d - sqrt_delta;
-    const d2_param = d + sqrt_delta;
-    
-    const d1 = t_flat.add(v_flat.multiply(d1_param));
-    const d2 = t_flat.add(v_flat.multiply(d2_param));
-
-    // === EUREKA STEP 4: Choose intersection based on radius sign ===
-    // if sur.radius > 0: d = d1
-    // else: d = d2
-    const d_selected = (surface.radius || 0) > 0 ? d1 : d2;
-
-    // === EUREKA STEP 5: Width validation ===
-    // if abs(d[1]) > sur.width / 2: return
-    if (Math.abs(d_selected.y) > width / 2) {
-      console.log(`❌ Cylinder intersection failed: Outside width limits (|Y|=${Math.abs(d_selected.y).toFixed(3)} > width/2=${(width/2).toFixed(3)})`);
-      return { point: new Vector3(0, 0, 0), normal: new Vector3(0, 0, 1), distance: 0, isValid: false };
-    }
-
-    // === EUREKA STEP 6: Calculate 3D intersection ===
-    // Find parameter t where ray intersects the cylindrical surface
-    // For cylinder Y² + Z² = R², solve for t where ray intersects
-    
-    if (Math.abs(D.x) < this.EPSILON) {
-      console.log(`❌ Cylinder intersection failed: Ray parallel to cylinder axis (|direction.x|=${Math.abs(D.x)} < ${this.EPSILON})`);
+    if (Math.abs(a) < this.EPSILON) {
       return { point: new Vector3(0, 0, 0), normal: new Vector3(0, 0, 1), distance: 0, isValid: false };
     }
     
-    // We know the XY intersection point d_selected, now find the Z coordinate
-    // Ray equation: P(t) = O + t*D
-    // At intersection: P(t).x = d_selected.x and P(t).y = d_selected.y
-    // From X coordinate: O.x + t*D.x = d_selected.x
-    const t_intersection = (d_selected.x - O.x) / D.x;
+    const discriminant = b * b - 4.0 * a * c;
+    if (discriminant < 0) {
+      return { point: new Vector3(0, 0, 0), normal: new Vector3(0, 0, 1), distance: 0, isValid: false };
+    }
+
+    // === EUREKA STEP 3: Choose intersection based on radius sign ===
+    const sqrt_discriminant = Math.sqrt(discriminant);
+    const t1 = (-b - sqrt_discriminant) / (2.0 * a);
+    const t2 = (-b + sqrt_discriminant) / (2.0 * a);
+    const t_selected = (surface.radius || 0) > 0 ? t1 : t2;
     
-    if (t_intersection <= this.EPSILON) {
-      console.log(`❌ Cylinder intersection failed: Intersection behind ray (t=${t_intersection.toFixed(6)} <= ${this.EPSILON})`);
+    if (t_selected <= this.EPSILON) {
       return { point: new Vector3(0, 0, 0), normal: new Vector3(0, 0, 1), distance: 0, isValid: false };
     }
     
-    const intersection3D = O.add(D.multiply(t_intersection));
+    const intersection3D = O.add(D.multiply(t_selected));
 
-    // === EUREKA STEP 7: Height validation ===
-    // if abs(intersection3D[2]) > sur.height / 2: return
+    // === EUREKA STEP 4: Width validation ===
+    if (Math.abs(intersection3D.y) > width / 2) {
+      return { point: new Vector3(0, 0, 0), normal: new Vector3(0, 0, 1), distance: 0, isValid: false };
+    }
+
+    // === EUREKA STEP 5: Height validation ===
     if (Math.abs(intersection3D.z) > height / 2) {
-      console.log(`❌ Cylinder intersection failed: Outside height limits (|Z|=${Math.abs(intersection3D.z).toFixed(3)} > height/2=${(height/2).toFixed(3)})`);
       return { point: new Vector3(0, 0, 0), normal: new Vector3(0, 0, 1), distance: 0, isValid: false };
     }
 
-    // === EUREKA STEP 8: Calculate surface normal ===
-    // For cylinder with axis along X, normal is radial in YZ plane
-    // Normal points outward from the cylinder axis to the intersection point
-    // The cylinder axis passes through (X, 0, 0) for any X value
-    // So the normal is the vector from (intersection3D.x, 0, 0) to intersection3D
-    const axisPoint = new Vector3(intersection3D.x, 0, 0);
-    const normalVector = intersection3D.subtract(axisPoint);
-    
+    // === EUREKA STEP 6: Calculate surface normal ===
+    const normalVector = new Vector3(intersection3D.x, intersection3D.y, 0);
     let localNormal = normalVector.normalize();
     
     // For concave cylinder (negative radius), flip normal inward
@@ -1222,24 +1165,16 @@ export class RayTracer {
       localNormal = localNormal.multiply(-1);
     }
 
-    // CRITICAL FIX: Ensure normal points toward the incoming ray for proper refraction
-    // For cylindrical surfaces, we need to check if the normal should be flipped
-    // based on the ray approach direction
+    // Ensure normal points toward the incoming ray for proper refraction
     const dotProduct = localNormal.dot(ray.direction);
     if (dotProduct > 0) {
-      // Ray is hitting from behind - flip normal to face the ray
       localNormal = localNormal.multiply(-1);
-      console.log(`🔄 Flipped cylindrical normal to face incoming ray`);
     }
-    
-    console.log(`✅ Cylinder intersection successful at (${intersection3D.x.toFixed(3)}, ${intersection3D.y.toFixed(3)}, ${intersection3D.z.toFixed(3)}), t=${t_intersection.toFixed(3)}`);
-    console.log(`   Local normal: (${localNormal.x.toFixed(3)}, ${localNormal.y.toFixed(3)}, ${localNormal.z.toFixed(3)})`);
-    console.log(`   Normal·Ray: ${dotProduct.toFixed(6)} -> ${localNormal.dot(ray.direction).toFixed(6)} after correction`);
     
     return {
       point: intersection3D,
       normal: localNormal,
-      distance: t_intersection,
+      distance: t_selected,
       isValid: true
     };
   }
