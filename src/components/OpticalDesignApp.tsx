@@ -7,7 +7,7 @@ import * as yaml from 'js-yaml';
 
 // Default optical system YAML
 const defaultYaml = `
-#mode: Gaussian 28 example 
+# Gaussian 28 example
 display_settings:
   show_grid: True
   density_for_intensity: True

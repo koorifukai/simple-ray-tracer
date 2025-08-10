@@ -914,7 +914,7 @@ export class SurfaceRenderer {
           });
         }
 
-        const donutColor = 'rgba(0, 0, 0, 0.3)'; // Black with 30% opacity for aperture blocking rim
+        const donutColor = 'rgba(0, 0, 0, 0.9)'; // Black with 90% opacity for aperture blocking rim
 
         const result = {
           type: 'mesh3d',
