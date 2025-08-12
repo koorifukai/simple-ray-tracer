@@ -609,12 +609,9 @@ export class OpticalSurfaceFactory {
     if (Math.abs(dot - 1) < 1e-6) {
       // Vectors are already aligned
       return new Matrix4(); // Identity matrix
-    } else if (Math.abs(dot + 1) < 1e-6) {
-      // Vectors are opposite - return -I (180° rotation)
-      const matrix = new Matrix4();
-      matrix.set(0, 0, -1); matrix.set(1, 1, -1); matrix.set(2, 2, -1);
-      return matrix;
-    } 
+    }
+    // REMOVED: Special case for opposite vectors (dot ≈ -1) to ensure consistent behavior
+    // Now -180 and -179 degrees use the same upright rotation procedure
     
     // STEP 1: Project vectors onto XY plane and align those projections
     const fv1_mag = Math.sqrt(a.x * a.x + a.y * a.y);
@@ -635,8 +632,10 @@ export class OpticalSurfaceFactory {
     let theta = -Math.acos(Math.max(-1, Math.min(1, dot_xy)));
     
     // Handle sign correctly (EUREKA logic: if b[1] < 0, adjust theta)
-    if (b.y < 0) {
-      theta = 2 * Math.PI - theta;
+    // Special handling for opposite vectors to ensure consistent rotation direction
+    const cross_z = fv1.x * fv2.y - fv1.y * fv2.x; // Z component of cross product
+    if (cross_z < 0) {
+      theta = -theta; // Adjust direction based on cross product sign
     }
     
     // Create Z-rotation matrix
