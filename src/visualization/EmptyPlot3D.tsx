@@ -9,6 +9,34 @@ import { RayIntersectionCollector } from '../components/RayIntersectionCollector
 
 declare const Plotly: any;
 
+// Global camera state storage to persist across component remounts
+const CAMERA_STATE_KEY = 'opticalRayTracer_cameraState';
+let globalCameraState: any = null;
+
+// Load saved camera state from sessionStorage on module load
+try {
+  const savedState = sessionStorage.getItem(CAMERA_STATE_KEY);
+  if (savedState) {
+    globalCameraState = JSON.parse(savedState);
+    console.log('📷 Loaded camera state from session:', globalCameraState);
+  }
+} catch (error) {
+  console.warn('Failed to load camera state from session storage:', error);
+}
+
+// Utility functions for camera state persistence
+const saveCameraState = (cameraState: any) => {
+  try {
+    globalCameraState = cameraState;
+    sessionStorage.setItem(CAMERA_STATE_KEY, JSON.stringify(cameraState));
+    console.log('📷 Camera state saved to session:', cameraState);
+  } catch (error) {
+    console.warn('Failed to save camera state to session storage:', error);
+  }
+};
+
+const getCameraState = () => globalCameraState;
+
 interface EmptyPlot3DProps {
   title?: string;
   yamlContent?: string;
@@ -23,7 +51,6 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
   rayTracingTrigger
 }) => {
   const plotRef = useRef<HTMLDivElement>(null);
-  const cameraStateRef = useRef<any>(null); // Store camera state for persistence
 
   useEffect(() => {
     if (!plotRef.current) return;
@@ -32,7 +59,7 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
     const loadPlotly = async () => {
       try {
         const PlotlyModule = await import('plotly.js-dist-min');
-        const Plotly = PlotlyModule.default || PlotlyModule;
+        const PlotlyLib = PlotlyModule.default || PlotlyModule;
 
         // Create optical system visualization
         const plotData: any[] = [];
@@ -536,8 +563,8 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
         // console.log(`Z: ${unifiedMinZ.toFixed(1)} to ${unifiedMaxZ.toFixed(1)}`);
 
         // Log camera state usage
-        if (cameraStateRef.current) {
-          console.log('📷 Using saved camera state for plot refresh:', cameraStateRef.current);
+        if (getCameraState()) {
+          console.log('📷 Using saved camera state for plot refresh:', getCameraState());
         } else {
           console.log('📷 Using default camera state (first render or no saved state)');
         }
@@ -599,7 +626,7 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
             },
             aspectmode: 'cube',  // Force equal aspect ratio on all axes
             bgcolor: '#1a1a1a',
-            camera: cameraStateRef.current || {
+            camera: getCameraState() || {
               eye: { x: 0, y: -2, z: 0 }  // Default view: parallel to X-axis, looking from negative Y
             }
           },
@@ -626,38 +653,50 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
           hovermode: 'closest'
         };
 
-        await Plotly.newPlot(plotRef.current, plotData, layout, config);
+        await PlotlyLib.newPlot(plotRef.current, plotData, layout, config);
 
         // Set up camera state persistence - capture camera changes
         if (plotRef.current) {
-          const plotElement = plotRef.current as any; // Cast to access Plotly methods
+          const plotElement = plotRef.current as any; // Cast to access PlotlyLib methods
           
           plotElement.on('plotly_relayout', (eventData: any) => {
             // Capture camera state when user interacts with the plot
             if (eventData['scene.camera']) {
-              cameraStateRef.current = eventData['scene.camera'];
-              console.log('📷 Camera state saved:', cameraStateRef.current);
+              saveCameraState(eventData['scene.camera']);
+              console.log('📷 Camera state saved:', eventData['scene.camera']);
             }
           });
 
-          // Also capture initial camera state after first render
-          setTimeout(() => {
-            if (plotElement && plotElement._fullLayout && plotElement._fullLayout.scene) {
-              const currentCamera = plotElement._fullLayout.scene.camera;
-              if (currentCamera && !cameraStateRef.current) {
-                cameraStateRef.current = {
-                  eye: { ...currentCamera.eye },
-                  center: { ...currentCamera.center },
-                  up: { ...currentCamera.up }
-                };
-                console.log('📷 Initial camera state captured:', cameraStateRef.current);
+          // Handle camera state restoration
+          if (getCameraState()) {
+            // We already have saved camera state - apply it immediately after plot creation
+            setTimeout(() => {
+              PlotlyLib.relayout(plotElement, {
+                'scene.camera': getCameraState()
+              });
+              console.log('📷 Camera state restored after scene update:', getCameraState());
+            }, 150);
+          } else {
+            // No saved camera state - capture initial state after first render
+            setTimeout(() => {
+              if (plotElement && plotElement._fullLayout && plotElement._fullLayout.scene) {
+                const currentCamera = plotElement._fullLayout.scene.camera;
+                if (currentCamera) {
+                  const cameraState = {
+                    eye: { ...currentCamera.eye },
+                    center: { ...currentCamera.center },
+                    up: { ...currentCamera.up }
+                  };
+                  saveCameraState(cameraState);
+                  console.log('📷 Initial camera state captured:', cameraState);
+                }
               }
-            }
-          }, 100);
+            }, 150);
+          }
         }
 
       } catch (error) {
-        console.error('Failed to load Plotly:', error);
+        console.error('Failed to load PlotlyLib:', error);
         if (plotRef.current) {
           plotRef.current.innerHTML = `
             <div style="

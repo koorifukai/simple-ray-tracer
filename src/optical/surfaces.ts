@@ -632,12 +632,10 @@ export class OpticalSurfaceFactory {
     let theta = -Math.acos(Math.max(-1, Math.min(1, dot_xy)));
     
     // Handle sign correctly (EUREKA logic: if b[1] < 0, adjust theta)
-    // Special handling for opposite vectors to ensure consistent rotation direction
-    const cross_z = fv1.x * fv2.y - fv1.y * fv2.x; // Z component of cross product
-    if (cross_z < 0) {
-      theta = -theta; // Adjust direction based on cross product sign
+    if (b.y < 0) {
+      theta = 2 * Math.PI - theta;
     }
-    
+
     // Create Z-rotation matrix
     const Rz = new Matrix4();
     const cos_theta = Math.cos(theta);

@@ -1,12 +1,5 @@
 display_settings:
-  figsize: [7, 7]
-  theme: dark_background
-  lens_display_theta: 10
-  lens_display_phi: 20
-  ray_display_density: 0.8
-  obj_display_density: 0.5
   show_grid: True
-  fill_with_grey: False
   density_for_intensity: True
 
 surfaces:
@@ -38,15 +31,15 @@ assemblies:
     m3: 
       {relative: [0,0,-45], shape: plano, height: 50, width: 50, angles: [0,45], mode: reflection}
     m4: 
-      {relative: [-30,0,0], shape: plano, height: 50, width: 50, angles: [180,0], dial:90, mode: refraction}
+      {relative: [-30,0,0], shape: plano, height: 50, width: 50, angles: [180,0], dial: 90, mode: refraction}
     m5: 
-      {relative: [-15,0,0], shape: plano, height: 50, width: 50, angles: [135,0], dial:90, mode: reflection}
+      {relative: [-15,0,0], shape: plano, height: 50, width: 50, angles: [135,0], dial: 90, mode: reflection}
     m6: 
-      {relative: [0,-30,0], shape: plano, height: 50, width: 50, angles: [-135,0], dial:90, mode: reflection}
+      {relative: [0,-30,0], shape: plano, height: 50, width: 50, angles: [-135,0], dial: 90, mode: reflection}
     
 light_sources:
   - ring:
-      {lid: 0, position: [0,-5,-5], vector: [1,0,0], number: 25, wavelength: 488, type: uniform, param: 10}
+      {lid: 0, position: [0,-5,-5], vector: [1,0,0], number: 5, wavelength: 488, type: uniform, param: 10}
   
 optical_trains:
   - a: 
