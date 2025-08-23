@@ -64,7 +64,7 @@ optical_trains:
     l:
      {aid: 0, position: [0,0,0], angles: [0,0]}
     s:
-     {sid: 0, position: [120,0,0], angles: [0,0]}
+     {sid: 0, position: [V1,0,0], angles: [0,0]}
 
 optimization_settings:
   iterations: 20
