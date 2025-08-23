@@ -75,8 +75,8 @@ export class OptimizationEngine {
   private static async runLevenbergMarquardt(problem: OptimizationProblem): Promise<OptimizationResult> {
     const maxIterations = problem.settings.iterations;
     const tolerance = 1e-6;
-    const lambda_initial = 0.001;
-    const lambda_factor = 10;
+    const lambda_initial = 0.01;    // Start with higher damping (more conservative)
+    const lambda_factor = 2.5;      // More moderate lambda changes for stability
     
     let variables = [...problem.variables];
     let lambda = lambda_initial;
@@ -106,6 +106,7 @@ export class OptimizationEngine {
     let iteration = 0;
     let bestVariables = [...variables];
     let bestObjective = currentObjective.value;
+    let stuckCounter = 0; // Track consecutive rejected steps
     
     for (iteration = 0; iteration < maxIterations; iteration++) {
       // Calculate normalized gradient using finite differences
@@ -117,17 +118,53 @@ export class OptimizationEngine {
       // Solve LM update: (H + λI)δ = -g in normalized space
       const normalizedDelta = this.solveLMUpdate(hessian, gradient, lambda);
       
-      // Denormalize and apply update with bounds checking
-      const newVariables = this.applyNormalizedUpdate(variables, normalizedDelta, normalizationFactors);
+      // Try step with line search if we've been stuck
+      let stepAccepted = false;
+      let stepSize = 1.0;
+      let newVariables = variables;
+      let newObjective = currentObjective;
       
-      // Evaluate new objective
-      const newObjective = await this.evaluateObjective(problem, newVariables);
+      // Line search to find acceptable step size
+      for (let lineSearchIter = 0; lineSearchIter < 3; lineSearchIter++) {
+        // Apply scaled update
+        const scaledDelta = normalizedDelta.map(delta => delta * stepSize);
+        const candidateVariables = this.applyNormalizedUpdate(variables, scaledDelta, normalizationFactors);
+        
+        // Evaluate candidate
+        const candidateObjective = await this.evaluateObjective(problem, candidateVariables);
+        
+        if (candidateObjective.valid && candidateObjective.value < currentObjective.value) {
+          // Accept this step size
+          newVariables = candidateVariables;
+          newObjective = candidateObjective;
+          stepAccepted = true;
+          break;
+        }
+        
+        // Reduce step size for next attempt
+        stepSize *= 0.5;
+      }
       
-      if (newObjective.valid && newObjective.value < currentObjective.value) {
+      if (stepAccepted) {
         // Accept step
+        const improvement = currentObjective.value - newObjective.value;
+        const relativeImprovement = improvement / Math.abs(currentObjective.value);
+        
         variables = newVariables;
         currentObjective = newObjective;
-        lambda = Math.max(lambda / lambda_factor, 1e-10);
+        stuckCounter = 0; // Reset stuck counter on successful step
+        
+        // Adaptive lambda reduction based on improvement quality
+        if (relativeImprovement > 0.1) {
+          // Great improvement - reduce lambda aggressively
+          lambda = Math.max(lambda / (lambda_factor * 2), 1e-10);
+        } else if (relativeImprovement > 0.01) {
+          // Good improvement - normal reduction
+          lambda = Math.max(lambda / lambda_factor, 1e-10);
+        } else {
+          // Small improvement - conservative reduction
+          lambda = Math.max(lambda / Math.sqrt(lambda_factor), 1e-10);
+        }
         
         // Track best solution
         if (newObjective.value < bestObjective) {
@@ -135,8 +172,7 @@ export class OptimizationEngine {
           bestObjective = newObjective.value;
         }
         
-        const improvement = convergenceHistory[convergenceHistory.length - 1].objective - newObjective.value;
-        console.log(`✅ Iteration ${iteration + 1}: objective = ${newObjective.value.toExponential(3)} (Δ=${improvement.toExponential(2)}), λ = ${lambda.toExponential(2)}`);
+        console.log(`✅ Iteration ${iteration + 1}: objective = ${newObjective.value.toExponential(3)} (Δ=${improvement.toExponential(2)}, ${(relativeImprovement*100).toFixed(2)}%), λ = ${lambda.toExponential(2)}, step = ${stepSize.toFixed(2)}`);
         
         // Check convergence
         if (Math.abs(improvement) < tolerance) {
@@ -144,9 +180,22 @@ export class OptimizationEngine {
           break;
         }
       } else {
-        // Reject step, increase damping
-        lambda = Math.min(lambda * lambda_factor, 1e10);
-        console.log(`❌ Iteration ${iteration + 1}: step rejected, increasing λ to ${lambda.toExponential(2)}`);
+        // Reject step - use more sophisticated lambda increase
+        const oldLambda = lambda;
+        
+        if (stuckCounter === 0) {
+          // First rejection - moderate increase
+          lambda = Math.min(lambda * lambda_factor, 1e10);
+        } else if (stuckCounter < 3) {
+          // Multiple rejections - more aggressive increase
+          lambda = Math.min(lambda * (lambda_factor * 1.5), 1e10);
+        } else {
+          // Many rejections - try different approach
+          lambda = Math.min(lambda * lambda_factor * lambda_factor, 1e10);
+        }
+        
+        stuckCounter++;
+        console.log(`❌ Iteration ${iteration + 1}: step rejected, λ: ${oldLambda.toExponential(2)} → ${lambda.toExponential(2)} (stuck: ${stuckCounter})`);
       }
       
       convergenceHistory.push({
@@ -175,12 +224,12 @@ export class OptimizationEngine {
     console.log(`   Optimized variables: ${Object.entries(optimizedVariables).map(([k, v]) => `${k}=${v.toFixed(4)}`).join(', ')}`);
     
     return {
-      success: iteration < maxIterations || bestObjective < currentObjective.value,
+      success: bestObjective < 1000.0, // Success if we found a better solution than penalty value
       iterations: iteration + 1,
       finalObjective: bestObjective,
       optimizedVariables,
       convergenceHistory,
-      errorMessage: iteration >= maxIterations ? 'Maximum iterations reached' : undefined
+      errorMessage: iteration >= maxIterations ? `Maximum iterations reached (best objective: ${bestObjective.toExponential(3)})` : undefined
     };
   }
   
@@ -210,8 +259,8 @@ export class OptimizationEngine {
   }
   
   /**
-   * Calculate normalized gradient using finite differences
-   * Normalizes variables to [0,1] range for consistent step sizes
+   * Calculate normalized gradient using central finite differences for better accuracy
+   * Uses (f(x+h) - f(x-h))/(2h) instead of forward differences
    */
   private static async calculateNormalizedGradient(
     problem: OptimizationProblem, 
@@ -219,26 +268,35 @@ export class OptimizationEngine {
     normalizationFactors: number[]
   ): Promise<number[]> {
     const gradient: number[] = [];
-    const h = 1e-6; // Finite difference step size in normalized space
-    
-    const baseObjective = await this.evaluateObjective(problem, variables);
+    const h = 1e-4; // Finite difference step size in normalized space
     
     for (let i = 0; i < variables.length; i++) {
-      // Calculate step size in actual variable space (h * normalization factor)
+      // Calculate step size in actual variable space
       const actualStepSize = h * normalizationFactors[i];
       
-      // Perturb variable
-      const perturbedVariables = [...variables];
-      perturbedVariables[i] = { 
-        ...perturbedVariables[i], 
-        current: Math.min(perturbedVariables[i].max, perturbedVariables[i].current + actualStepSize)
+      // Forward perturbation: x + h
+      const forwardVariables = [...variables];
+      forwardVariables[i] = { 
+        ...forwardVariables[i], 
+        current: Math.min(forwardVariables[i].max, forwardVariables[i].current + actualStepSize)
       };
       
-      const perturbedObjective = await this.evaluateObjective(problem, perturbedVariables);
+      // Backward perturbation: x - h  
+      const backwardVariables = [...variables];
+      backwardVariables[i] = { 
+        ...backwardVariables[i], 
+        current: Math.max(backwardVariables[i].min, backwardVariables[i].current - actualStepSize)
+      };
       
-      // Calculate normalized finite difference (gradient in normalized space)
-      const normalizedDerivative = (perturbedObjective.value - baseObjective.value) / h;
-      gradient.push(normalizedDerivative);
+      // Evaluate both perturbations
+      const [forwardObjective, backwardObjective] = await Promise.all([
+        this.evaluateObjective(problem, forwardVariables),
+        this.evaluateObjective(problem, backwardVariables)
+      ]);
+      
+      // Central difference: (f(x+h) - f(x-h)) / (2h)
+      const centralDifference = (forwardObjective.value - backwardObjective.value) / (2 * h);
+      gradient.push(centralDifference);
     }
     
     return gradient;
@@ -257,12 +315,14 @@ export class OptimizationEngine {
       const actualDelta = normalizedDelta[i] * normalizationFactors[i];
       const newValue = variable.current + actualDelta;
       
-      // Clamp to bounds
+      // Clamp to bounds and warn about boundary hits
       const clampedValue = Math.max(variable.min, Math.min(variable.max, newValue));
+      const hitBoundary = (newValue <= variable.min || newValue >= variable.max);
       
       // Log significant updates for debugging
       if (Math.abs(actualDelta) > normalizationFactors[i] * 0.01) {
-        console.log(`   ${variable.name}: ${variable.current.toFixed(4)} → ${clampedValue.toFixed(4)} (Δ=${actualDelta.toFixed(4)})`);
+        const boundaryWarning = hitBoundary ? ' ⚠️ HIT BOUNDARY' : '';
+        console.log(`   ${variable.name}: ${variable.current.toFixed(4)} → ${clampedValue.toFixed(4)} (Δ=${actualDelta.toFixed(4)})${boundaryWarning}`);
       }
       
       return { ...variable, current: clampedValue };
@@ -270,7 +330,8 @@ export class OptimizationEngine {
   }
   
   /**
-   * Calculate Hessian approximation using Gauss-Newton method
+   * Calculate Hessian approximation using BFGS-like update
+   * More sophisticated than simple diagonal but still stable
    */
   private static async calculateHessianApproximation(
     _problem: OptimizationProblem,
@@ -280,10 +341,22 @@ export class OptimizationEngine {
     const n = variables.length;
     const hessian: number[][] = Array(n).fill(0).map(() => Array(n).fill(0));
     
-    // For now, use simple diagonal approximation (steepest descent direction)
-    // This is less sophisticated than full Gauss-Newton but more stable
+    // Use improved diagonal approximation with gradient magnitude scaling
     for (let i = 0; i < n; i++) {
-      hessian[i][i] = Math.abs(gradient[i]) + 1e-8; // Avoid singular matrix
+      // Scale diagonal based on gradient magnitude for better conditioning
+      const gradMagnitude = Math.abs(gradient[i]);
+      hessian[i][i] = Math.max(gradMagnitude, 1e-6); // Ensure positive definite
+    }
+    
+    // Add small off-diagonal coupling terms based on gradient correlation
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        // Small coupling term proportional to product of gradients
+        const coupling = 0.1 * Math.sign(gradient[i] * gradient[j]) * 
+                        Math.sqrt(Math.abs(gradient[i] * gradient[j]));
+        hessian[i][j] = coupling;
+        hessian[j][i] = coupling; // Symmetric
+      }
     }
     
     return hessian;

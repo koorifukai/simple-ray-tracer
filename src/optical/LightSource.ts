@@ -73,6 +73,27 @@ export class Ray {
 export type LightSourceType = 'linear' | 'ring' | 'uniform' | 'gaussian' | 'point';
 
 /**
+ * Simple seeded pseudo-random number generator for deterministic ray generation
+ */
+class SeededRNG {
+  private seed: number;
+  
+  constructor(seed: number = 12345) {
+    this.seed = seed;
+  }
+  
+  random(): number {
+    // Linear congruential generator (simple but effective for our needs)
+    this.seed = (this.seed * 1103515245 + 12345) & 0x7fffffff;
+    return this.seed / 0x7fffffff;
+  }
+  
+  setSeed(seed: number): void {
+    this.seed = seed;
+  }
+}
+
+/**
  * Light source - collection of rays with specific pattern
  */
 export class LightSource {
@@ -88,6 +109,9 @@ export class LightSource {
   // Transformation matrices for proper 3D positioning (like surfaces)
   public forwardTransform: Matrix4 = new Matrix4();
   public inverseTransform: Matrix4 = new Matrix4();
+  
+  // Seeded RNG for deterministic ray generation during optimization
+  private rng: SeededRNG = new SeededRNG(Date.now()); // Use current time as seed
 
   constructor(
     lid: number,
@@ -107,6 +131,13 @@ export class LightSource {
     
     // Create transformation matrices for this light source
     this.createTransformationMatrices();
+  }
+
+  /**
+   * Reset RNG seed for deterministic ray generation (useful for optimization)
+   */
+  public resetSeed(seed: number = 12345): void {
+    this.rng.setSeed(seed);
   }
 
   /**
@@ -290,9 +321,9 @@ export class LightSource {
     const rayData: { position: Vector3, direction: Vector3 }[] = [];
 
     for (let i = 0; i < this.numberOfRays; i++) {
-      // Box-Muller transform for normal distribution
-      const u1 = Math.random();
-      const u2 = Math.random();
+      // Box-Muller transform for normal distribution using seeded RNG
+      const u1 = this.rng.random();
+      const u2 = this.rng.random();
       const z0 = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
       const z1 = Math.sqrt(-2 * Math.log(u1)) * Math.sin(2 * Math.PI * u2);
 
@@ -323,8 +354,8 @@ export class LightSource {
       // Generate exactly numberOfRays directions within cone
       for (let i = 0; i < this.numberOfRays; i++) {
         // Generate random direction within cone using spherical coordinates
-        const theta = Math.random() * 2 * Math.PI; // Azimuthal angle
-        const phi = Math.acos(1 - Math.random() * (1 - Math.cos(divergence))); // Polar angle within cone
+        const theta = this.rng.random() * 2 * Math.PI; // Azimuthal angle
+        const phi = Math.acos(1 - this.rng.random() * (1 - Math.cos(divergence))); // Polar angle within cone
         
         // Local coordinate system: X = forward (main direction), Y = right, Z = up
         const localX = Math.cos(phi); // Forward component

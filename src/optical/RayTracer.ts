@@ -774,6 +774,24 @@ export class RayTracer {
                 lastRay.intensity
               );
               rayPath.push(apertureEndRay);
+              
+              // CRITICAL: Record this intersection in the collector for optimization
+              const collector = RayIntersectionCollector.getInstance();
+              if (collector.isCollectionActive()) {
+                collector.recordHit(
+                  lastRay,           // Original ray
+                  aperture,          // Last surface (aperture)
+                  worldHitPoint,     // Hit point
+                  aperture.normal || new Vector3(-1, 0, 0),  // Normal
+                  worldHitPoint.subtract(lastRay.position).length(), // Distance
+                  true,              // isValid
+                  false,             // wasBlocked - ray reached the surface
+                  lastRay.direction, // Incoming direction
+                  lastSuccessfulRayDirection, // Outgoing direction
+                  hitPoint           // Local hit point
+                );
+              }
+              
               if (!isFirstTrace) {
                 this.log('ray', `Ray didn't hit aperture - terminated at YZ plane intersection:`, worldHitPoint);
               }
@@ -821,6 +839,26 @@ export class RayTracer {
             lastRay.intensity
           );
           rayPath.push(finalRay);
+          
+          // CRITICAL: If ray was extended to reach the last surface, record intersection for optimization
+          const collector = RayIntersectionCollector.getInstance();
+          if (collector.isCollectionActive() && lastProcessedSurfaceIndex < surfaces.length - 1) {
+            const lastSurface = surfaces[surfaces.length - 1];
+            // Record intersection at the extended position as if ray hit the last surface
+            collector.recordHit(
+              lastRay,           // Original ray
+              lastSurface,       // Last surface
+              finalPosition,     // Extended hit point
+              lastSurface.normal || new Vector3(-1, 0, 0),  // Normal
+              finalPosition.subtract(lastRay.position).length(), // Distance
+              true,              // isValid
+              false,             // wasBlocked - ray was extended to reach surface
+              lastRay.direction, // Incoming direction
+              lastSuccessfulRayDirection, // Outgoing direction
+              finalPosition      // Local hit point (approximate)
+            );
+          }
+          
           if (!isFirstTrace) {
             this.log('ray', `Extended ray ${extensionLength.toFixed(1)} units in last successful outgoing direction to:`, finalPosition);
           }

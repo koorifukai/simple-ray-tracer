@@ -14,17 +14,24 @@ import type { OptimizationSettings, ObjectiveResult } from './OptimizationTypes'
 
 export class ObjectiveFunctions {
   private static evaluationCounter = 0;
+  private static lastYamlContent: string | undefined;
   
   /**
    * Evaluate objective function for given YAML content and settings
    */
   static evaluate(yamlContent: string, settings: OptimizationSettings): ObjectiveResult {
+    // Reset evaluation counter on new YAML (detect by checking if this is a fresh evaluation)
+    if (!ObjectiveFunctions.lastYamlContent || ObjectiveFunctions.lastYamlContent !== yamlContent) {
+      ObjectiveFunctions.evaluationCounter = 0;
+      ObjectiveFunctions.lastYamlContent = yamlContent;
+    }
+
     try {
       // Parse optical system from substituted YAML
       const system = OpticalSystemParser.parseYAML(yamlContent);
       
       // Get target surface based on obj setting
-      const targetSurface = this.getTargetSurface(system, settings.obj);
+      const targetSurface = ObjectiveFunctions.getTargetSurface(system, settings.obj);
       if (!targetSurface) {
         return {
           value: 1000.0, // Use reasonable penalty instead of MAX_VALUE
@@ -33,15 +40,23 @@ export class ObjectiveFunctions {
         };
       }
       
+      // Debug: Log target surface details
+      console.log(`🎯 Target Surface Details: obj=${settings.obj}, id="${targetSurface.id}", numericalId=${targetSurface.numericalId}, mode="${targetSurface.mode}", shape="${targetSurface.shape}"`);
+      console.log(`📋 Total surfaces in system: ${system.surfaces.length}`);
+
       // Generate and trace rays through the system
-      const rayResults = this.traceSystemRays(system, targetSurface);
+      const rayResults = ObjectiveFunctions.traceSystemRays(system, targetSurface);
       
       // Evaluate based on optimization mode
       switch (settings.mode) {
         case 'aberrations':
-          return this.evaluateAberrations(rayResults);
+          return ObjectiveFunctions.evaluateAberrations(rayResults);
         case 'angle':
-          return this.evaluateAngle(rayResults, settings.param || 90);
+          // param = angle from normal in degrees
+          // param = 0 means normal incidence (0° from normal, perpendicular to surface)
+          // param = 90 means grazing incidence (90° from normal, parallel to surface)  
+          const targetAngleFromNormal = typeof settings.param === 'number' ? settings.param : 0;
+          return ObjectiveFunctions.evaluateAngle(rayResults, targetAngleFromNormal);
         default:
           throw new Error(`Unknown optimization mode: ${settings.mode}`);
       }
@@ -87,6 +102,9 @@ export class ObjectiveFunctions {
     tracedPaths: Ray[][];
     targetIntersections: Array<{ point: Vector3; normal: Vector3; ray: Ray; valid: boolean }>;
   }> {
+    // Reset evaluation counter on each new optimization run
+    ObjectiveFunctions.evaluationCounter = 0;
+    
     // Track evaluation calls for debugging duplication
     ObjectiveFunctions.evaluationCounter++;
     console.log(`🔄 Evaluation #${ObjectiveFunctions.evaluationCounter} starting`);
@@ -101,6 +119,7 @@ export class ObjectiveFunctions {
     
     console.log(`🎯 Optimization target surface: "${targetSurface.id}"`);
     console.log(`📋 Available surfaces: ${orderedSurfaces.map(s => `"${s.id}"`).join(', ')}`);
+    console.log(`🔍 Target surface details: mode="${targetSurface.mode}", shape="${targetSurface.shape}", numericalId=${targetSurface.numericalId}, index=${orderedSurfaces.indexOf(targetSurface)}`);
     
     // Clear and prepare ray intersection collector
     const collector = RayIntersectionCollector.getInstance();
@@ -134,27 +153,51 @@ export class ObjectiveFunctions {
             const availableKeys = Array.from(intersectionData.surfaces.keys());
             console.log(`🔍 Target key: "${targetSurfaceKey}" (numericalId=${targetSurface.numericalId}, id="${targetSurface.id}")`);
             console.log(`📋 Available keys in collector: [${availableKeys.map(k => `"${k}"`).join(', ')}]`);
+            console.log(`🎯 Total surfaces in collector: ${intersectionData.surfaces.size}`);
+            console.log(`🎯 Total rays recorded: ${intersectionData.totalRays}`);
+            console.log(`🎯 Total intersections: ${intersectionData.totalIntersections}`);
           }
           
           // Debug: Check if surface data exists and has intersections
           if (sourceIndex === 0 && targetIntersections.length < 3) { // Log first few rays
             console.log(`🔍 Ray ${targetIntersections.length}: targetSurfaceData=${!!targetSurfaceData}, intersectionPoints=${targetSurfaceData?.intersectionPoints.length || 0}`);
+            if (targetSurfaceData && targetSurfaceData.intersectionPoints.length > 0) {
+              const hit = targetSurfaceData.intersectionPoints[targetSurfaceData.intersectionPoints.length - 1];
+              console.log(`🔍 Ray ${targetIntersections.length}: Last intersection at surface "${targetSurface.id}" - hitPoint=(${hit.hitPoint.x.toFixed(3)}, ${hit.hitPoint.y.toFixed(3)}, ${hit.hitPoint.z.toFixed(3)})`);
+            } else {
+              console.log(`🔍 Ray ${targetIntersections.length}: No intersection data found for surface "${targetSurface.id}"`);
+              if (targetSurfaceData) {
+                console.log(`🔍 Ray ${targetIntersections.length}: Surface data exists but has ${targetSurfaceData.intersectionPoints.length} intersection points`);
+              } else {
+                console.log(`🔍 Ray ${targetIntersections.length}: No surface data found for key "${targetSurfaceKey}"`);
+              }
+            }
           }
           
           if (targetSurfaceData && targetSurfaceData.intersectionPoints.length > 0) {
             const hit = targetSurfaceData.intersectionPoints[targetSurfaceData.intersectionPoints.length - 1]; // Get last intersection
-            const isValidHit = hit.isValid && !hit.wasBlocked;
+            
+            // CRITICAL FIX: For absorption surfaces (detectors), accept rays even if marked as "blocked"
+            // because they may be blocked AFTER hitting the detector (which is correct behavior)
+            const isAbsorptionSurface = targetSurface.mode === 'absorption';
+            const isValidHit = hit.isValid && (isAbsorptionSurface || !hit.wasBlocked);
+            
+            // CRITICAL: Use the FINAL ray segment that hits the objective surface
+            // This is the ray segment AFTER all refractions/reflections from previous surfaces
+            const finalRaySegment = rayPath.length > 0 ? rayPath[rayPath.length - 1] : ray;
             
             // Debug: Log the validation properties to see why rays are invalid
             if (sourceIndex === 0 && targetIntersections.length < 3) { // Log first few rays
-              console.log(`🔍 Ray ${targetIntersections.length}: isValid=${hit.isValid}, wasBlocked=${hit.wasBlocked}, final valid=${isValidHit}`);
+              console.log(`🔍 Ray ${targetIntersections.length}: isValid=${hit.isValid}, wasBlocked=${hit.wasBlocked}, isAbsorption=${isAbsorptionSurface}, final valid=${isValidHit}`);
               console.log(`🔍 Ray ${targetIntersections.length}: hit point=(${hit.hitPoint.x.toFixed(3)}, ${hit.hitPoint.y.toFixed(3)}, ${hit.hitPoint.z.toFixed(3)})`);
+              console.log(`🔍 Ray ${targetIntersections.length}: rayPath length=${rayPath.length}, using final segment`);
+              console.log(`🔍 Ray ${targetIntersections.length}: final ray dir=(${finalRaySegment.direction.x.toFixed(3)}, ${finalRaySegment.direction.y.toFixed(3)}, ${finalRaySegment.direction.z.toFixed(3)})`);
             }
             
             targetIntersections.push({
               point: new Vector3(hit.hitPoint.x, hit.hitPoint.y, hit.hitPoint.z),
               normal: new Vector3(hit.hitNormal.x, hit.hitNormal.y, hit.hitNormal.z),
-              ray: ray,
+              ray: finalRaySegment, // Use the final ray segment, not the original source ray
               valid: isValidHit
             });
           }
@@ -248,7 +291,7 @@ export class ObjectiveFunctions {
     if (totalValidSources === 0) {
       console.warn('No light sources produced sufficient valid hits on target surface');
       return {
-        value: 1000.0, // Use a large but reasonable penalty instead of MAX_VALUE
+        value: 10000.0, // MUCH STRONGER penalty for missing rays
         valid: false,
         rayCount: totalValidHits,
         details: 'No light sources produced sufficient valid hits on target surface'
@@ -256,7 +299,16 @@ export class ObjectiveFunctions {
     }
     
     // Combined RMS across all light sources
-    const combinedRms = Math.sqrt(totalRmsSquared);
+    let combinedRms = Math.sqrt(totalRmsSquared);
+    
+    // Add penalty for rays that miss the target surface
+    const missedRayFraction = (totalRays - totalValidHits) / totalRays;
+    if (missedRayFraction > 0) {
+      const MISSED_RAY_PENALTY = 1.0; // Penalty per missed ray fraction (in RMS units)
+      const missedRayPenalty = missedRayFraction * MISSED_RAY_PENALTY;
+      combinedRms += missedRayPenalty;
+      console.log(`⚠️  ${totalValidHits}/${totalRays} rays hit target (${(missedRayFraction*100).toFixed(1)}% missed), adding penalty: ${missedRayPenalty.toFixed(6)}`);
+    }
     
     // Final sanity check
     if (!isFinite(combinedRms) || isNaN(combinedRms)) {
@@ -264,7 +316,7 @@ export class ObjectiveFunctions {
       console.error(`  Total RMS squared: ${totalRmsSquared}`);
       console.error(`  Valid sources: ${totalValidSources}`);
       return {
-        value: 1000.0, // Use a large but reasonable penalty
+        value: 10000.0, // Use stronger penalty
         valid: false,
         rayCount: totalValidHits,
         details: 'Numerical instability in RMS calculation'
@@ -288,7 +340,9 @@ export class ObjectiveFunctions {
   }
   
   /**
-   * Evaluate angle mode (deviation from target angle at surface)
+   * Evaluate angle mode (deviation from target incidence angle at surface)
+   * targetAngleDegrees: angle between ray and surface normal (0° = normal incidence, 90° = grazing)
+   * Uses surface normals directly - no coordinate transformations needed
    */
   private static evaluateAngle(
     rayResults: Array<{
@@ -296,7 +350,7 @@ export class ObjectiveFunctions {
       tracedPaths: Ray[][];
       targetIntersections: Array<{ point: Vector3; normal: Vector3; ray: Ray; valid: boolean }>;
     }>,
-    targetAngleDegrees: number = 90
+    targetAngleDegrees: number = 0
   ): ObjectiveResult {
     let validIntersections: Array<{ point: Vector3; normal: Vector3; ray: Ray }> = [];
     let totalRays = 0;
@@ -312,48 +366,105 @@ export class ObjectiveFunctions {
     });
     
     if (validIntersections.length === 0) {
+      console.log(`❌ Angle mode: No rays reaching target surface`);
       return {
-        value: 1000.0, // Use reasonable penalty instead of MAX_VALUE
+        value: 10000.0, // MUCH STRONGER penalty for missing rays
         valid: false,
         rayCount: 0,
         details: 'No rays reaching target surface'
       };
     }
     
-    const targetAngleRad = targetAngleDegrees * Math.PI / 180;
+    console.log(`🎯 Angle mode: Target angle = ${targetAngleDegrees.toFixed(1)}° from normal, ${validIntersections.length}/${totalRays} rays hit target`);
     
-    // Calculate angle deviations for each ray
-    const angleDeviations = validIntersections.map(intersection => {
-      // Get ray direction at intersection (from the traced path)
-      const rayDirection = intersection.ray.direction.normalize();
+    const targetCos = Math.cos(targetAngleDegrees * Math.PI / 180);
+    console.log(`🎯 Target cos(angle) = ${targetCos.toFixed(4)}`);
+    
+    // Calculate angles for each ray using surface normals directly (both in global coordinates)
+    const angles = validIntersections.map((intersection, index) => {
+      // Get normalized ray direction and surface normal (both in global coordinates)
+      const rayDir = intersection.ray.direction.normalize();
       const surfaceNormal = intersection.normal.normalize();
       
-      // Calculate angle between ray and surface normal
-      const cosAngle = Math.abs(rayDirection.dot(surfaceNormal));
-      const actualAngle = Math.acos(Math.min(1, cosAngle));
+      // Calculate angle between ray direction and surface normal
+      // Use -rayDir to get the "incident" direction (toward surface)
+      const incidentRayDir = new Vector3(-rayDir.x, -rayDir.y, -rayDir.z);
+      const actualCos = surfaceNormal.dot(incidentRayDir);
       
-      // Calculate deviation from target angle
-      const deviation = Math.abs(actualAngle - targetAngleRad);
-      return deviation;
+      // Clamp to valid range for acos
+      const clampedCos = Math.min(1, Math.max(-1, actualCos));
+      
+      // Cosine deviation from target cosine  
+      const cosDeviation = actualCos - targetCos;
+      
+      // For logging, also calculate the actual angle in degrees
+      const actualAngleRad = Math.acos(clampedCos);
+      const actualAngleDeg = actualAngleRad * 180 / Math.PI;
+      
+      // Calculate angular deviation in degrees for better understanding
+      const angularDeviationDeg = Math.abs(actualAngleDeg - targetAngleDegrees);
+      
+      // Debug logging for first few rays
+      if (index < 3) {
+        console.log(`🔍 Ray ${index}: rayDir=(${rayDir.x.toFixed(3)}, ${rayDir.y.toFixed(3)}, ${rayDir.z.toFixed(3)}) |mag|=${rayDir.length().toFixed(3)}`);
+        console.log(`🔍 Ray ${index}: surfaceNormal=(${surfaceNormal.x.toFixed(3)}, ${surfaceNormal.y.toFixed(3)}, ${surfaceNormal.z.toFixed(3)}) |mag|=${surfaceNormal.length().toFixed(3)}`);
+        console.log(`🔍 Ray ${index}: incidentDir=(${incidentRayDir.x.toFixed(3)}, ${incidentRayDir.y.toFixed(3)}, ${incidentRayDir.z.toFixed(3)}) |mag|=${incidentRayDir.length().toFixed(3)}`);
+        console.log(`🔍 Ray ${index}: dot(normal, -ray)=${actualCos.toFixed(4)}, angle=${actualAngleDeg.toFixed(1)}°, target=${targetAngleDegrees.toFixed(1)}°`);
+        console.log(`🔍 Ray ${index}: angularDev=${angularDeviationDeg.toFixed(1)}°, cosDeviation=${cosDeviation.toFixed(4)}, squared=${(cosDeviation * cosDeviation).toFixed(6)}`);
+      }
+      
+      return { cosDeviation, actualAngleDeg, actualAngleRad, actualCos, angularDeviationDeg };
     });
     
-    // Use RMS of angle deviations as objective
-    const meanSquaredDeviation = angleDeviations.reduce(
-      (sum, dev) => sum + dev * dev, 0
-    ) / angleDeviations.length;
+    // Use RMS angular deviation as objective (more intuitive than cosine deviation)
+    const angularDeviations = angles.map(item => item.angularDeviationDeg);
+    const meanSquaredAngularDeviation = angularDeviations.reduce(
+      (sum: number, dev: number) => sum + dev * dev, 0
+    ) / angularDeviations.length;
+    const rmsAngularDeviation = Math.sqrt(meanSquaredAngularDeviation);
     
-    const rmsAngleDeviation = Math.sqrt(meanSquaredDeviation);
+    // Use RMS angular deviation directly as objective (no scaling needed)
+    let objective = rmsAngularDeviation;
+    
+    // Add penalty for rays that miss the target surface
+    const missedRayFraction = (totalRays - validIntersections.length) / totalRays;
+    if (missedRayFraction > 0) {
+      const MISSED_RAY_PENALTY = 90.0; // Heavy penalty in degrees for missed rays
+      const missedRayPenalty = missedRayFraction * MISSED_RAY_PENALTY;
+      objective += missedRayPenalty;
+      console.log(`⚠️  ${validIntersections.length}/${totalRays} rays hit target (${(missedRayFraction*100).toFixed(1)}% missed), adding penalty: ${missedRayPenalty.toFixed(3)}°`);
+    }
+    
+    const actualAngles = angles.map(item => item.actualAngleDeg);
+    const avgActualAngle = actualAngles.reduce((sum: number, angle: number) => sum + angle, 0) / actualAngles.length;
+    const actualCosAngles = angles.map(item => item.actualCos);
+    const avgActualCos = actualCosAngles.reduce((sum: number, cos: number) => sum + cos, 0) / actualCosAngles.length;
+    const cosDeviations = angles.map(item => item.cosDeviation);
+    const avgCosDeviation = cosDeviations.reduce((sum: number, dev: number) => sum + dev, 0) / cosDeviations.length;
+    const avgAngularDeviation = angularDeviations.reduce((sum: number, dev: number) => sum + dev, 0) / angularDeviations.length;
+    const maxAngularDeviation = Math.max(...angularDeviations);
+    
+    console.log(`📐 Angle analysis: Avg=${avgActualAngle.toFixed(1)}° (target=${targetAngleDegrees.toFixed(1)}°), Avg angular dev=${avgAngularDeviation.toFixed(2)}°`);
+    console.log(`📐 Angular deviation: RMS=${rmsAngularDeviation.toFixed(3)}°, Max=${maxAngularDeviation.toFixed(3)}°`);
+    console.log(`📐 Cosine analysis: Avg cos=${avgActualCos.toFixed(4)} (target=${targetCos.toFixed(4)}), Avg cos dev=${avgCosDeviation.toFixed(4)}`);
+    console.log(`📐 Final objective: ${objective.toFixed(3)}° (RMS angular deviation + missed ray penalty)`);
     
     return {
-      value: rmsAngleDeviation,
+      value: objective, // Use RMS angular deviation as objective
       valid: true,
       rayCount: validIntersections.length,
       details: {
         totalRays,
         validIntersections: validIntersections.length,
         targetAngleDegrees,
-        rmsAngleDeviationDegrees: rmsAngleDeviation * 180 / Math.PI,
-        maxDeviationDegrees: Math.max(...angleDeviations) * 180 / Math.PI
+        targetCos,
+        avgActualAngleDegrees: avgActualAngle,
+        avgActualCos: avgActualCos,
+        avgCosDeviation: avgCosDeviation,
+        avgAngularDeviation: avgAngularDeviation,
+        rmsAngularDeviation: rmsAngularDeviation,
+        maxAngularDeviation: maxAngularDeviation,
+        meanSquaredAngularDeviation: meanSquaredAngularDeviation
       }
     };
   }

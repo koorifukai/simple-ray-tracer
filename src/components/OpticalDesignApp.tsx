@@ -48,11 +48,11 @@ surfaces:
   
 light_sources:
   - l1:
-      {lid: 0, position: [-10,0,-16], vector: [1,0,0.249328], number: 3, wavelength: 633, type: uniform, param: 14}
+      {lid: 0, position: [-10,0,-16], vector: [1,0,0.249328], number: 7, wavelength: 633, type: uniform, param: 14}
   - l2:
-      {lid: 1, position: [-10,0,-12], vector: [1,0,0.176327], number: 3, wavelength: 532, type: uniform, param: 14}
+      {lid: 1, position: [-10,0,-12], vector: [1,0,0.176327], number: 7, wavelength: 532, type: uniform, param: 14}
   - l3:
-      {lid: 2, position: [-10,0,0], vector: [1,0,0], number: 3, wavelength: 488, type: uniform, param: 14}
+      {lid: 2, position: [-10,0,0], vector: [1,0,0], number: 7, wavelength: 488, type: uniform, param: 14}
   
 optical_trains:
   - r: 
@@ -64,7 +64,7 @@ optical_trains:
     l:
      {aid: 0, position: [0,0,0], angles: [0,0]}
     s:
-     {sid: 0, position: [V1,0,0], angles: [0,0]}
+     {sid: 0, position: [120,0,0], angles: [0,0]}
 
 optimization_settings:
   iterations: 20
@@ -292,6 +292,11 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
         
         // Reset intersection data trigger to unlock UI from old state
         setIntersectionDataTrigger(0);
+        
+        // CRITICAL: Force scene update after YAML import
+        setTimeout(() => {
+          handleYamlValidation(true, undefined, undefined, content);
+        }, 100);
       };
       reader.readAsText(file);
     }
@@ -423,7 +428,8 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
       const result = await OptimizationEngine.optimize(yamlContent);
       setOptimizationResult(result);
       
-      if (result.success) {
+      // Apply optimized variables to YAML if we found a better solution (even if "failed" due to max iterations)
+      if (result.success || result.finalObjective < 1000.0) {
         // Apply optimized variables to YAML
         const problem = VariableParser.parseOptimizationProblem(yamlContent);
         if (problem) {
@@ -434,7 +440,16 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
           // Update the YAML editor with optimized values
           setYamlContent(optimizedYaml);
           
-          console.log('✅ Optimization successful! YAML updated with optimized values.');
+          // CRITICAL: Force scene update after optimization
+          setTimeout(() => {
+            handleYamlValidation(true, undefined, undefined, optimizedYaml);
+          }, 100);
+          
+          if (result.success) {
+            console.log('✅ Optimization successful! YAML updated with optimized values.');
+          } else {
+            console.log('⚠️ Optimization reached max iterations but found better values. YAML updated.');
+          }
           console.log('📊 Final objective:', result.finalObjective.toExponential(3));
           console.log('🔧 Optimized variables:', result.optimizedVariables);
         }
@@ -721,7 +736,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
                 disabled={!isYamlValid || isOptimizing}
                 title="Run Levenberg-Marquardt optimization"
               >
-                {isOptimizing ? 'Optimizing...' : 'Optimize'}
+                {isOptimizing ? 'Optimizing...' : 'Optimize Vs'}
               </button>
             )}
           </div>
@@ -767,33 +782,22 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
                 onChange={handleYamlChange}
                 onValidationChange={handleYamlValidation}
               />
-              <div className={`yaml-status ${isYamlValid ? 'success' : 'error'}`}>
-                {isYamlValid ? (
-                  <>
-                    <span>✓</span>
-                    <span>
-                      Valid YAML - {parsedData?.assemblies?.[0] ? Object.keys(parsedData.assemblies[0]).filter(k => k !== 'aid').length : 0} surfaces, 
-                      {' '}{parsedData?.light_sources?.length || 0} light sources,
-                      {' '}{parsedData?.surfaces?.length || 0} standalone surfaces
-                    </span>
-                  </>
-                ) : (
-                  <div>
-                    <span>✗</span>
-                    <span>{yamlError}</span>
-                  </div>
-                )}
-              </div>
               
-              {/* Optimization Result Display */}
-              {optimizationResult && (
-                <div className={`optimization-status ${optimizationResult.success ? 'success' : 'error'}`}>
-                  {optimizationResult.success ? (
+              {/* Unified Status Display - shows YAML validation or optimization result */}
+              <div className={`yaml-status ${
+                optimizationResult ? 
+                  (optimizationResult.success ? 'success' : 'error') : 
+                  (isYamlValid ? 'success' : 'error')
+              }`}>
+                {optimizationResult ? (
+                  // Show optimization result if available
+                  optimizationResult.success ? (
                     <>
                       <span>🔧</span>
                       <span>
                         Optimization Complete - {optimizationResult.iterations} iterations, 
-                        Final objective: {optimizationResult.finalObjective.toExponential(3)}
+                        Final objective: {optimizationResult.finalObjective.toExponential(3)}, 
+                        {parsedData?.assemblies?.[0] ? Object.keys(parsedData.assemblies[0]).filter(k => k !== 'aid').length : 0} surfaces
                       </span>
                     </>
                   ) : (
@@ -801,9 +805,26 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
                       <span>⚠️</span>
                       <span>Optimization Failed: {optimizationResult.errorMessage}</span>
                     </>
-                  )}
-                </div>
-              )}
+                  )
+                ) : (
+                  // Show YAML validation status if no optimization result
+                  isYamlValid ? (
+                    <>
+                      <span>✓</span>
+                      <span>
+                        Valid YAML - {parsedData?.assemblies?.[0] ? Object.keys(parsedData.assemblies[0]).filter(k => k !== 'aid').length : 0} surfaces, 
+                        {' '}{parsedData?.light_sources?.length || 0} light sources,
+                        {' '}{parsedData?.surfaces?.length || 0} standalone surfaces
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span>✗</span>
+                      <span>{yamlError}</span>
+                    </>
+                  )
+                )}
+              </div>
             </div>
           </div>
 
