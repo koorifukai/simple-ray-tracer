@@ -177,12 +177,14 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
       // STEP 2: Get processed YAML with variable substitution (if needed)
       let processedYaml = yamlInput;
       if (hasOptimization && problem.variables.length > 0) {
-        // Use actual variable bounds from the parsed problem
+        // Create variable map with midpoint values for visualization
+        const variableMap: { [key: string]: number } = {};
         problem.variables.forEach(variable => {
-          const midValue = (variable.min + variable.max) / 2;
-          const regex = new RegExp(`\\b${variable.name}\\b`, 'g');
-          processedYaml = processedYaml.replace(regex, midValue.toString());
+          variableMap[variable.name] = (variable.min + variable.max) / 2;
         });
+        
+        // Use VariableParser for proper substitution
+        processedYaml = VariableParser.substituteVariables(yamlInput, variableMap);
         console.log('🔄 Variable substitution completed');
       }
       
@@ -213,14 +215,17 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
     setYamlContent(newYaml);
   }, []);
 
-  const handleYamlValidation = useCallback((isValid: boolean, error?: string) => {
+  const handleYamlValidation = useCallback((isValid: boolean, error?: string, _errors?: any, currentYaml?: string) => {
     setIsYamlValid(isValid);
     setYamlError(error || '');
+    
+    // Use currentYaml if provided, otherwise fall back to yamlContent state
+    const yamlToProcess = currentYaml || yamlContent;
     
     if (isValid && autoUpdate) {
       try {
         // SINGLE PROCESSING: Get everything needed in one shot
-        const result = processYamlForVisualization(yamlContent);
+        const result = processYamlForVisualization(yamlToProcess);
         
         // Only update if the processed YAML has actually changed
         if (result.processedYaml !== lastRayTracedYaml) {
@@ -260,14 +265,16 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
       }
     } else if (isValid && !autoUpdate) {
       // When auto-update is off, still check optimization settings
-      const result = processYamlForVisualization(yamlContent);
+      const result = processYamlForVisualization(yamlToProcess);
       setHasOptimizationSettings(result.hasOptimization);
       console.log('⏸️ Auto-update paused - YAML syntax valid but ray tracing not updated');
     } else {
       setHasOptimizationSettings(false);
       setParsedData(null);
     }
-  }, [yamlContent, autoUpdate, analysisType, processYamlForVisualization, updateRayStats, lastRayTracedYaml]);  const handleImport = useCallback(() => {
+  }, [yamlContent, autoUpdate, analysisType, processYamlForVisualization, updateRayStats]); // Removed lastRayTracedYaml to prevent circular dependency // Removed lastRayTracedYaml to prevent circular dependency
+
+  const handleImport = useCallback(() => {
     fileInputRef.current?.click();
   }, []);
 

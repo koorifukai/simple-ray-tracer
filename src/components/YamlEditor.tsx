@@ -7,7 +7,7 @@ import type { ValidationError } from '../optical/YamlValidator';
 interface YamlEditorProps {
   value: string;
   onChange: (value: string) => void;
-  onValidationChange: (isValid: boolean, error?: string, errors?: ValidationError[]) => void;
+  onValidationChange: (isValid: boolean, error?: string, errors?: ValidationError[], currentYaml?: string) => void;
   fontSize?: number;
 }
 
@@ -55,12 +55,12 @@ export const YamlEditor: React.FC<YamlEditorProps> = ({
     
     // Report validation status
     if (validationResult.isValid) {
-      onValidationChange(true, undefined, []);
+      onValidationChange(true, undefined, [], yamlContent);
     } else {
       const errorMessage = validationResult.errors.length > 0 
         ? validationResult.errors[0].message 
         : 'YAML validation failed';
-      onValidationChange(false, errorMessage, validationResult.errors);
+      onValidationChange(false, errorMessage, validationResult.errors, yamlContent);
     }
   }, [onChange, onValidationChange, updateMarkers]);
 
