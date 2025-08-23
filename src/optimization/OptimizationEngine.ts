@@ -194,6 +194,9 @@ export class OptimizationEngine {
     // Create variable map
     const variableMap = VariableParser.createVariableMap(variables);
     
+    // Debug: Log the current variable values
+    console.log(`📊 Current variables:`, Object.entries(variableMap).map(([name, value]) => `${name}=${value.toFixed(6)}`).join(', '));
+    
     // Substitute variables in YAML
     const substitutedYaml = VariableParser.substituteVariables(problem.originalYaml, variableMap);
     
@@ -201,7 +204,7 @@ export class OptimizationEngine {
     const result = ObjectiveFunctions.evaluate(substitutedYaml, problem.settings);
     
     return {
-      value: result.valid ? result.value : Number.MAX_VALUE,
+      value: result.valid ? result.value : 1000.0, // Use reasonable penalty for invalid results
       valid: result.valid
     };
   }

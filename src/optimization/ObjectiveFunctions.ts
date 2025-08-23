@@ -13,6 +13,7 @@ import type { Ray } from '../optical/LightSource';
 import type { OptimizationSettings, ObjectiveResult } from './OptimizationTypes';
 
 export class ObjectiveFunctions {
+  private static evaluationCounter = 0;
   
   /**
    * Evaluate objective function for given YAML content and settings
@@ -26,14 +27,14 @@ export class ObjectiveFunctions {
       const targetSurface = this.getTargetSurface(system, settings.obj);
       if (!targetSurface) {
         return {
-          value: Number.MAX_VALUE,
+          value: 1000.0, // Use reasonable penalty instead of MAX_VALUE
           valid: false,
           details: 'Target surface not found'
         };
       }
       
       // Generate and trace rays through the system
-      const rayResults = this.traceSystemRays(system);
+      const rayResults = this.traceSystemRays(system, targetSurface);
       
       // Evaluate based on optimization mode
       switch (settings.mode) {
@@ -48,7 +49,7 @@ export class ObjectiveFunctions {
     } catch (error) {
       console.warn('Objective function evaluation failed:', error);
       return {
-        value: Number.MAX_VALUE,
+        value: 1000.0, // Use reasonable penalty instead of MAX_VALUE
         valid: false,
         details: error instanceof Error ? error.message : 'Unknown error'
       };
@@ -61,24 +62,35 @@ export class ObjectiveFunctions {
   private static getTargetSurface(system: OpticalSystem, objIndex: number): OpticalSurface | null {
     const surfaces = OpticalSystemParser.getSurfacesInOrder(system);
     
+    console.log(`🔍 Target surface selection: obj=${objIndex}, total surfaces=${surfaces.length}`);
+    console.log(`📋 Surface order: ${surfaces.map((s, i) => `[${i}]="${s.id}"`).join(', ')}`);
+    
     if (objIndex < 0) {
       // Negative indexing from end
       const index = surfaces.length + objIndex;
-      return index >= 0 ? surfaces[index] : null;
+      const targetSurface = index >= 0 ? surfaces[index] : null;
+      console.log(`🎯 Negative indexing: obj=${objIndex} → index=${index} → surface="${targetSurface?.id || 'NOT_FOUND'}"`);
+      return targetSurface;
     } else {
       // Positive indexing from start
-      return objIndex < surfaces.length ? surfaces[objIndex] : null;
+      const targetSurface = objIndex < surfaces.length ? surfaces[objIndex] : null;
+      console.log(`🎯 Positive indexing: obj=${objIndex} → surface="${targetSurface?.id || 'NOT_FOUND'}"`);
+      return targetSurface;
     }
   }
   
   /**
    * Trace rays through the optical system efficiently for optimization
    */
-  private static traceSystemRays(system: OpticalSystem): Array<{
+  private static traceSystemRays(system: OpticalSystem, targetSurface: OpticalSurface): Array<{
     sourceRays: Ray[];
     tracedPaths: Ray[][];
     targetIntersections: Array<{ point: Vector3; normal: Vector3; ray: Ray; valid: boolean }>;
   }> {
+    // Track evaluation calls for debugging duplication
+    ObjectiveFunctions.evaluationCounter++;
+    console.log(`🔄 Evaluation #${ObjectiveFunctions.evaluationCounter} starting`);
+
     const results: Array<{
       sourceRays: Ray[];
       tracedPaths: Ray[][];
@@ -87,13 +99,16 @@ export class ObjectiveFunctions {
     
     const orderedSurfaces = OpticalSystemParser.getSurfacesInOrder(system);
     
+    console.log(`🎯 Optimization target surface: "${targetSurface.id}"`);
+    console.log(`📋 Available surfaces: ${orderedSurfaces.map(s => `"${s.id}"`).join(', ')}`);
+    
     // Clear and prepare ray intersection collector
     const collector = RayIntersectionCollector.getInstance();
     collector.clearData();
     collector.startCollection(true);
     
     // Trace rays from each light source
-    system.lightSources.forEach(lightSource => {
+    system.lightSources.forEach((lightSource, sourceIndex) => {
       const source = lightSource as any;
       const sourceRays = source.generateRays(source.numberOfRays);
       const tracedPaths: Ray[][] = [];
@@ -107,19 +122,40 @@ export class ObjectiveFunctions {
           const rayPath = RayTracer.traceRaySequential(ray, orderedSurfaces);
           tracedPaths.push(rayPath);
           
-          // Extract intersection with target surface from collector
-          // This is more efficient than re-calculating intersections
+          // Extract intersection with TARGET surface from collector using same key logic as collector
           const intersectionData = collector.getIntersectionData();
-          const targetSurfaceId = orderedSurfaces[orderedSurfaces.length - 1]?.id;
-          const targetSurfaceData = intersectionData.surfaces.get(targetSurfaceId || '');
+          
+          // Use same key logic as RayIntersectionCollector: numericalId?.toString() || surface.id
+          const targetSurfaceKey = targetSurface.numericalId?.toString() || targetSurface.id;
+          const targetSurfaceData = intersectionData.surfaces.get(targetSurfaceKey);
+          
+          // Debug: Log available surface keys vs target key
+          if (sourceIndex === 0 && targetIntersections.length === 0) { // Only log once per light source
+            const availableKeys = Array.from(intersectionData.surfaces.keys());
+            console.log(`🔍 Target key: "${targetSurfaceKey}" (numericalId=${targetSurface.numericalId}, id="${targetSurface.id}")`);
+            console.log(`📋 Available keys in collector: [${availableKeys.map(k => `"${k}"`).join(', ')}]`);
+          }
+          
+          // Debug: Check if surface data exists and has intersections
+          if (sourceIndex === 0 && targetIntersections.length < 3) { // Log first few rays
+            console.log(`🔍 Ray ${targetIntersections.length}: targetSurfaceData=${!!targetSurfaceData}, intersectionPoints=${targetSurfaceData?.intersectionPoints.length || 0}`);
+          }
           
           if (targetSurfaceData && targetSurfaceData.intersectionPoints.length > 0) {
             const hit = targetSurfaceData.intersectionPoints[targetSurfaceData.intersectionPoints.length - 1]; // Get last intersection
+            const isValidHit = hit.isValid && !hit.wasBlocked;
+            
+            // Debug: Log the validation properties to see why rays are invalid
+            if (sourceIndex === 0 && targetIntersections.length < 3) { // Log first few rays
+              console.log(`🔍 Ray ${targetIntersections.length}: isValid=${hit.isValid}, wasBlocked=${hit.wasBlocked}, final valid=${isValidHit}`);
+              console.log(`🔍 Ray ${targetIntersections.length}: hit point=(${hit.hitPoint.x.toFixed(3)}, ${hit.hitPoint.y.toFixed(3)}, ${hit.hitPoint.z.toFixed(3)})`);
+            }
+            
             targetIntersections.push({
               point: new Vector3(hit.hitPoint.x, hit.hitPoint.y, hit.hitPoint.z),
               normal: new Vector3(hit.hitNormal.x, hit.hitNormal.y, hit.hitNormal.z),
               ray: ray,
-              valid: hit.isValid && !hit.wasBlocked
+              valid: isValidHit
             });
           }
           
@@ -127,6 +163,8 @@ export class ObjectiveFunctions {
           console.warn(`Ray tracing failed for optimization:`, error);
         }
       });
+      
+      console.log(`🔍 Light source ${sourceIndex}: ${sourceRays.length} rays traced, ${targetIntersections.length} hit target surface "${targetSurface.id}"`);
       
       results.push({
         sourceRays,
@@ -143,6 +181,7 @@ export class ObjectiveFunctions {
   /**
    * Evaluate aberrations mode (RMS spot size on target surface)
    * Calculate RMS for each light source separately, then sum them
+   * Uses only Y,Z coordinates (transverse) as per optical engineering convention
    */
   private static evaluateAberrations(
     rayResults: Array<{
@@ -167,20 +206,37 @@ export class ObjectiveFunctions {
         return; // Skip this source
       }
       
-      // Calculate centroid for this light source
-      const centroid = validHits.reduce(
-        (sum, intersection) => sum.add(intersection.point),
-        new Vector3(0, 0, 0)
-      ).multiply(1 / validHits.length);
+      // Calculate centroid for this light source (Y,Z coordinates only)
+      let sumY = 0, sumZ = 0;
+      validHits.forEach(intersection => {
+        sumY += intersection.point.y;
+        sumZ += intersection.point.z;
+      });
+      const centroidY = sumY / validHits.length;
+      const centroidZ = sumZ / validHits.length;
       
-      // Calculate RMS spot size for this light source
-      const squaredDistances = validHits.map(intersection => {
-        const diff = intersection.point.subtract(centroid);
-        return diff.x * diff.x + diff.y * diff.y + diff.z * diff.z;
+      console.log(`Light source ${sourceIndex}: Centroid Y=${centroidY.toFixed(6)}, Z=${centroidZ.toFixed(6)}`);
+      
+      // Calculate RMS spot size for this light source (transverse coordinates only)
+      let sumSquaredDistances = 0;
+      validHits.forEach(intersection => {
+        const deltaY = intersection.point.y - centroidY;
+        const deltaZ = intersection.point.z - centroidZ;
+        const squaredDistance = deltaY * deltaY + deltaZ * deltaZ;
+        sumSquaredDistances += squaredDistance;
       });
       
-      const meanSquaredDistance = squaredDistances.reduce((sum, dist) => sum + dist, 0) / squaredDistances.length;
+      const meanSquaredDistance = sumSquaredDistances / validHits.length;
       const rmsSpotSize = Math.sqrt(meanSquaredDistance);
+      
+      // Check for numerical issues
+      if (!isFinite(rmsSpotSize) || isNaN(rmsSpotSize)) {
+        console.error(`Light source ${sourceIndex}: Invalid RMS calculation - ${rmsSpotSize}`);
+        console.error(`  Mean squared distance: ${meanSquaredDistance}`);
+        console.error(`  Sum squared distances: ${sumSquaredDistances}`);
+        console.error(`  Valid hits: ${validHits.length}`);
+        return; // Skip this source
+      }
       
       console.log(`Light source ${sourceIndex}: RMS = ${rmsSpotSize.toFixed(6)}, hits = ${validHits.length}`);
       
@@ -190,8 +246,9 @@ export class ObjectiveFunctions {
     });
     
     if (totalValidSources === 0) {
+      console.warn('No light sources produced sufficient valid hits on target surface');
       return {
-        value: Number.MAX_VALUE,
+        value: 1000.0, // Use a large but reasonable penalty instead of MAX_VALUE
         valid: false,
         rayCount: totalValidHits,
         details: 'No light sources produced sufficient valid hits on target surface'
@@ -200,6 +257,21 @@ export class ObjectiveFunctions {
     
     // Combined RMS across all light sources
     const combinedRms = Math.sqrt(totalRmsSquared);
+    
+    // Final sanity check
+    if (!isFinite(combinedRms) || isNaN(combinedRms)) {
+      console.error(`Invalid combined RMS: ${combinedRms}`);
+      console.error(`  Total RMS squared: ${totalRmsSquared}`);
+      console.error(`  Valid sources: ${totalValidSources}`);
+      return {
+        value: 1000.0, // Use a large but reasonable penalty
+        valid: false,
+        rayCount: totalValidHits,
+        details: 'Numerical instability in RMS calculation'
+      };
+    }
+    
+    console.log(`Combined RMS: ${combinedRms.toFixed(6)} from ${totalValidSources} sources`);
     
     return {
       value: combinedRms,
@@ -241,7 +313,7 @@ export class ObjectiveFunctions {
     
     if (validIntersections.length === 0) {
       return {
-        value: Number.MAX_VALUE,
+        value: 1000.0, // Use reasonable penalty instead of MAX_VALUE
         valid: false,
         rayCount: 0,
         details: 'No rays reaching target surface'

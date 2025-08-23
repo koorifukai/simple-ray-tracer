@@ -17,6 +17,8 @@ export class Ray {
   public lightId: number;
   public pathLength: number;
   public isActive: boolean;
+  public startsAt: number;  // Surface numerical ID where ray starts (usually 0)
+  public stopsAt: number;   // Surface numerical ID where ray stops (undefined if reaches end)
 
   constructor(
     position: Vector3,
@@ -32,6 +34,8 @@ export class Ray {
     this.lightId = lightId;
     this.pathLength = 0;
     this.isActive = true;
+    this.startsAt = 0;       // Usually starts from surface 0
+    this.stopsAt = -1;       // -1 means ray reaches the end, positive number means stopped at that surface
   }
 
   /**

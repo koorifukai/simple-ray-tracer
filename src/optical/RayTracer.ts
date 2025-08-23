@@ -253,34 +253,58 @@ export class RayTracer {
         this.log('surface', `Ray misses surface - no interaction, continues with original trajectory`);
       }
       
-      // Special case: aperture surfaces block rays that don't hit
+      // Special case: aperture surfaces need intersection check with aperture plane
       if (surface.mode === 'aperture') {
-        if (!useSimplifiedLog) {
-          this.log('surface', `Aperture surface blocks non-intersecting rays`);
-        }
-        
-        // Calculate where the blocked ray intersects the aperture plane (YZ plane at X=0)
+        // Calculate intersection with aperture plane (YZ plane at X=0 in local coordinates)
         const localRay = this.transformRayToLocal(ray, surface);
-        let blockingPoint = new Vector3(0, 0, 0);
         
-        // Check if ray intersects YZ plane (X=0) of aperture
         if (Math.abs(localRay.direction.x) > this.EPSILON) {
           const t = -localRay.position.x / localRay.direction.x;
           if (t > this.EPSILON) {
             const hitPoint = localRay.position.add(localRay.direction.multiply(t));
-            blockingPoint = this.transformPointToGlobal(hitPoint, surface);
+            const globalHitPoint = this.transformPointToGlobal(hitPoint, surface);
+            
+            // Check if hit point is within aperture bounds
+            const isWithinAperture = this.isWithinAperture(hitPoint, surface);
+            
+            if (isWithinAperture) {
+              // Ray passes through aperture - continue tracing
+              if (!useSimplifiedLog) {
+                this.log('surface', `Aperture: ray passes through at (${hitPoint.y.toFixed(3)}, ${hitPoint.z.toFixed(3)})`);
+              }
+              return {
+                ray,
+                intersection: { point: new Vector3(0,0,0), normal: new Vector3(0,0,1), distance: 0, isValid: false },
+                isBlocked: false
+              };
+            } else {
+              // Ray blocked by aperture - stop here
+              if (!useSimplifiedLog) {
+                this.log('surface', `Aperture: ray blocked at (${hitPoint.y.toFixed(3)}, ${hitPoint.z.toFixed(3)})`);
+              }
+              
+              // Set ray stopsAt to this surface's numerical ID
+              ray.stopsAt = surface.numericalId || -1;
+              
+              return {
+                ray,
+                intersection: { 
+                  point: globalHitPoint, 
+                  normal: surface.normal || new Vector3(-1, 0, 0), 
+                  distance: globalHitPoint.subtract(ray.position).length(), 
+                  isValid: true 
+                },
+                isBlocked: true
+              };
+            }
           }
         }
         
+        // Ray doesn't intersect aperture plane - continue
         return {
           ray,
-          intersection: { 
-            point: blockingPoint, 
-            normal: surface.normal || new Vector3(-1, 0, 0), 
-            distance: blockingPoint.subtract(ray.position).length(), 
-            isValid: true 
-          },
-          isBlocked: true
+          intersection: { point: new Vector3(0,0,0), normal: new Vector3(0,0,1), distance: 0, isValid: false },
+          isBlocked: false
         };
       }
       
@@ -420,6 +444,15 @@ export class RayTracer {
 
     for (let i = startSurfaceIndex; i < surfaces.length; i++) {
       const surface = surfaces[i];
+      
+      // Optimization: Stop tracing if ray has been blocked at a specific surface
+      if (currentRay.stopsAt >= 0 && (surface.numericalId || i) >= currentRay.stopsAt) {
+        if (!isFirstTrace) {
+          this.log('general', `Ray stopped at surface ${currentRay.stopsAt}, skipping remaining surfaces`);
+        }
+        break;
+      }
+      
       if (!isFirstTrace) {
         this.log('general', `Processing surface ${i}: ${surface.id}, mode: ${surface.mode}, shape: ${surface.shape}`);
       }
