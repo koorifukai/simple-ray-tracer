@@ -3,7 +3,7 @@
  * Converts YAML definitions to renderable optical surfaces
  */
 
-import { Vector3 } from '../math/Matrix4';
+import { Vector3 } from '../math/Vector3';
 import type { OpticalSurface } from './surfaces';
 import * as Surfaces from './surfaces';
 import { LightSource as LightSourceClass, LightSourceFactory } from './LightSource';

@@ -50,10 +50,10 @@ export interface RayTraceResult {
 export class RayTracer {
   // Logging categories
   static logConfig = {
-    general: true,
-    surface: false, // Disabled verbose surface logs
-    ray: true,
-    simplified: true, // For simplified ray tracing logs
+    general: false,   // Disabled general logs
+    surface: false,   // Disabled verbose surface logs
+    ray: false,       // Disabled ray logs
+    simplified: false, // Disabled simplified ray tracing logs
     intersection: false, // Disabled verbose intersection calculations
   };
   static log(category: 'general'|'surface'|'ray'|'simplified'|'intersection', ...args: any[]) {
@@ -377,25 +377,10 @@ export class RayTracer {
     
     for (let pathIndex = 0; pathIndex < allRayPaths.length; pathIndex++) {
       const path = allRayPaths[pathIndex];
-      console.log(`🔍 RAY PATH ${pathIndex} (Light ID: ${path[0]?.lightId}): ${path.length} segments`);
-      for (let i = 0; i < path.length; i++) {
-        const ray = path[i];
-        
-        // Calculate end position for this segment
-        let endPos: { x: number, y: number, z: number };
-        if (i < path.length - 1) {
-          // End position is the start of the next segment
-          const nextRay = path[i + 1];
-          endPos = { x: nextRay.position.x, y: nextRay.position.y, z: nextRay.position.z };
-        } else {
-          // For the last segment, calculate end position based on direction (extend 50 units)
-          const extensionLength = 50;
-          const endPosition = ray.position.add(ray.direction.multiply(extensionLength));
-          endPos = { x: endPosition.x, y: endPosition.y, z: endPosition.z };
-        }
-        
-        console.log(`  Segment ${i}: (${ray.position.x.toFixed(3)}, ${ray.position.y.toFixed(3)}, ${ray.position.z.toFixed(3)}) → (${ray.direction.x.toFixed(3)}, ${ray.direction.y.toFixed(3)}, ${ray.direction.z.toFixed(3)}) → END: (${endPos.x.toFixed(3)}, ${endPos.y.toFixed(3)}, ${endPos.z.toFixed(3)})`);
-      }
+    // Remove the excessive ray path debugging - too verbose
+    // console.log(`🔍 RAY PATH ${pathIndex} (Light ID: ${path[0]?.lightId}): ${path.length} segments`);
+      // Processing ray path segments - logging disabled for performance
+      // Variables removed since verbose logging was disabled
       combinedRays.push(...path);
     }
     
@@ -1357,8 +1342,8 @@ export class RayTracer {
     const refracted = incident.multiply(snellRatio)
       .add(localNormal.multiply(snellRatio * cosIncident - cosRefracted));
     
-    console.log(`🔍 Refraction debug: n1=${n1}, n2=${n2}, snellRatio=${snellRatio.toFixed(6)}`);
-    console.log(`🔍 Refracted:(${refracted.x.toFixed(6)}, ${refracted.y.toFixed(6)}, ${refracted.z.toFixed(6)})`);
+    // console.log(`🔍 Refraction debug: n1=${n1}, n2=${n2}, snellRatio=${snellRatio.toFixed(6)}`);
+    // console.log(`🔍 Refracted:(${refracted.x.toFixed(6)}, ${refracted.y.toFixed(6)}, ${refracted.z.toFixed(6)})`);
     
     return new Ray(
       intersection.point,

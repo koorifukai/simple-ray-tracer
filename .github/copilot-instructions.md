@@ -18,6 +18,7 @@ This is a TypeScript/React optical design application built with Vite. This is f
 - YAML for optical system definition
 - Plotly.js for 3D optical system visualization
 - Custom optical ray tracing mathematics
+- Hot update is enabled, so no need to ask me run dev or build every time.
 
 ## UI Layout (T-shaped)
 - **Top**: Menu bar with import/export, ray trace controls

@@ -3,6 +3,9 @@ import { YamlEditor } from './YamlEditor';
 import { EmptyPlot3D } from '../visualization/EmptyPlot3D';
 import { IntersectionPlot } from './IntersectionPlot';
 import { RayIntersectionCollector } from './RayIntersectionCollector';
+import { ConvergenceHistory } from './ConvergenceHistory';
+import { OptimizationEngine, VariableParser } from '../optimization';
+import type { OptimizationResult } from '../optimization';
 import * as yaml from 'js-yaml';
 
 // Default optical system YAML
@@ -45,11 +48,11 @@ surfaces:
   
 light_sources:
   - l1:
-      {lid: 0, position: [-10,0,-16], vector: [1,0,0.249328], number: 18, wavelength: 633, type: uniform, param: 18}
+      {lid: 0, position: [-10,0,-16], vector: [1,0,0.249328], number: 3, wavelength: 633, type: uniform, param: 14}
   - l2:
-      {lid: 1, position: [-10,0,-12], vector: [1,0,0.176327], number: 18, wavelength: 532, type: uniform, param: 18}
+      {lid: 1, position: [-10,0,-12], vector: [1,0,0.176327], number: 3, wavelength: 532, type: uniform, param: 14}
   - l3:
-      {lid: 2, position: [-10,0,0], vector: [1,0,0], number: 18, wavelength: 488, type: uniform, param: 18}
+      {lid: 2, position: [-10,0,0], vector: [1,0,0], number: 3, wavelength: 488, type: uniform, param: 14}
   
 optical_trains:
   - r: 
@@ -61,11 +64,11 @@ optical_trains:
     l:
      {aid: 0, position: [0,0,0], angles: [0,0]}
     s:
-     {sid: 0, position: [133,0,0], angles: [0,0]}
+     {sid: 0, position: [V1,0,0], angles: [0,0]}
 
 optimization_settings:
   iterations: 20
-  V1: [96,98,20]
+  V1: [120,140,20]
   V2: [15,25,5]
   V3: [80,90,5]
   V4: [-25,-15,5]
@@ -77,30 +80,132 @@ optimization_settings:
 interface OpticalDesignAppProps {}
 
 export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
+  // Initialize with processed default YAML to avoid double rendering
+  const initialProcessedResult = (() => {
+    try {
+      const problem = VariableParser.parseOptimizationProblem(defaultYaml);
+      let processedYaml = defaultYaml;
+      
+      if (problem && problem.variables.length > 0) {
+        problem.variables.forEach(variable => {
+          const midValue = (variable.min + variable.max) / 2;
+          const regex = new RegExp(`\\b${variable.name}\\b`, 'g');
+          processedYaml = processedYaml.replace(regex, midValue.toString());
+        });
+      }
+      
+      return {
+        processedYaml,
+        parsedData: yaml.load(processedYaml) as any,
+        hasOptimization: problem !== null && problem.variables.length > 0
+      };
+    } catch (error) {
+      console.warn('Failed to process initial YAML:', error);
+      return {
+        processedYaml: defaultYaml,
+        parsedData: null,
+        hasOptimization: false
+      };
+    }
+  })();
+
   const [yamlContent, setYamlContent] = useState(defaultYaml);
   const [isYamlValid, setIsYamlValid] = useState(true);
   const [yamlError, setYamlError] = useState<string>('');
-  const [parsedData, setParsedData] = useState<any>(null);
+  const [parsedData, setParsedData] = useState<any>(initialProcessedResult.parsedData);
   const [autoUpdate, setAutoUpdate] = useState(true);
-  const [lastRayTracedYaml, setLastRayTracedYaml] = useState(defaultYaml);
-  const [analysisType, setAnalysisType] = useState<'None' | 'Spot Diagram' | 'Ray Hit Map' | 'Tabular Display'>('None');
+  const [lastRayTracedYaml, setLastRayTracedYaml] = useState(initialProcessedResult.processedYaml);
+  const [analysisType, setAnalysisType] = useState<'None' | 'System Overview' | 'Spot Diagram' | 'Ray Hit Map' | 'Tabular Display' | 'Convergence History'>('None');
   const [refreshTrigger, setRefreshTrigger] = useState(0); // Used to trigger secondary panel refresh
   const [selectedSurface, setSelectedSurface] = useState<string>('');
   const [selectedLight, setSelectedLight] = useState<string>(''); // For spot diagram light source selection
   const [intersectionDataTrigger, setIntersectionDataTrigger] = useState(0); // Track intersection data updates
+  
+  // Optimization state
+  const [isOptimizing, setIsOptimizing] = useState(false);
+  const [optimizationResult, setOptimizationResult] = useState<OptimizationResult | null>(null);
+  const [hasOptimizationSettings, setHasOptimizationSettings] = useState(initialProcessedResult.hasOptimization);
+  
+  // Ray tracing statistics state
+  const [rayStats, setRayStats] = useState<{
+    totalRays: number;
+    totalIntersections: number;
+    intersectionRate: number;
+    surfaceCount: number;
+    wavelengthCount: number;
+    lightSourceCount: number;
+  } | null>(null);
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Initialize with default system
+  // Clear intersection data on component mount for clean initialization
   useEffect(() => {
+    const collector = RayIntersectionCollector.getInstance();
+    collector.clearData();
+  }, []);
+
+  // Function to update ray tracing statistics
+  const updateRayStats = useCallback(() => {
     try {
-      const defaultSystem = yaml.load(defaultYaml) as any;
-      setParsedData(defaultSystem);
-      
-      // Clear any existing intersection data when initializing
       const collector = RayIntersectionCollector.getInstance();
-      collector.clearData();
+      const stats = collector.getStatistics();
+      setRayStats(stats);
     } catch (error) {
-      console.error('Failed to parse default YAML:', error);
+      console.warn('Failed to get ray statistics:', error);
+      setRayStats(null);
+    }
+  }, []);
+
+  // Centralized YAML processing function - processes once and returns everything needed
+  const processYamlForVisualization = useCallback((yamlInput: string): {
+    processedYaml: string;
+    parsedData: any;
+    hasOptimization: boolean;
+    variables: any[];
+  } => {
+    try {
+      console.log('� SINGLE YAML PROCESSING: Starting centralized YAML processing...');
+      
+      // STEP 1: Check for optimization variables
+      const problem = VariableParser.parseOptimizationProblem(yamlInput);
+      const hasOptimization = problem !== null && problem.variables.length > 0;
+      
+      if (hasOptimization) {
+        console.log('✅ Found optimization variables:', problem.variables.map(v => v.name));
+      }
+      
+      // STEP 2: Get processed YAML with variable substitution (if needed)
+      let processedYaml = yamlInput;
+      if (hasOptimization && problem.variables.length > 0) {
+        // Use actual variable bounds from the parsed problem
+        problem.variables.forEach(variable => {
+          const midValue = (variable.min + variable.max) / 2;
+          const regex = new RegExp(`\\b${variable.name}\\b`, 'g');
+          processedYaml = processedYaml.replace(regex, midValue.toString());
+        });
+        console.log('🔄 Variable substitution completed');
+      }
+      
+      // STEP 3: Parse the final YAML once
+      const parsedData = yaml.load(processedYaml) as any;
+      
+      console.log('✅ SINGLE YAML PROCESSING: Completed successfully');
+      return {
+        processedYaml,
+        parsedData,
+        hasOptimization,
+        variables: problem?.variables || []
+      };
+      
+    } catch (error) {
+      console.warn('❌ YAML processing failed:', error);
+      // Return safe defaults
+      return {
+        processedYaml: yamlInput,
+        parsedData: null,
+        hasOptimization: false,
+        variables: []
+      };
     }
   }, []);
 
@@ -114,39 +219,55 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
     
     if (isValid && autoUpdate) {
       try {
-        const parsed = yaml.load(yamlContent) as any;
-        setParsedData(parsed);
-        setLastRayTracedYaml(yamlContent);
+        // SINGLE PROCESSING: Get everything needed in one shot
+        const result = processYamlForVisualization(yamlContent);
         
-        // Clear intersection data when YAML changes
-        const collector = RayIntersectionCollector.getInstance();
-        collector.clearData();
-        
-        // Restart collection if we're in analysis mode
-        if (analysisType === 'Ray Hit Map' || analysisType === 'Spot Diagram') {
-          collector.startCollection(true); // Clear data for new system
+        // Only update if the processed YAML has actually changed
+        if (result.processedYaml !== lastRayTracedYaml) {
+          console.log('🔄 YAML content changed - updating visualization');
+          
+          // Update all state with results from single processing
+          setParsedData(result.parsedData);
+          setLastRayTracedYaml(result.processedYaml);
+          setHasOptimizationSettings(result.hasOptimization);
+          
+          // Clear intersection data when YAML changes
+          const collector = RayIntersectionCollector.getInstance();
+          collector.clearData();
+          
+          // Restart collection if we're in analysis mode
+          if (analysisType === 'Ray Hit Map' || analysisType === 'Spot Diagram') {
+            collector.startCollection(true); // Clear data for new system
+          }
+          
+          // Reset selected surface to prevent stale selections
+          setSelectedSurface('');
+          
+          // Reset intersection data trigger to unlock UI from old state
+          setIntersectionDataTrigger(0);
+          
+          // Single trigger for all updates - no conditional logic for analysis type
+          setRefreshTrigger(prev => prev + 1);
+          
+          // Update ray statistics after processing
+          setTimeout(updateRayStats, 100); // Small delay to ensure ray tracing completes
+        } else {
+          console.log('✅ YAML content unchanged - skipping duplicate processing');
         }
-        
-        // Reset selected surface to prevent stale selections
-        setSelectedSurface('');
-        
-        // Reset intersection data trigger to unlock UI from old state
-        setIntersectionDataTrigger(0);
-        
-        // Single trigger for all updates - no conditional logic for analysis type
-        setRefreshTrigger(prev => prev + 1);
         
       } catch (err) {
         setParsedData(null);
       }
-    } else if (!autoUpdate) {
+    } else if (isValid && !autoUpdate) {
+      // When auto-update is off, still check optimization settings
+      const result = processYamlForVisualization(yamlContent);
+      setHasOptimizationSettings(result.hasOptimization);
       console.log('⏸️ Auto-update paused - YAML syntax valid but ray tracing not updated');
     } else {
+      setHasOptimizationSettings(false);
       setParsedData(null);
     }
-  }, [yamlContent, autoUpdate]);
-
-  const handleImport = useCallback(() => {
+  }, [yamlContent, autoUpdate, analysisType, processYamlForVisualization, updateRayStats, lastRayTracedYaml]);  const handleImport = useCallback(() => {
     fileInputRef.current?.click();
   }, []);
 
@@ -187,13 +308,22 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
   const handleNewSystem = useCallback(() => {
     setYamlContent(defaultYaml);
     
+    // Process the default YAML with centralized processing  
+    const result = processYamlForVisualization(defaultYaml);
+    setParsedData(result.parsedData);
+    setLastRayTracedYaml(result.processedYaml);
+    setHasOptimizationSettings(result.hasOptimization);
+    
     // Clear intersection data when creating new system
     const collector = RayIntersectionCollector.getInstance();
     collector.clearData();
     
     // Reset intersection data trigger to unlock UI from old state
     setIntersectionDataTrigger(0);
-  }, []);
+    
+    // Trigger visualization update
+    setRefreshTrigger(prev => prev + 1);
+  }, [processYamlForVisualization]);
 
   const handleToggleAutoUpdate = useCallback(() => {
     const newAutoUpdate = !autoUpdate;
@@ -201,9 +331,11 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
     
     if (newAutoUpdate && isYamlValid) {
       try {
-        const parsed = yaml.load(yamlContent) as any;
-        setParsedData(parsed);
-        setLastRayTracedYaml(yamlContent);
+        // Use centralized processing when re-enabling auto-update
+        const result = processYamlForVisualization(yamlContent);
+        setParsedData(result.parsedData);
+        setLastRayTracedYaml(result.processedYaml);
+        setHasOptimizationSettings(result.hasOptimization);
         
         // Reset selected surface when toggling auto-update
         setSelectedSurface('');
@@ -215,14 +347,18 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
         console.error('❌ Failed to update ray tracing when re-enabling auto-update:', err);
       }
     }
-  }, [autoUpdate, isYamlValid, yamlContent]);
+  }, [autoUpdate, isYamlValid, yamlContent, processYamlForVisualization]);
 
   const handleManualUpdate = useCallback(() => {
     if (isYamlValid) {
       try {
-        const parsed = yaml.load(yamlContent) as any;
-        setParsedData(parsed);
-        setLastRayTracedYaml(yamlContent);
+        // Use centralized processing for manual update
+        const result = processYamlForVisualization(yamlContent);
+        
+        // Update all state with single processing result
+        setParsedData(result.parsedData);
+        setLastRayTracedYaml(result.processedYaml);
+        setHasOptimizationSettings(result.hasOptimization);
         
         // Clear intersection data when manually updating to prevent accumulation
         const collector = RayIntersectionCollector.getInstance();
@@ -237,11 +373,14 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
         // Single trigger for all updates - no conditional logic for analysis type
         setRefreshTrigger(prev => prev + 1);
         
+        // Update ray statistics after manual processing
+        setTimeout(updateRayStats, 100); // Small delay to ensure ray tracing completes
+        
       } catch (err) {
         console.error('❌ Failed to manually update ray tracing:', err);
       }
     }
-  }, [isYamlValid, yamlContent]);
+  }, [isYamlValid, yamlContent, processYamlForVisualization, updateRayStats]);
 
   // Keyboard shortcut for manual update (Ctrl+S)
   useEffect(() => {
@@ -264,8 +403,54 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
     window.open('https://github.com/koorifukai/simple-ray-tracer', '_blank');
   }, []);
 
+  // Handle optimization
+  const handleOptimize = useCallback(async () => {
+    if (!isYamlValid || isOptimizing) return;
+    
+    console.log('🔧 Starting optimization...');
+    setIsOptimizing(true);
+    setOptimizationResult(null);
+    
+    try {
+      // Use original YAML for optimization (preserves variables)
+      const result = await OptimizationEngine.optimize(yamlContent);
+      setOptimizationResult(result);
+      
+      if (result.success) {
+        // Apply optimized variables to YAML
+        const problem = VariableParser.parseOptimizationProblem(yamlContent);
+        if (problem) {
+          const updatedVariables = VariableParser.updateVariables(problem.variables, result.optimizedVariables);
+          const variableMap = VariableParser.createVariableMap(updatedVariables);
+          const optimizedYaml = VariableParser.substituteVariables(yamlContent, variableMap);
+          
+          // Update the YAML editor with optimized values
+          setYamlContent(optimizedYaml);
+          
+          console.log('✅ Optimization successful! YAML updated with optimized values.');
+          console.log('📊 Final objective:', result.finalObjective.toExponential(3));
+          console.log('🔧 Optimized variables:', result.optimizedVariables);
+        }
+      } else {
+        console.warn('❌ Optimization failed:', result.errorMessage);
+      }
+    } catch (error) {
+      console.error('💥 Optimization error:', error);
+      setOptimizationResult({
+        success: false,
+        iterations: 0,
+        finalObjective: Number.MAX_VALUE,
+        optimizedVariables: {},
+        convergenceHistory: [],
+        errorMessage: error instanceof Error ? error.message : 'Unknown error'
+      });
+    } finally {
+      setIsOptimizing(false);
+    }
+  }, [yamlContent, isYamlValid, isOptimizing]);
+
   const handleAnalysisChange = useCallback((event: React.ChangeEvent<HTMLSelectElement>) => {
-    const newAnalysisType = event.target.value as 'None' | 'Spot Diagram' | 'Ray Hit Map' | 'Tabular Display';
+    const newAnalysisType = event.target.value as 'None' | 'System Overview' | 'Spot Diagram' | 'Ray Hit Map' | 'Tabular Display' | 'Convergence History';
     
     // Check if we have existing data before switching
     const collector = RayIntersectionCollector.getInstance();
@@ -513,11 +698,25 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
                 className="analysis-dropdown"
               >
                 <option value="None">None</option>
+                <option value="System Overview">System Overview</option>
                 <option value="Spot Diagram">Spot Diagram</option>
                 <option value="Ray Hit Map">Ray Hit Map</option>
                 <option value="Tabular Display">Tabular Display</option>
+                <option value="Convergence History">Convergence History</option>
               </select>
             </div>
+            
+            {/* Optimization button */}
+            {hasOptimizationSettings && (
+              <button 
+                className="menu-button optimize-button" 
+                onClick={handleOptimize}
+                disabled={!isYamlValid || isOptimizing}
+                title="Run Levenberg-Marquardt optimization"
+              >
+                {isOptimizing ? 'Optimizing...' : 'Optimize'}
+              </button>
+            )}
           </div>
         </div>
 
@@ -578,6 +777,26 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
                   </div>
                 )}
               </div>
+              
+              {/* Optimization Result Display */}
+              {optimizationResult && (
+                <div className={`optimization-status ${optimizationResult.success ? 'success' : 'error'}`}>
+                  {optimizationResult.success ? (
+                    <>
+                      <span>🔧</span>
+                      <span>
+                        Optimization Complete - {optimizationResult.iterations} iterations, 
+                        Final objective: {optimizationResult.finalObjective.toExponential(3)}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span>⚠️</span>
+                      <span>Optimization Failed: {optimizationResult.errorMessage}</span>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
@@ -585,7 +804,44 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
           {analysisType !== 'None' && (
             <div className={`analysis-panel ${analysisType.toLowerCase().replace(/ /g, '-')}`}>
               <div className="analysis-content">
-                {analysisType === 'Ray Hit Map' ? (
+                {analysisType === 'System Overview' ? (
+                  <div className="system-overview-panel">
+                    <h3>System Overview</h3>
+                    {rayStats ? (
+                      <div className="system-stats-grid">
+                        <div className="stat-card">
+                          <div className="stat-label">Total Rays</div>
+                          <div className="stat-value" title={`${rayStats.totalIntersections} intersections from ${rayStats.totalRays} rays`}>
+                            {rayStats.totalRays.toLocaleString()}
+                          </div>
+                        </div>
+                        <div className="stat-card">
+                          <div className="stat-label">Light Sources</div>
+                          <div className="stat-value">{rayStats.lightSourceCount}</div>
+                        </div>
+                        <div className="stat-card">
+                          <div className="stat-label">Surfaces</div>
+                          <div className="stat-value">{rayStats.surfaceCount}</div>
+                        </div>
+                        {rayStats.intersectionRate > 0 && (
+                          <div className="stat-card">
+                            <div className="stat-label">Hit Rate</div>
+                            <div className="stat-value">{(rayStats.intersectionRate * 100).toFixed(1)}%</div>
+                          </div>
+                        )}
+                        <div className="stat-card">
+                          <div className="stat-label">Total Intersections</div>
+                          <div className="stat-value">{rayStats.totalIntersections.toLocaleString()}</div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="no-stats">
+                        <p>No ray tracing data available</p>
+                        <p>Click "Ray Trace" to generate system statistics</p>
+                      </div>
+                    )}
+                  </div>
+                ) : analysisType === 'Ray Hit Map' ? (
                   <div className="hit-map-layout">
                     {/* Left side - Compact surface list */}
                     <div className="surface-list-container">
@@ -665,6 +921,16 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
                       )}
                     </div>
                   </div>
+                ) : analysisType === 'Convergence History' ? (
+                  <div className="convergence-analysis-panel">
+                    {optimizationResult && optimizationResult.convergenceHistory ? (
+                      <ConvergenceHistory convergenceHistory={optimizationResult.convergenceHistory} />
+                    ) : (
+                      <div className="placeholder-content">
+                        <p>No optimization data available. Run optimization to see convergence history.</p>
+                      </div>
+                    )}
+                  </div>
                 ) : (
                   <div className="placeholder-content">
                     <p>{analysisType} functionality will be implemented here</p>
@@ -680,7 +946,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
           <div className="visualization-container">
             <EmptyPlot3D 
               title="Ray Tracer Visualization"
-              yamlContent={autoUpdate ? (isYamlValid ? yamlContent : undefined) : lastRayTracedYaml}
+              yamlContent={autoUpdate ? (isYamlValid ? lastRayTracedYaml : undefined) : lastRayTracedYaml}
               key={refreshTrigger} // Force re-render when secondary analysis changes
             />
           </div>

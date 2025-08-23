@@ -359,7 +359,7 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
                           
                           // Trace ray through optical system
                           const rayPath = RayTracer.traceRaySequential(ray, opticalSystem.surfaces);
-                          console.log(`🔍 VISUALIZATION: Received ${rayPath.length} ray segments from RayTracer`);
+                          // console.log(`🔍 VISUALIZATION: Received ${rayPath.length} ray segments from RayTracer`);
                           
                           // Group rays by light ID to handle branching correctly
                           const rayGroups = new Map<number, Ray[]>();
@@ -371,10 +371,7 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
                             rayGroups.get(lightId)!.push(pathRay);
                           }
                           
-                          console.log(`🔍 VISUALIZATION: Grouped into ${rayGroups.size} light ID groups:`);
-                          rayGroups.forEach((groupRays, lightId) => {
-                            console.log(`  Light ID ${lightId}: ${groupRays.length} segments`);
-                          });
+                          // Ray grouping logging disabled for performance
                           
                           // Plot each ray group (light ID) separately
                           rayGroups.forEach((groupRays, lightId) => {
@@ -386,12 +383,12 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
                             // and thus the same color as the original ray, just with different intensity
                             
                             // Plot the ray group as connected segments
-                            console.log(`🔍 PLOTTING: Light ID ${lightId} with ${groupRays.length} segments`);
+                            // console.log(`🔍 PLOTTING: Light ID ${lightId} with ${groupRays.length} segments`);
                             for (let i = 0; i < groupRays.length - 1; i++) {
                               const startRay = groupRays[i];
                               const endRay = groupRays[i + 1];
                               
-                              console.log(`  Segment ${i}: (${startRay.position.x.toFixed(3)}, ${startRay.position.y.toFixed(3)}, ${startRay.position.z.toFixed(3)}) -> (${endRay.position.x.toFixed(3)}, ${endRay.position.y.toFixed(3)}, ${endRay.position.z.toFixed(3)})`);
+                              // console.log(`  Segment ${i}: (${startRay.position.x.toFixed(3)}, ${startRay.position.y.toFixed(3)}, ${startRay.position.z.toFixed(3)}) -> (${endRay.position.x.toFixed(3)}, ${endRay.position.y.toFixed(3)}, ${endRay.position.z.toFixed(3)})`);
                               
                               // Validate coordinates before plotting
                               const coords = [
