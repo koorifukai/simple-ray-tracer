@@ -5,6 +5,7 @@ import { IntersectionPlot } from './IntersectionPlot';
 import { RayIntersectionCollector } from './RayIntersectionCollector';
 import { ConvergenceHistory } from './ConvergenceHistory';
 import { OptimizationEngine, VariableParser } from '../optimization';
+import { GlassCatalog } from '../optical/materials/GlassCatalog';
 import type { OptimizationResult } from '../optimization';
 import * as yaml from 'js-yaml';
 
@@ -12,7 +13,7 @@ import * as yaml from 'js-yaml';
 const defaultYaml = `
 # Gaussian 28 example
 display_settings:
-    show_grid: False
+  show_grid: False
   density_for_intensity: True
 assemblies:
   - aid: 0
@@ -109,7 +110,6 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
 
   const [yamlContent, setYamlContent] = useState(defaultYaml);
   const [isYamlValid, setIsYamlValid] = useState(true);
-  const [yamlError, setYamlError] = useState<string>('');
   const [parsedData, setParsedData] = useState<any>(initialProcessedResult.parsedData);
   const [autoUpdate, setAutoUpdate] = useState(true);
   const [lastRayTracedYaml, setLastRayTracedYaml] = useState(initialProcessedResult.processedYaml);
@@ -117,6 +117,17 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
   const [refreshTrigger, setRefreshTrigger] = useState(0); // Used to trigger secondary panel refresh
   const [selectedSurface, setSelectedSurface] = useState<string>('');
   const [selectedLight, setSelectedLight] = useState<string>(''); // For spot diagram light source selection
+  const [materialErrors, setMaterialErrors] = useState<string[]>([]); // Track material validation errors
+  
+  // Status tracking for chronological display
+  const [latestStatus, setLatestStatus] = useState<{
+    type: 'yaml-valid' | 'yaml-error' | 'material-error' | 'optimization-success' | 'optimization-error';
+    message: string;
+    timestamp: number;
+  }>({ type: 'yaml-valid', message: '', timestamp: Date.now() });
+  
+  // Track YAML content changes to only update status when content actually changes
+  const [lastValidatedYaml, setLastValidatedYaml] = useState<string>('');
   const [intersectionDataTrigger, setIntersectionDataTrigger] = useState(0); // Track intersection data updates
   
   // Optimization state
@@ -143,6 +154,25 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
   }, []);
 
   // Function to update ray tracing statistics
+  // Update status when material errors change or YAML content changes
+  useEffect(() => {
+    if (materialErrors.length > 0 && isYamlValid) {
+      setLatestStatus({
+        type: 'material-error',
+        message: `Material Error: ${materialErrors.join(', ')}`,
+        timestamp: Date.now()
+      });
+    } else if (materialErrors.length === 0 && isYamlValid && parsedData && yamlContent !== lastValidatedYaml) {
+      // Only update "Valid YAML" status when YAML content actually changes
+      setLatestStatus({
+        type: 'yaml-valid',
+        message: `Valid YAML - ${parsedData?.assemblies?.[0] ? Object.keys(parsedData.assemblies[0]).filter(k => k !== 'aid').length : 0} surfaces, ${parsedData?.light_sources?.length || 0} light sources, ${parsedData?.surfaces?.length || 0} standalone surfaces`,
+        timestamp: Date.now()
+      });
+      setLastValidatedYaml(yamlContent);
+    }
+  }, [materialErrors, isYamlValid, parsedData, yamlContent, lastValidatedYaml]);
+
   const updateRayStats = useCallback(() => {
     try {
       const collector = RayIntersectionCollector.getInstance();
@@ -152,6 +182,43 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
       console.warn('Failed to get ray statistics:', error);
       setRayStats(null);
     }
+  }, []);
+
+  // Material validation function
+  const validateMaterials = useCallback((data: any) => {
+    const errors: string[] = [];
+    const surfaces: Array<{ id: string; n1_material?: string; n2_material?: string }> = [];
+    
+    // Collect all surfaces from assemblies
+    if (data.assemblies) {
+      data.assemblies.forEach((assembly: any) => {
+        Object.keys(assembly).forEach(key => {
+          if (key !== 'aid') {
+            surfaces.push({ id: key, ...assembly[key] });
+          }
+        });
+      });
+    }
+    
+    // Check for unknown glass materials
+    surfaces.forEach((surface) => {
+      if (surface.n1_material && !surface.n1_material.match(/^\d+(\.\d+)?$/)) {
+        if (!GlassCatalog.getGlass(surface.n1_material)) {
+          if (!errors.includes(`Unknown glass: ${surface.n1_material}`)) {
+            errors.push(`Unknown glass: ${surface.n1_material}`);
+          }
+        }
+      }
+      if (surface.n2_material && !surface.n2_material.match(/^\d+(\.\d+)?$/)) {
+        if (!GlassCatalog.getGlass(surface.n2_material)) {
+          if (!errors.includes(`Unknown glass: ${surface.n2_material}`)) {
+            errors.push(`Unknown glass: ${surface.n2_material}`);
+          }
+        }
+      }
+    });
+    
+    setMaterialErrors(errors);
   }, []);
 
   // Centralized YAML processing function - processes once and returns everything needed
@@ -215,7 +282,15 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
 
   const handleYamlValidation = useCallback((isValid: boolean, error?: string, _errors?: any, currentYaml?: string) => {
     setIsYamlValid(isValid);
-    setYamlError(error || '');
+    
+    // Update chronological status for YAML validation
+    if (!isValid) {
+      setLatestStatus({
+        type: 'yaml-error',
+        message: `YAML Parse Error: ${error || 'Unknown error'}`,
+        timestamp: Date.now()
+      });
+    }
     
     // Use currentYaml if provided, otherwise fall back to yamlContent state
     const yamlToProcess = currentYaml || yamlContent;
@@ -233,6 +308,9 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
           setParsedData(result.parsedData);
           setLastRayTracedYaml(result.processedYaml);
           setHasOptimizationSettings(result.hasOptimization);
+          
+          // Validate glass materials (status will be updated by useEffect)
+          validateMaterials(result.parsedData);
           
           // Clear intersection data when YAML changes
           const collector = RayIntersectionCollector.getInstance();
@@ -370,6 +448,9 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
         setLastRayTracedYaml(result.processedYaml);
         setHasOptimizationSettings(result.hasOptimization);
         
+        // Validate glass materials
+        validateMaterials(result.parsedData);
+        
         // Clear intersection data when manually updating to prevent accumulation
         const collector = RayIntersectionCollector.getInstance();
         collector.clearData();
@@ -426,6 +507,21 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
       const result = await OptimizationEngine.optimize(yamlContent);
       setOptimizationResult(result);
       
+      // Update chronological status for optimization results
+      if (result.success) {
+        setLatestStatus({
+          type: 'optimization-success',
+          message: `Optimization Complete - ${result.iterations} iterations, Final objective: ${result.finalObjective.toExponential(3)}, ${parsedData?.assemblies?.[0] ? Object.keys(parsedData.assemblies[0]).filter(k => k !== 'aid').length : 0} surfaces`,
+          timestamp: Date.now()
+        });
+      } else {
+        setLatestStatus({
+          type: 'optimization-error',
+          message: `Optimization Failed: ${result.errorMessage}`,
+          timestamp: Date.now()
+        });
+      }
+      
       // Apply optimized variables to YAML if we found a better solution (even if "failed" due to max iterations)
       if (result.success || result.finalObjective < 1000.0) {
         // Apply optimized variables to YAML
@@ -456,13 +552,21 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
       }
     } catch (error) {
       console.error('💥 Optimization error:', error);
-      setOptimizationResult({
+      const errorResult = {
         success: false,
         iterations: 0,
         finalObjective: Number.MAX_VALUE,
         optimizedVariables: {},
         convergenceHistory: [],
         errorMessage: error instanceof Error ? error.message : 'Unknown error'
+      };
+      setOptimizationResult(errorResult);
+      
+      // Update chronological status for optimization errors
+      setLatestStatus({
+        type: 'optimization-error',
+        message: `Optimization Failed: ${errorResult.errorMessage}`,
+        timestamp: Date.now()
       });
     } finally {
       setIsOptimizing(false);
@@ -781,46 +885,42 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
                 onValidationChange={handleYamlValidation}
               />
               
-              {/* Unified Status Display - shows YAML validation or optimization result */}
+              {/* Unified Status Display - Shows latest message chronologically */}
               <div className={`yaml-status ${
-                optimizationResult ? 
-                  (optimizationResult.success ? 'success' : 'error') : 
-                  (isYamlValid ? 'success' : 'error')
-              }`}>
-                {optimizationResult ? (
-                  // Show optimization result if available
-                  optimizationResult.success ? (
-                    <>
-                      <span>🔧</span>
-                      <span>
-                        Optimization Complete - {optimizationResult.iterations} iterations, 
-                        Final objective: {optimizationResult.finalObjective.toExponential(3)}, 
-                        {parsedData?.assemblies?.[0] ? Object.keys(parsedData.assemblies[0]).filter(k => k !== 'aid').length : 0} surfaces
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <span>⚠️</span>
-                      <span>Optimization Failed: {optimizationResult.errorMessage}</span>
-                    </>
-                  )
-                ) : (
-                  // Show YAML validation status if no optimization result
-                  isYamlValid ? (
-                    <>
-                      <span>✓</span>
-                      <span>
-                        Valid YAML - {parsedData?.assemblies?.[0] ? Object.keys(parsedData.assemblies[0]).filter(k => k !== 'aid').length : 0} surfaces, 
-                        {' '}{parsedData?.light_sources?.length || 0} light sources,
-                        {' '}{parsedData?.surfaces?.length || 0} standalone surfaces
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <span>✗</span>
-                      <span>{yamlError}</span>
-                    </>
-                  )
+                latestStatus.type === 'yaml-error' || latestStatus.type === 'material-error' || latestStatus.type === 'optimization-error' ? 'error' : 'success'
+              }`} style={{
+                backgroundColor: latestStatus.type === 'material-error' ? 'rgba(220, 53, 69, 0.25)' : undefined,
+                borderLeft: latestStatus.type === 'material-error' ? '3px solid var(--error)' : undefined
+              }}>
+                {latestStatus.type === 'yaml-valid' && (
+                  <>
+                    <span>✓</span>
+                    <span>{latestStatus.message}</span>
+                  </>
+                )}
+                {latestStatus.type === 'yaml-error' && (
+                  <>
+                    <span>✗</span>
+                    <span>{latestStatus.message}</span>
+                  </>
+                )}
+                {latestStatus.type === 'material-error' && (
+                  <>
+                    <span>🔴</span>
+                    <span>{latestStatus.message}</span>
+                  </>
+                )}
+                {latestStatus.type === 'optimization-success' && (
+                  <>
+                    <span>🔧</span>
+                    <span>{latestStatus.message}</span>
+                  </>
+                )}
+                {latestStatus.type === 'optimization-error' && (
+                  <>
+                    <span>⚠️</span>
+                    <span>{latestStatus.message}</span>
+                  </>
                 )}
               </div>
             </div>
