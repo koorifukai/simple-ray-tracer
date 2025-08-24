@@ -19,7 +19,7 @@ export class ObjectiveFunctions {
   /**
    * Evaluate objective function for given YAML content and settings
    */
-  static evaluate(yamlContent: string, settings: OptimizationSettings): ObjectiveResult {
+  static async evaluate(yamlContent: string, settings: OptimizationSettings): Promise<ObjectiveResult> {
     // Reset evaluation counter on new YAML (detect by checking if this is a fresh evaluation)
     if (!ObjectiveFunctions.lastYamlContent || ObjectiveFunctions.lastYamlContent !== yamlContent) {
       ObjectiveFunctions.evaluationCounter = 0;
@@ -28,7 +28,7 @@ export class ObjectiveFunctions {
 
     try {
       // Parse optical system from substituted YAML
-      const system = OpticalSystemParser.parseYAML(yamlContent);
+      const system = await OpticalSystemParser.parseYAML(yamlContent);
       
       // Get target surface based on obj setting
       const targetSurface = ObjectiveFunctions.getTargetSurface(system, settings.obj);

@@ -1,0 +1,66 @@
+# Example YAML demonstrating glass catalog integration
+# This shows the hybrid approach: numeric n1/n2 and glass names
+
+light_sources:
+  - {lid: 1, shape: collimated, x: -30, y: 0, z: 0, dx: 1, dy: 0, dz: 0, 
+     semidia: 5, wavelength: 587.6, intensity: 1}
+  - {lid: 2, shape: collimated, x: -30, y: 0, z: 0, dx: 1, dy: 0, dz: 0, 
+     semidia: 5, wavelength: 486.1, intensity: 1}
+  - {lid: 3, shape: collimated, x: -30, y: 0, z: 0, dx: 1, dy: 0, dz: 0, 
+     semidia: 5, wavelength: 656.3, intensity: 1}
+
+assemblies:
+  # Simple doublet using glass catalog
+  - aid: 0
+    s1: 
+      relative: 0
+      shape: spherical
+      radius: 54.153
+      semidia: 30
+      mode: refraction
+      # Using glass names instead of n1/n2
+      n1_material: "air"        # Incident medium is air
+      n2_material: "BK7"        # Schott crown glass
+    s2:
+      relative: 8.747
+      shape: spherical  
+      radius: 152.522
+      semidia: 28
+      mode: refraction
+      n1_material: "BK7"        # From crown glass
+      n2_material: "F2"         # To Schott flint glass
+    s3:
+      relative: 3.5
+      shape: spherical
+      radius: -88.234
+      semidia: 28
+      mode: refraction
+      n1_material: "F2"         # From flint glass  
+      n2_material: "air"        # Back to air
+      
+  # Mixed approach - some numeric, some glass names
+  - aid: 1  
+    s1:
+      relative: 50
+      shape: spherical
+      radius: 100
+      semidia: 20
+      mode: refraction
+      n1: 1.0                   # Numeric (backward compatibility)
+      n2_material: "N-BK7"      # Schott catalog name
+    s2:
+      relative: 10
+      shape: spherical
+      radius: -100
+      semidia: 20
+      mode: refraction
+      n1_material: "N-BK7"      # Glass name
+      n2: 1.0                   # Numeric (backward compatibility)
+
+# This will trigger validation suggestions:
+# - "bk7" should suggest "N-BK7" 
+# - Unknown materials will show errors
+test_cases:
+  - {n1_material: "bk7"}       # Should suggest N-BK7
+  - {n2_material: "unknown"}   # Should show error
+  - {n1_material: "S-FPL51"}   # Ohara glass - should work

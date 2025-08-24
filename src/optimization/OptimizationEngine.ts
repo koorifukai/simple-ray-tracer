@@ -250,7 +250,7 @@ export class OptimizationEngine {
     const substitutedYaml = VariableParser.substituteVariables(problem.originalYaml, variableMap);
     
     // Evaluate objective function
-    const result = ObjectiveFunctions.evaluate(substitutedYaml, problem.settings);
+    const result = await ObjectiveFunctions.evaluate(substitutedYaml, problem.settings);
     
     return {
       value: result.valid ? result.value : 1000.0, // Use reasonable penalty for invalid results

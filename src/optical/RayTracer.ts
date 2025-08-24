@@ -8,6 +8,7 @@ import { Vector3 } from '../math/Matrix4';
 import { Ray } from './LightSource';
 import type { OpticalSurface } from './surfaces';
 import { RayIntersectionCollector } from '../components/RayIntersectionCollector';
+import { MaterialParser } from './materials/GlassCatalog';
 
 /**
  * Surface warning for optical design issues
@@ -54,7 +55,7 @@ export class RayTracer {
     surface: false,   // Disabled verbose surface logs
     ray: false,       // Disabled ray logs
     simplified: false, // Disabled simplified ray tracing logs
-    intersection: false, // Disabled verbose intersection calculations
+    intersection: true, // ✅ ENABLED - Shows wavelength-dependent refractive indices!
   };
   static log(category: 'general'|'surface'|'ray'|'simplified'|'intersection', ...args: any[]) {
     if (this.logConfig[category]) {
@@ -1370,15 +1371,43 @@ export class RayTracer {
    * Calculate refracted ray using Snell's law with surface n1/n2 properties
    * Uses local normal at the exact intersection point
    * Following EUREKA interact_vhnrs methodology
+   * Supports both numeric n1/n2 and glass catalog materials
    */
   private static calculateRefraction(
     ray: Ray, 
     intersection: RayIntersection, 
     surface: OpticalSurface
   ): Ray | null {
-    // Get refractive indices from surface properties
-    const n1 = surface.n1 || 1.0; // Incident medium
-    const n2 = surface.n2 || 1.0; // Transmitted medium
+    // Get refractive indices using pre-computed wavelength tables for O(1) performance
+    let n1: number, n2: number;
+    
+    // First try to use pre-computed wavelength tables (optimal performance)
+    if (surface.n1_wavelength_table && surface.n1_wavelength_table.has(ray.wavelength)) {
+      n1 = surface.n1_wavelength_table.get(ray.wavelength)!;
+      n2 = surface.n2_wavelength_table?.get(ray.wavelength) || 1.0;
+      
+      // RayTracer.log('intersection', `  ⚡ Using pre-computed: n1=${n1.toFixed(4)}, n2=${n2.toFixed(4)} @ ${ray.wavelength}nm`);
+    } else {
+      // Fallback to real-time material parsing (slower but always works)
+      try {
+        n1 = MaterialParser.parseN1(surface, ray.wavelength);
+        n2 = MaterialParser.parseN2(surface, ray.wavelength);
+        
+        RayTracer.log('intersection', `  🔍 Real-time lookup: n1=${n1.toFixed(4)}, n2=${n2.toFixed(4)} @ ${ray.wavelength}nm`);
+      } catch (error) {
+        // Final fallback to legacy behavior for compatibility
+        n1 = surface.n1 || 1.0; // Incident medium
+        n2 = surface.n2 || 1.0; // Transmitted medium
+        
+        // Log material parsing issues for user feedback
+        if ((surface as any).n1_material || (surface as any).n2_material) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          console.warn(`⚠️  Material parsing error: ${errorMessage}. Using fallback n1=${n1}, n2=${n2}`);
+        }
+        
+        RayTracer.log('intersection', `  📋 Legacy fallback: n1=${n1.toFixed(4)}, n2=${n2.toFixed(4)}`);
+      }
+    }
     
     const incident = ray.direction.normalize();
     let localNormal = intersection.normal.normalize(); // Local normal at hit point
@@ -1413,8 +1442,8 @@ export class RayTracer {
     const refracted = incident.multiply(snellRatio)
       .add(localNormal.multiply(snellRatio * cosIncident - cosRefracted));
     
-    // console.log(`🔍 Refraction debug: n1=${n1}, n2=${n2}, snellRatio=${snellRatio.toFixed(6)}`);
-    // console.log(`🔍 Refracted:(${refracted.x.toFixed(6)}, ${refracted.y.toFixed(6)}, ${refracted.z.toFixed(6)})`);
+    // Enhanced logging for wavelength-dependent ray tracing
+    // RayTracer.log('intersection', `  🌈 Refraction [${surface.id || 'unknown'}(sid:${surface.numericalId})]: λ=${ray.wavelength}nm, n1=${n1.toFixed(6)}, n2=${n2.toFixed(6)}, ratio=${snellRatio.toFixed(6)}`);
     
     return new Ray(
       intersection.point,

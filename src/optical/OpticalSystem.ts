@@ -9,6 +9,7 @@ import * as Surfaces from './surfaces';
 import { LightSource as LightSourceClass, LightSourceFactory } from './LightSource';
 import { RayTracer } from './RayTracer';
 import type { Ray } from './LightSource';
+import { GlassCatalog, MaterialParser } from './materials/GlassCatalog';
 import * as yaml from 'js-yaml';
 
 /**
@@ -58,10 +59,10 @@ export class OpticalSystemParser {
   /**
    * Parse a complete optical system from YAML string
    */
-  static parseYAML(yamlContent: string): OpticalSystem {
+  static async parseYAML(yamlContent: string): Promise<OpticalSystem> {
     try {
       const data = yaml.load(yamlContent) as any;
-      return OpticalSystemParser.parseData(data);
+      return await OpticalSystemParser.parseData(data);
     } catch (error) {
       throw new Error(`Failed to parse YAML: ${error}`);
     }
@@ -70,7 +71,7 @@ export class OpticalSystemParser {
   /**
    * Parse optical system from parsed YAML data
    */
-  static parseData(data: any): OpticalSystem {
+  static async parseData(data: any): Promise<OpticalSystem> {
     const system: OpticalSystem = {
       name: data.name || 'Untitled System',
       surfaces: [],
@@ -330,6 +331,10 @@ export class OpticalSystemParser {
       // Skip 'light' type elements as they don't create surfaces
     }
 
+    // 🚀 PHASE 2: Pre-compute wavelength-dependent refractive indices for performance
+    console.log(`🔬 Pre-computing wavelength-dependent refractive indices...`);
+    await OpticalSystemParser.precomputeWavelengthTables(system);
+
     return system;
   }
 
@@ -452,5 +457,86 @@ export class OpticalSystemParser {
     });
     
     return results;
+  }
+
+  /**
+   * 🚀 Pre-compute wavelength-dependent refractive index lookup tables
+   * Called once during system build for optimal runtime performance
+   */
+  static async precomputeWavelengthTables(system: OpticalSystem): Promise<void> {
+    // Ensure glass catalog is loaded before pre-computation
+    if (!GlassCatalog.isLoaded()) {
+      console.log('🔄 Glass catalog not ready - attempting to initialize...');
+      try {
+        await GlassCatalog.initialize();
+        console.log('✅ Glass catalog initialized successfully');
+      } catch (error) {
+        console.warn('⚠️  Glass catalog failed to load - proceeding with numeric values only');
+        console.warn('⚠️  Error:', error);
+      }
+    }
+
+    // Extract all unique wavelengths from light sources
+    const wavelengths = new Set<number>();
+    system.lightSources.forEach(source => {
+      const wavelength = (source as any).wavelength;
+      if (wavelength && typeof wavelength === 'number') {
+        wavelengths.add(wavelength);
+      }
+    });
+
+    console.log(`📊 Found ${wavelengths.size} unique wavelengths: [${Array.from(wavelengths).join(', ')}]nm`);
+
+    if (wavelengths.size === 0) {
+      console.log('📊 No wavelengths found - skipping pre-computation');
+      return;
+    }
+
+    // Pre-compute refractive indices for each surface
+    let materialLookups = 0;
+    let numericFallbacks = 0;
+    
+    system.surfaces.forEach((surface) => {
+      // Initialize wavelength tables
+      surface.n1_wavelength_table = new Map();
+      surface.n2_wavelength_table = new Map();
+
+      wavelengths.forEach(wavelength => {
+        // Pre-compute n1 for this wavelength
+        try {
+          const n1 = MaterialParser.parseN1(surface, wavelength);
+          surface.n1_wavelength_table!.set(wavelength, n1);
+          if ((surface as any).n1_material) {
+            materialLookups++;
+          } else {
+            numericFallbacks++;
+          }
+        } catch (error) {
+          // Fallback to legacy n1 or 1.0
+          const fallbackN1 = surface.n1 || 1.0;
+          surface.n1_wavelength_table!.set(wavelength, fallbackN1);
+          numericFallbacks++;
+        }
+
+        // Pre-compute n2 for this wavelength  
+        try {
+          const n2 = MaterialParser.parseN2(surface, wavelength);
+          surface.n2_wavelength_table!.set(wavelength, n2);
+          if ((surface as any).n2_material) {
+            materialLookups++;
+          } else {
+            numericFallbacks++;
+          }
+        } catch (error) {
+          // Fallback to legacy n2 or 1.0
+          const fallbackN2 = surface.n2 || 1.0;
+          surface.n2_wavelength_table!.set(wavelength, fallbackN2);
+          numericFallbacks++;
+        }
+      });
+    });
+
+    console.log(`✅ Pre-computed ${materialLookups} glass catalog lookups, ${numericFallbacks} numeric fallbacks`);
+    console.log(`🏆 Wavelength tables ready - O(1) runtime material access!`);
   }
 }

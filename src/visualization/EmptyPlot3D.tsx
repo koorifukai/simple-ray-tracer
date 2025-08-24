@@ -71,7 +71,7 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
             // console.log('🚀 EmptyPlot3D: Starting YAML parsing...');
             // console.log('YAML content length:', yamlContent.length);
             // console.log('YAML preview:', yamlContent.substring(0, 200) + '...');
-            opticalSystem = OpticalSystemParser.parseYAML(yamlContent);
+            opticalSystem = await OpticalSystemParser.parseYAML(yamlContent);
             // console.log('✅ EmptyPlot3D: Parsed optical system successfully:', opticalSystem);
             // console.log('Number of surfaces created:', opticalSystem.surfaces.length);
           } catch (error) {

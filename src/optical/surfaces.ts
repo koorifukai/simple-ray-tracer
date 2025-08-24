@@ -48,8 +48,14 @@ export interface OpticalSurface {
   width?: number;         // Width for rectangular apertures
   
   // Optical properties
-  n1?: number;           // Refractive index before surface
-  n2?: number;           // Refractive index after surface
+  n1?: number;           // Refractive index before surface (backward compatibility)
+  n2?: number;           // Refractive index after surface (backward compatibility)
+  n1_material?: string;  // Glass catalog material name for n1 (e.g., "BK7", "air")
+  n2_material?: string;  // Glass catalog material name for n2 (e.g., "F2", "air")
+  
+  // Pre-computed wavelength-dependent refractive indices (for performance)
+  n1_wavelength_table?: Map<number, number>; // wavelength → n1 lookup
+  n2_wavelength_table?: Map<number, number>; // wavelength → n2 lookup
   
   // Partial surface properties (for mode: 'partial')
   transmission?: number; // Transmission coefficient (0-1) for partial surfaces
@@ -120,6 +126,14 @@ export class OpticalSurfaceFactory {
     }
     if (surfaceData.n2 !== undefined) {
       surface.n2 = surfaceData.n2;
+    }
+    
+    // Glass catalog material properties
+    if (surfaceData.n1_material !== undefined) {
+      surface.n1_material = surfaceData.n1_material;
+    }
+    if (surfaceData.n2_material !== undefined) {
+      surface.n2_material = surfaceData.n2_material;
     }
     
     // Partial surface properties
@@ -379,6 +393,8 @@ export class OpticalSurfaceFactory {
         width: surfaceData.width,
         n1: surfaceData.n1,
         n2: surfaceData.n2,
+        n1_material: surfaceData.n1_material,
+        n2_material: surfaceData.n2_material,
         transform: localTransform,
         forwardTransform: new Matrix4().identity(), // Will be computed later
         inverseTransform: new Matrix4().identity(), // Will be computed later

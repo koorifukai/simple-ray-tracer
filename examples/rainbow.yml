@@ -1,0 +1,45 @@
+display_settings:
+  show_grid: True
+  density_for_intensity: True
+surfaces:
+  - s1:
+      {sid: 0, shape: plano, height: 100, width: 50, mode: absorption}
+    
+assemblies:
+  - aid: 0
+    #Triangular
+    s1:
+      {relative: 0, shape: plano, height: 30, width: 90, angles: [0,30], mode: refraction, n2_material: N-SF11}
+    s2:
+      {relative: 15, shape: plano, height: 30, width: 90, angles: [0,-30], mode: refraction, n1_material: N-SF11}
+    s3:
+      {relative: [-7.5,0,-13], shape: plano, height: 30, width: 90, angles: [0,90], mode: refraction, n1_material: N-SF11}
+    
+light_sources:
+  - b:
+      {lid: 0, position: [-10,0,0], vector: [1,0,0], number: 1, wavelength: 488, type: linear, param: 3}
+    g:
+      {lid: 1, position: [-10,1,0], vector: [1,0,0], number: 1, wavelength: 533, type: linear, param: 3}
+    r:
+      {lid: 2, position: [-10,-1,0], vector: [1,0,0], number: 1, wavelength: 633, type: linear, param: 3}
+  
+optical_trains:
+  - b: 
+     {lid: 0}
+    g: 
+     {lid: 1}
+    r: 
+     {lid: 2}
+    p:
+     {aid: 0, position: [20,0,0], angles: [0,40], dial: 0}
+    s:
+     {sid: 0, position: [50,0,-30], angles: [0,0], dial: 0}
+optimization_settings:
+  iterations: 100
+  V1: [-1,-0.5,20]
+  V2: [-150,0,5]
+  V3: [3,10,5]
+  obj: -1
+  mode: aberrations
+  #mode: angle
+  param: None
