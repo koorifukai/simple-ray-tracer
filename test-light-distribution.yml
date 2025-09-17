@@ -1,0 +1,16 @@
+light_sources:
+  # Test linear light source with width 10, 10 rays at position (10,10,10)
+  - linear_test:
+      {lid: 0, position: [10,10,10], vector: [1,0,0], number: 10, wavelength: 588, type: linear, param: 10}
+  
+  # Test linear light source with width 0 (all rays at same position)
+  - linear_zero:
+      {lid: 1, position: [20,10,10], vector: [1,0,0], number: 5, wavelength: 488, type: linear, param: 0}
+  
+  # Test ring light source with radius 5
+  - ring_test:
+      {lid: 2, position: [30,10,10], vector: [1,0,0], number: 8, wavelength: 656, type: ring, param: 5}
+  
+  # Test ring light source with radius 0 (all rays at same position)
+  - ring_zero:
+      {lid: 3, position: [40,10,10], vector: [1,0,0], number: 6, wavelength: 546, type: ring, param: 0}

@@ -1562,11 +1562,12 @@ export class RayTracer {
         const alignmentFactor = Math.cos(angleVtoNormal2); // 1.0 for parallel, 0.0 for perpendicular
         const conservativeTheta = baseTheta * alignmentFactor;
         
-        // Use 2-sigma limit (covers 95.4% of Gaussian distribution)
-        theta = conservativeTheta / 2; // Conservative: 2-sigma spread = theta/2 per sigma
+        // Calculate spread per sigma: conservativeTheta contains N-sigma worth of spread
+        const sigmaCount = 3; // How many sigma fit into conservativeTheta (2-sigma = 95.4% coverage)
+        theta = conservativeTheta / sigmaCount; // Spread per sigma for Gaussian distribution
         
         this.log('surface', `  Alignment factor: ${alignmentFactor.toFixed(3)}`);
-        this.log('surface', `  Conservative spread (2-sigma): ${(theta * 180 / Math.PI).toFixed(1)}°`);
+        this.log('surface', `  Conservative spread (${sigmaCount}-sigma coverage): ${(theta * 180 / Math.PI).toFixed(1)}° per sigma`);
         
         if (VDotNormal2 < -0.9) {
           this.log('surface', `  V and Normal2 nearly antiparallel (${VDotNormal2.toFixed(3)}) - maximum spread case with conservative limit`);
