@@ -70,6 +70,16 @@ export class RayTracer {
   
   // Track first ray for simplified logging
   private static firstRayProcessed = new Set<number>();
+  
+  // Surface sequence for diffuse scattering calculations
+  private static surfaceSequence: OpticalSurface[] = [];
+
+  /**
+   * Set the surface sequence for diffuse scattering calculations
+   */
+  static setSurfaceSequence(surfaces: OpticalSurface[]): void {
+    this.surfaceSequence = surfaces;
+  }
 
   /**
    * Clear first ray tracking (call at start of new ray tracing session)
@@ -381,6 +391,9 @@ export class RayTracer {
   static traceRaySequential(ray: Ray, surfaces: OpticalSurface[]): Ray[] {
     // Clear warnings at the start of each ray trace
     this.clearWarnings();
+    
+    // Set surface sequence for diffuse scattering calculations
+    this.setSurfaceSequence(surfaces);
     
     // Record ray tracing for statistics
     const collector = RayIntersectionCollector.getInstance();
@@ -1334,6 +1347,31 @@ export class RayTracer {
           isBlocked: false
         };
       
+      case 'diffuse':
+        // Diffuse scattering: rays scatter toward next surface in sequence
+        // Physics: when ray hits diffuse surface, it scatters with Gaussian distribution
+        // centered around vector connecting diffuse surface to next surface center
+        const diffuseRays = this.calculateDiffuseScattering(ray, intersection, surface);
+        if (diffuseRays && diffuseRays.length > 0) {
+          // CRITICAL: The diffuse ray is already in GLOBAL coordinates!
+          // We need to transform it to LOCAL coordinates for consistency with the pipeline
+          const localDiffuseRay = this.transformRayToLocal(diffuseRays[0], surface);
+          
+          // For single ray mode, return the local diffuse ray (will be transformed back to global)
+          return {
+            ray,
+            intersection,
+            transmitted: localDiffuseRay, // Local coordinates for pipeline consistency
+            isBlocked: false
+          };
+        } else {
+          return {
+            ray,
+            intersection,
+            isBlocked: true // No valid diffuse rays generated
+          };
+        }
+      
       case 'inactive':
       default:
         return {
@@ -1452,5 +1490,225 @@ export class RayTracer {
       ray.lightId,
       ray.intensity
     );
+  }
+
+  /**
+   * Calculate diffuse scattering towards the next surface
+   * Handles surface orientation to determine proper scattering direction
+   * Diffuse surfaces scatter light regardless of n1/n2 values
+   * ALL CALCULATIONS IN GLOBAL COORDINATES
+   */
+  private static calculateDiffuseScattering(
+    ray: Ray, 
+    intersection: RayIntersection, 
+    surface: OpticalSurface
+  ): Ray[] {
+    // Find the next surface in the sequence
+    const nextSurface = this.findNextSurface(surface);
+    if (!nextSurface) {
+      this.log('surface', `No next surface found for diffuse surface ${surface.id} - ray will be absorbed`);
+      return [];
+    }
+
+    // NOTE: intersection.point is LOCAL coordinates, but we need GLOBAL
+    // Transform the local intersection point to global coordinates
+    const globalIntersectionPoint = this.transformPointToGlobal(intersection.point, surface);
+
+    // 1. Calculate vector V connecting this diffuse surface to next surface center
+    // BOTH POINTS NOW IN GLOBAL COORDINATES
+    const diffusePoint = globalIntersectionPoint;
+    const nextSurfaceCenter = nextSurface.position;
+    const V = nextSurfaceCenter.subtract(diffusePoint);
+    const distance = V.length();
+    const VNormalized = V.normalize();
+    
+    // Get surface normals (both already in global coordinates)
+    const normal2 = nextSurface.normal || new Vector3(-1, 0, 0);
+    
+    // 2. Check if rays will likely interact with next surface (for info only)
+    const VDotNormal2 = VNormalized.dot(normal2);
+    
+    this.log('surface', `Diffuse scattering analysis for ${surface.id} → ${nextSurface.id} (GLOBAL coords):`);
+    this.log('surface', `  Global intersection: [${diffusePoint.x.toFixed(3)}, ${diffusePoint.y.toFixed(3)}, ${diffusePoint.z.toFixed(3)}]`);
+    this.log('surface', `  V vector: [${VNormalized.x.toFixed(3)}, ${VNormalized.y.toFixed(3)}, ${VNormalized.z.toFixed(3)}]`);
+    this.log('surface', `  Normal2: [${normal2.x.toFixed(3)}, ${normal2.y.toFixed(3)}, ${normal2.z.toFixed(3)}]`);
+    this.log('surface', `  V · Normal2: ${VDotNormal2.toFixed(3)} (${VDotNormal2 > 0 ? 'rays may not interact' : 'rays will likely interact'})`);
+    
+    // Always allow scattering toward next surface - let the next surface decide interaction
+    const scatterDirection = VNormalized;
+    
+    // 3. Calculate angular spread based on next surface aperture - CONSERVATIVE approach
+    let theta = 0;
+    if (nextSurface.semidia || nextSurface.height || nextSurface.width) {
+      // Take MINIMUM aperture dimension for conservative spread
+      const minAperture = Math.min(
+        nextSurface.semidia || Infinity,
+        (nextSurface.height || Infinity) / 2,
+        (nextSurface.width || Infinity) / 2
+      );
+      
+      if (minAperture > 0 && minAperture !== Infinity && distance > 0) {
+        // Base angular view from minimum aperture
+        let baseTheta = Math.atan(minAperture / distance);
+        
+        // Check angle between V and next surface normal to further limit spread
+        const VDotNormal2 = VNormalized.dot(normal2);
+        const angleVtoNormal2 = Math.acos(Math.abs(VDotNormal2)); // Always positive angle
+        
+        this.log('surface', `  Base angular view: ${(baseTheta * 180 / Math.PI).toFixed(1)}° (min_aperture=${minAperture.toFixed(1)}, distance=${distance.toFixed(1)})`);
+        this.log('surface', `  Angle between V and Normal2: ${(angleVtoNormal2 * 180 / Math.PI).toFixed(1)}°`);
+        
+        // Further shrink based on surface alignment - more conservative if surfaces are misaligned
+        const alignmentFactor = Math.cos(angleVtoNormal2); // 1.0 for parallel, 0.0 for perpendicular
+        const conservativeTheta = baseTheta * alignmentFactor;
+        
+        // Use 2-sigma limit (covers 95.4% of Gaussian distribution)
+        theta = conservativeTheta / 2; // Conservative: 2-sigma spread = theta/2 per sigma
+        
+        this.log('surface', `  Alignment factor: ${alignmentFactor.toFixed(3)}`);
+        this.log('surface', `  Conservative spread (2-sigma): ${(theta * 180 / Math.PI).toFixed(1)}°`);
+        
+        if (VDotNormal2 < -0.9) {
+          this.log('surface', `  V and Normal2 nearly antiparallel (${VDotNormal2.toFixed(3)}) - maximum spread case with conservative limit`);
+        }
+      } else {
+        theta = Math.PI / 24; // 7.5 degrees conservative default
+        this.log('surface', `  Zero/infinite aperture - using conservative default spread: ${(theta * 180 / Math.PI).toFixed(1)}°`);
+      }
+    } else {
+      // Conservative default angular spread for diffuse scattering
+      theta = Math.PI / 24; // 7.5 degrees 
+      this.log('surface', `  No aperture defined - using conservative diffuse spread: ${(theta * 180 / Math.PI).toFixed(1)}°`);
+    }
+    
+    // 4. Conservative spread - no additional safety factor needed
+    this.log('surface', `  Final conservative scattering cone: ${(theta * 180 / Math.PI).toFixed(1)}°`);
+    
+    // 5. Generate diffuse ray with Gaussian distribution around scatterDirection
+    const diffuseDirection = this.generateGaussianDirection(scatterDirection, theta);
+    
+    // 6. Verify ray is physically reasonable
+    const alignment = diffuseDirection.dot(scatterDirection);
+    if (alignment > 0.1) { // Ray points in roughly correct direction
+      const diffuseRay = new Ray(
+        diffusePoint, // This is now the GLOBAL intersection point
+        diffuseDirection,
+        ray.wavelength,
+        ray.lightId,
+        ray.intensity
+      );
+      
+      this.log('surface', `  ✅ Generated diffuse ray: [${diffuseDirection.x.toFixed(3)}, ${diffuseDirection.y.toFixed(3)}, ${diffuseDirection.z.toFixed(3)}]`);
+      this.log('surface', `  Alignment: ${(Math.acos(alignment) * 180 / Math.PI).toFixed(1)}°`);
+      this.log('surface', `  Ray starts at GLOBAL point: [${diffusePoint.x.toFixed(3)}, ${diffusePoint.y.toFixed(3)}, ${diffusePoint.z.toFixed(3)}]`);
+      
+      return [diffuseRay];
+    } else {
+      this.log('surface', `  ❌ Generated ray misaligned - discarding`);
+      return [];
+    }
+  }
+
+  /**
+   * Generate a direction vector with Gaussian distribution around a center direction
+   * Uses the standard approach: generate in standard coordinates, then transform
+   * @param centerDirection - Center direction vector (should be normalized)
+   * @param spreadAngle - Angular spread (standard deviation) in radians
+   * @returns Normalized direction vector
+   */
+  private static generateGaussianDirection(centerDirection: Vector3, spreadAngle: number): Vector3 {
+    // 1. Generate Gaussian random angles as though V is [1,0,0]
+    const u1 = Math.random();
+    const u2 = Math.random();
+    
+    // Box-Muller transform for Gaussian random numbers
+    const z0 = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+    const z1 = Math.sqrt(-2 * Math.log(u1)) * Math.sin(2 * Math.PI * u2);
+    
+    // Scale by spread angle (limit to reasonable values)
+    const maxAngle = Math.PI / 6; // 30 degrees max deviation
+    const theta = Math.max(-maxAngle, Math.min(maxAngle, z0 * spreadAngle));
+    const phi = Math.max(-maxAngle, Math.min(maxAngle, z1 * spreadAngle));
+    
+    // 2. Create direction vector as though center is [1,0,0]
+    // Small angle rotations in Y and Z from X-axis
+    const standardDirection = new Vector3(
+      Math.cos(theta) * Math.cos(phi),  // X component (mostly 1)
+      Math.sin(theta),                  // Y component (small perturbation)
+      Math.sin(phi)                     // Z component (small perturbation)
+    ).normalize();
+    
+    // 3. Create transformation matrix that converts [1,0,0] to centerDirection
+    const center = centerDirection.normalize();
+    
+    // Handle special case where center is already [1,0,0] or [-1,0,0]
+    if (Math.abs(center.x) > 0.999) {
+      if (center.x > 0) {
+        // Center is already [1,0,0], no transformation needed
+        return standardDirection;
+      } else {
+        // Center is [-1,0,0], flip X
+        return new Vector3(-standardDirection.x, standardDirection.y, standardDirection.z);
+      }
+    }
+    
+    // Find orthogonal basis vectors for transformation
+    let temp = new Vector3(1, 0, 0);
+    if (Math.abs(center.dot(temp)) > 0.9) {
+      temp = new Vector3(0, 1, 0);
+    }
+    
+    // Create orthonormal basis: center, u, v
+    const u = center.cross(temp).normalize();  // Second axis
+    const v = center.cross(u).normalize();     // Third axis
+    
+    // 4. Transform standardDirection using the basis matrix
+    // [center u v] * standardDirection
+    const transformedDirection = center.multiply(standardDirection.x)
+      .add(u.multiply(standardDirection.y))
+      .add(v.multiply(standardDirection.z));
+    
+    return transformedDirection.normalize();
+  }
+
+  /**
+   * Find the next surface in the optical sequence
+   * Returns the surface with the next higher numerical ID
+   */
+  private static findNextSurface(currentSurface: OpticalSurface): OpticalSurface | null {
+    if (!this.surfaceSequence || this.surfaceSequence.length === 0) {
+      this.logSurfaceWarning(
+        currentSurface,
+        'No surface sequence available for diffuse scattering',
+        'physics',
+        'error'
+      );
+      return null;
+    }
+    
+    const currentIndex = this.surfaceSequence.findIndex(s => s.id === currentSurface.id);
+    if (currentIndex === -1) {
+      this.logSurfaceWarning(
+        currentSurface,
+        `Current surface ${currentSurface.id} not found in sequence`,
+        'physics',
+        'error'
+      );
+      return null;
+    }
+    
+    // Return the next surface in the sequence
+    if (currentIndex + 1 < this.surfaceSequence.length) {
+      return this.surfaceSequence[currentIndex + 1];
+    }
+    
+    // No next surface available
+    this.logSurfaceWarning(
+      currentSurface,
+      `No next surface available after ${currentSurface.id} for diffuse scattering`,
+      'physics',
+      'warning'
+    );
+    return null;
   }
 }
