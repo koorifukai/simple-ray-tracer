@@ -2,10 +2,9 @@
 
 A TypeScript/React optical design application for **optical engineering ray tracing** (lens design, optical systems). This tool implements classical ray tracing methodology for professional optical design workflows.
 
-
 ---
 
-## Chapter 1: Quick Start
+## Chapter 0: Prerequisites & Setup
 
 ### 🌐 **Try Online (Recommended)**
 Visit the live application: **[simple-ray-tracer.github.io](https://simple-ray-tracer.github.io)**
@@ -27,6 +26,40 @@ npm run start:node   # Uses run.mjs for interactive menu
 npm run dev          # Start development server at http://localhost:5174
 npm run test         # Run ground truth validation tests from console
 ```
+
+### 📋 **System Requirements**
+- **Node.js** v16 or higher
+- **Modern web browser** with WebGL support (Chrome, Firefox, Edge, Safari)
+
+---
+
+## Chapter 1: User Interface Overview
+
+![GUI Introduction](examples/GUI%20intro.png)
+
+The application has four main components: **Menu Bar** (top), **YAML Editor** (left), **3D Visualization** (right), and **Secondary Panel** (bottom-left, optional).
+
+### Menu Bar
+**From left to right:**
+- **Import/Export YAML** - Load and save optical system files (system configuration stored in YAML format, text-editable)
+- **Secondary** dropdown - Selects analysis panel type (None, System Overview, Spot Diagram, Ray Hit Map, Tabular Display, Convergence History)
+- **Optimize Vs** - Runs optimization (when optimization target Vs are present in YAML script)
+**Right side:**
+- **Auto Refresh toggle** - Update 3D visualization in real time (resource intensive)
+
+### YAML Editor
+Left panel containing Monaco editor for optical system definition. Provides syntax highlighting, error detection, and real-time validation status display at bottom.
+
+### 3D Visualization  
+Right panel showing interactive Plotly.js 3D rendering of the optical system. Updates automatically (if Auto Refresh ON) or manually (Ctrl+S) based on YAML content.
+### Secondary Panel
+Optional analysis panel in bottom-left (activated via Secondary dropdown):
+- **None** - Collapse secondary panel
+- **System Overview** - Ray tracing statistics (in progress)
+- **Spot Diagram** - Dispersion of each light source on last surface
+- **Ray Hit Map** - Local intersect coordinates for each surface
+- **Tabular Display** - System parameter tables (in progress)
+- **Convergence History** - Optimization history
 
 ---
 
@@ -78,13 +111,7 @@ optical_trains:
 
 ### **Line-by-Line Explanation**
 
-#### **Display Settings Section**
-```yaml
-display_settings:
-  fill_with_grey: False          # Don't fill surface interiors with grey color
-  show_grid: True                # Show 3D coordinate grid for reference
-```
-Controls the 3D visualization appearance. These settings affect only the visual display, not the ray tracing calculations.
+The optical system is defined as a collection of assemblies and standalone surfaces, in the order of appearance in the optical train. First, assemblies are defined here. You can define an assembly now and rotate/place it later in the optical train section. In an assembly, the surfaces within are defined with relative positioning to the assembly's local coordinate system.
 
 #### **Assemblies Section - Cassegrain Telescope**
 ```yaml
@@ -114,6 +141,19 @@ assemblies:
 - `semidia: 30` - Semi-diameter in mm (aperture radius = 30mm, diameter = 60mm)
 - `mode: reflection` - Mirror surface (reflects light)
 
+In this Cassegrain example, you see how telescope optics are defined. The **relative** term specifies position relative to the previous surface - it can be a single number (X-axis only) or a 3-element list [X,Y,Z] for full 3D positioning. Notice how the secondary mirror (m2) has `relative: -300`, placing it 300mm in front of the primary mirror. Of course, the rays we are interested first interact with primary, then secondary mirror, so we define m1 primary then m2 secondary just like any sequential model, despite the fact that secondary is in the front.
+
+The **normal** of each surface defines which direction the surface faces, assuming the assembly is aligned with the X-axis. In Cassegrain telescopes, the secondary mirror points backwards (`normal: [1,0,0]`) toward the primary mirror to reflect light back through the central hole. You can also use `angles: [azimuth, elevation]` instead of normal vectors.
+
+The **shape** term defines surface geometry - "spherical" creates curved surfaces with specified radius, "plano" creates flat surfaces, with additional options for "aspherical" and "cylindrical" shapes.
+
+The **mode** term sets optical behavior:
+- **partial** - Surface both reflects and transmits light with configurable transmission coefficient (beam splitter)
+- **aperture** - Only rays that intersect with aperture are allowed to pass uninterrupted; those that don't make the cut are blocked from subsequent surfaces
+- **diffuse** - Surface scatters light with random Gaussian distribution toward next surface
+
+*Note: Some parameters use default values when not explicitly stated.*
+
 #### **Assemblies Section - Beam Splitter**
 ```yaml
   - aid: 1                       # Assembly ID 1 for the beam splitter
@@ -128,6 +168,7 @@ assemblies:
 - `height: 30, width: 30` - Surface dimensions 30mm × 30mm
 - `mode: partial` - Partially reflecting surface (beam splitter)
 - `transmission: 0.5` - 50% of light transmits through, 50% reflects
+- `transmission: 0.5` - Fraction of light transmitted (50%), with remainder reflected
 - `n2: 1.5` - Refractive index of glass material
 
 ```yaml
@@ -135,12 +176,10 @@ assemblies:
       {relative: 3, normal: [-1,0,0], shape: plano, height: 30, width: 30, mode: refraction, n1: 1.5}
 ```
 **Beam Splitter Surface 2 (s2) Parameters:**
-- `relative: 3` - Position 3mm behind first surface (glass thickness)
-- `normal: [-1,0,0]` - Surface normal points in -X direction
-- `shape: plano` - Flat surface
-- `height: 30, width: 30` - Surface dimensions 30mm × 30mm
-- `mode: refraction` - Pure refraction (no reflection)
-- `n1: 1.5` - Refractive index of glass (light exiting from glass to air)
+Most parameters are explained above. New parameters:
+- `n1: 1.5` - Refractive index before the boundary (glass side)
+
+**n1 and n2**: Real refractive indices of material before and after the boundary. You can also use `n1_material: SF11` instead of numeric values. n1 and n2 for each surface must be explicitly stated, otherwise they default to 1.
 
 #### **Individual Surfaces Section - Detectors**
 ```yaml
@@ -258,6 +297,10 @@ optical_trains:
 - **`lid: number`** - Light source identifier
 - **Optical trains define the complete light path through the system**
 
+---
+
+## Chapter 3: Additional Tutorials & Advanced Examples
+
 ### **Tutorial 2: Light Sources - Multiple Ray Patterns**
 
 ![Light Sources Tutorial](examples/Lights%20tutorial.png)
@@ -324,7 +367,7 @@ This example demonstrates how `dial` rotation affects the entire assembly orient
 
 ---
 
-## Chapter 3: Technical Summary
+## Chapter 4: Technical Summary
 
 ### **🔬 Core Ray Tracing Engine**
 Implements **classical 1960s optical design methodology** using transform-to-local approach:
@@ -386,7 +429,7 @@ Designed specifically for **optical engineering ray tracing**:
 
 ---
 
-## Chapter 4: Future Roadmap
+## Chapter 5: Future Roadmap
 
 ### **📊 Sequential Design Enhancements**
 **Professional optical design table interface** (similar to ZEMAX/Code V):
