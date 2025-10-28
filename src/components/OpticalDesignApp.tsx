@@ -13,7 +13,8 @@ import * as yaml from 'js-yaml';
 const defaultYaml = `
 # Gaussian 28 example
 display_settings:
-  show_grid: False
+  show_grid: True
+  show_corners: True
   density_for_intensity: True
 assemblies:
   - aid: 0
@@ -112,6 +113,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
   const [isYamlValid, setIsYamlValid] = useState(true);
   const [parsedData, setParsedData] = useState<any>(initialProcessedResult.parsedData);
   const [autoUpdate, setAutoUpdate] = useState(true);
+  const [privacyMode, setPrivacyMode] = useState(false);
   const [lastRayTracedYaml, setLastRayTracedYaml] = useState(initialProcessedResult.processedYaml);
   const [analysisType, setAnalysisType] = useState<'None' | 'System Overview' | 'Spot Diagram' | 'Ray Hit Map' | 'Tabular Display' | 'Convergence History'>('None');
   const [refreshTrigger, setRefreshTrigger] = useState(0); // Used to trigger secondary panel refresh
@@ -436,6 +438,10 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
       }
     }
   }, [autoUpdate, isYamlValid, yamlContent, processYamlForVisualization]);
+
+  const handleTogglePrivacy = useCallback(() => {
+    setPrivacyMode(!privacyMode);
+  }, [privacyMode]);
 
   const handleManualUpdate = useCallback(() => {
     if (isYamlValid) {
@@ -844,9 +850,20 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
           </div>
         </div>
 
-        {/* Auto-update toggle switch - moved to rightmost */}
+        {/* Privacy toggle button */}
         <div className="menubar-right">
-          <div className="auto-update-control">
+          <div className="privacy-control">
+            <button 
+              className={`privacy-button ${privacyMode ? 'active' : ''}`}
+              onClick={handleTogglePrivacy}
+              title="Toggle Privacy Mode (hide sensitive info for screenshots)"
+            >
+              {privacyMode ? 'Show' : 'Hide'}
+            </button>
+          </div>
+
+        {/* Auto-update toggle switch - moved to rightmost */}
+        <div className="auto-update-control">
             <label className="toggle-switch">
               <input
                 type="checkbox"
@@ -876,6 +893,11 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
       <div className="main-content">
         {/* Left Column */}
         <div className="left-column">
+          {/* Privacy Overlay */}
+          {privacyMode && (
+            <div className="privacy-overlay"></div>
+          )}
+          
           {/* YAML Editor Panel */}
           <div className={`yaml-panel ${analysisType !== 'None' ? 'with-analysis' : ''}`}>
             <div className="yaml-editor-container">

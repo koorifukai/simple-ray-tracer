@@ -1061,3 +1061,51 @@ input:checked + .toggle-slider:before {
   font-style: italic;
   opacity: 0.8;
 }
+
+/* Privacy Mode Styles */
+.privacy-control {
+  display: flex;
+  align-items: center;
+  margin-right: 16px;
+}
+
+.privacy-button {
+  background: transparent;
+  border: 2px solid var(--border);
+  color: var(--text-primary);
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.privacy-button:hover {
+  border-color: var(--accent);
+  background: rgba(0, 122, 204, 0.1);
+}
+
+.privacy-button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.privacy-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  z-index: 1000;
+}
+
+/* Make left-column relative so privacy overlay can be positioned absolutely */
+.left-column {
+  position: relative;
+}

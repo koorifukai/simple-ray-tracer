@@ -46,6 +46,7 @@ export interface Material {
  */
 export interface DisplaySettings {
   showGrid?: boolean;
+  showCorners?: boolean;
   densityForIntensity?: boolean;
   rayResolution?: number;
   surfaceResolution?: number;
@@ -86,7 +87,8 @@ export class OpticalSystemParser {
     // Parse display settings
     if (data.display_settings) {
       system.displaySettings = {
-        showGrid: data.display_settings.show_grid,
+        showGrid: data.display_settings.show_grid !== false, // Default to true if not specified
+        showCorners: data.display_settings.show_corners !== false, // Default to true if not specified
         densityForIntensity: data.display_settings.density_for_intensity,
         rayResolution: data.display_settings.ray_resolution || 10,
         surfaceResolution: data.display_settings.surface_resolution || 20
@@ -182,7 +184,8 @@ export class OpticalSystemParser {
     // Parse display settings
     if (data.display_settings) {
       system.displaySettings = {
-        showGrid: data.display_settings.show_grid,
+        showGrid: data.display_settings.show_grid !== false, // Default to true if not specified
+        showCorners: data.display_settings.show_corners !== false, // Default to true if not specified
         densityForIntensity: data.display_settings.density_for_intensity,
         rayResolution: data.display_settings.ray_resolution || 10,
         surfaceResolution: data.display_settings.surface_resolution || 20

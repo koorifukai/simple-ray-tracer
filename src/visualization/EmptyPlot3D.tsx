@@ -204,8 +204,9 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
 
               // Add corner markers for debugging (only for rectangular planar and cylindrical surfaces)
               try {
-                // Only show corner markers for surfaces that have clearly defined corners
-                if (surface.shape === 'cylindrical' || (surface.shape === 'plano' && !surface.semidia)) {
+                // Only show corner markers if enabled in display settings and for surfaces that have clearly defined corners
+                if ((opticalSystem?.displaySettings?.showCorners !== false) && 
+                    (surface.shape === 'cylindrical' || (surface.shape === 'plano' && !surface.semidia))) {
                   // console.log(`Adding corner markers for ${surface.shape} surface ${surface.id}`);
                   
                   let cornerX: number[], cornerY: number[], cornerZ: number[];
@@ -291,7 +292,7 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
                   // console.log(`✅ Added corner markers for surface ${surface.id} to Plotly`);
                   // console.log(`================================================================\n`);
                 } else {
-                  // console.log(`Skipping corner markers for ${surface.shape} surface ${surface.id} (no defined corners)`);
+                  // console.log(`Skipping corner markers for ${surface.shape} surface ${surface.id} (corners disabled or no defined corners)`);
                 }
               } catch (cornerError) {
                 console.warn(`Failed to add corner markers for surface ${surface.id}:`, cornerError);
@@ -592,9 +593,13 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
           // },
           scene: {
             xaxis: { 
-              title: 'X (mm)',
+              title: opticalSystem?.displaySettings?.showGrid !== false ? 'X (mm)' : '', // Hide title when grid is off
               gridcolor: '#606060',
               gridwidth: 2,
+              showgrid: opticalSystem?.displaySettings?.showGrid !== false, // Default to true
+              showline: opticalSystem?.displaySettings?.showGrid !== false, // Hide axis line when grid is off
+              showticklabels: opticalSystem?.displaySettings?.showGrid !== false, // Hide tick labels when grid is off
+              zeroline: opticalSystem?.displaySettings?.showGrid !== false, // Hide zero line when grid is off
               zerolinecolor: '#808080',
               zerolinewidth: 3,
               color: '#b0b0b0',
@@ -602,9 +607,13 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
               range: [unifiedMinX, unifiedMaxX]  // Unified scale
             },
             yaxis: { 
-              title: 'Y (mm)',
+              title: opticalSystem?.displaySettings?.showGrid !== false ? 'Y (mm)' : '', // Hide title when grid is off
               gridcolor: '#606060',
               gridwidth: 2,
+              showgrid: opticalSystem?.displaySettings?.showGrid !== false, // Default to true
+              showline: opticalSystem?.displaySettings?.showGrid !== false, // Hide axis line when grid is off
+              showticklabels: opticalSystem?.displaySettings?.showGrid !== false, // Hide tick labels when grid is off
+              zeroline: opticalSystem?.displaySettings?.showGrid !== false, // Hide zero line when grid is off
               zerolinecolor: '#808080',
               zerolinewidth: 3,
               color: '#b0b0b0',
@@ -612,15 +621,20 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
               range: [unifiedMinY, unifiedMaxY]  // Unified scale
             },
             zaxis: { 
-              title: 'Z (mm)',
+              title: opticalSystem?.displaySettings?.showGrid !== false ? 'Z (mm)' : '', // Hide title when grid is off
               gridcolor: '#606060',
               gridwidth: 2,
+              showgrid: opticalSystem?.displaySettings?.showGrid !== false, // Default to true
+              showline: opticalSystem?.displaySettings?.showGrid !== false, // Hide axis line when grid is off
+              showticklabels: opticalSystem?.displaySettings?.showGrid !== false, // Hide tick labels when grid is off
+              zeroline: opticalSystem?.displaySettings?.showGrid !== false, // Hide zero line when grid is off
               zerolinecolor: '#808080',
               zerolinewidth: 3,
               color: '#b0b0b0',
               showspikes: false,  // Disable axis projections
               range: [unifiedMinZ, unifiedMaxZ]  // Unified scale
             },
+            showaxeslabels: opticalSystem?.displaySettings?.showGrid !== false, // Hide floating X,Y,Z labels when grid is off
             aspectmode: 'cube',  // Force equal aspect ratio on all axes
             bgcolor: '#1a1a1a',
             camera: getCameraState() || {

@@ -7,7 +7,7 @@ A TypeScript/React optical design application for **optical engineering ray trac
 ## Chapter 0: Prerequisites & Setup
 
 ### 🌐 **Try Online (Recommended)**
-Visit the live application: **[simple-ray-tracer.github.io](https://simple-ray-tracer.github.io)**
+Visit the live application: **[https://koorifukai.github.io/simple-ray-tracer/](https://koorifukai.github.io/simple-ray-tracer/)**
 
 ### 💻 **Local Development**
 ```bash
