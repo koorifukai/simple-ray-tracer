@@ -144,13 +144,13 @@ export class GlassCatalog {
     const lines = csvData.split('\n');
     let glassCount = 0;
 
-    // Skip header rows (first 2 lines)  
-    for (let i = 2; i < lines.length; i++) {
+    // Skip header rows (first 3 lines - ignore first row as requested)  
+    for (let i = 3; i < lines.length; i++) {
       const line = lines[i].trim();
       if (!line) continue;
 
       const columns = line.split(',');
-      if (columns.length < 62) continue;
+      if (columns.length < 66) continue;  // Need at least 66 columns for BN (column 65)
 
       try {
         const glassName = columns[1].trim(); // Column 2 in 1-based indexing
@@ -159,18 +159,18 @@ export class GlassCatalog {
         const glass: GlassData = {
           name: glassName,
           manufacturer: 'OHARA', 
-          nd: parseFloat(columns[15]),  // Column 16: nd
-          ne: parseFloat(columns[16]),  // Column 17: ne
-          vd: parseFloat(columns[23]),  // Column 24: vd
-          ve: parseFloat(columns[24]),  // Column 25: ve
+          nd: parseFloat(columns[16]),  // Column 16: nd
+          ne: parseFloat(columns[17]),  // Column 17: ne
+          vd: parseFloat(columns[24]),  // Column 24: vd
+          ve: parseFloat(columns[25]),  // Column 25: ve
           sellmeier: {
-            // Ohara uses standard Sellmeier formula: n² - 1 = {A1 λ²/(λ² - B1)} + {A2 λ²/(λ² - B2)} + {A3 λ²/(λ² - B3)}
-            b1: parseFloat(columns[60]),  // A1
-            b2: parseFloat(columns[61]),  // A2
-            b3: parseFloat(columns[62]),  // A3
-            c1: parseFloat(columns[63]),  // B1
-            c2: parseFloat(columns[64]),  // B2
-            c3: parseFloat(columns[65])   // B3
+            // Ohara Sellmeier coefficients in columns BI-BN (60-65 in 0-based indexing)
+            b1: parseFloat(columns[60]),  // BI: A1
+            b2: parseFloat(columns[61]),  // BJ: A2
+            b3: parseFloat(columns[62]),  // BK: A3
+            c1: parseFloat(columns[63]),  // BL: B1
+            c2: parseFloat(columns[64]),  // BM: B2
+            c3: parseFloat(columns[65])   // BN: B3
           }
         };
 
@@ -238,31 +238,54 @@ export class GlassCatalog {
   private static calculateRefractiveIndex(glass: GlassData, wavelength: number): number {
     const λ = wavelength / 1000; // Convert nm to μm
     
+    console.log(`🔍 Calculating IOR for ${glass.name} (${glass.manufacturer}) at ${wavelength}nm`);
+    console.log(`  λ = ${λ}μm`);
+    
     if (glass.manufacturer === 'SCHOTT') {
       // Schott Sellmeier formula
       const λ2 = λ * λ;
       const { b1, b2, b3, c1, c2, c3 } = glass.sellmeier;
       
-      const n2 = 1 + 
-        (b1 * λ2) / (λ2 - c1) +
-        (b2 * λ2) / (λ2 - c2) +
-        (b3 * λ2) / (λ2 - c3);
-        
-      return Math.sqrt(Math.max(n2, 1.0));
+      console.log(`  SCHOTT Sellmeier coefficients:`, { b1, b2, b3, c1, c2, c3 });
+      
+      const term1 = (b1 * λ2) / (λ2 - c1);
+      const term2 = (b2 * λ2) / (λ2 - c2);
+      const term3 = (b3 * λ2) / (λ2 - c3);
+      
+      console.log(`  Terms: ${term1.toFixed(6)}, ${term2.toFixed(6)}, ${term3.toFixed(6)}`);
+      
+      const n2 = 1 + term1 + term2 + term3;
+      const n = Math.sqrt(Math.max(n2, 1.0));
+      
+      console.log(`  n² = ${n2.toFixed(6)}, n = ${n.toFixed(6)}`);
+      
+      return n;
     } else if (glass.manufacturer === 'OHARA') {
       // Ohara uses same Sellmeier formula as Schott: n² - 1 = {A1 λ²/(λ² - B1)} + {A2 λ²/(λ² - B2)} + {A3 λ²/(λ² - B3)}
       // We store A1,A2,A3 in b1,b2,b3 and B1,B2,B3 in c1,c2,c3
       const λ2 = λ * λ;
       const { b1, b2, b3, c1, c2, c3 } = glass.sellmeier;
       
-      const n2 = 1 + 
-        (b1 * λ2) / (λ2 - c1) +
-        (b2 * λ2) / (λ2 - c2) +
-        (b3 * λ2) / (λ2 - c3);
-        
-      return Math.sqrt(Math.max(n2, 1.0));
+      console.log(`  OHARA Sellmeier coefficients:`, { 
+        A1: b1, A2: b2, A3: b3, 
+        B1: c1, B2: c2, B3: c3 
+      });
+      
+      const term1 = (b1 * λ2) / (λ2 - c1);
+      const term2 = (b2 * λ2) / (λ2 - c2);
+      const term3 = (b3 * λ2) / (λ2 - c3);
+      
+      console.log(`  Terms: ${term1.toFixed(6)}, ${term2.toFixed(6)}, ${term3.toFixed(6)}`);
+      
+      const n2 = 1 + term1 + term2 + term3;
+      const n = Math.sqrt(Math.max(n2, 1.0));
+      
+      console.log(`  n² = ${n2.toFixed(6)}, n = ${n.toFixed(6)}`);
+      
+      return n;
     } else {
       // Fallback to nd line value
+      console.log(`  Using fallback nd value: ${glass.nd}`);
       return glass.nd;
     }
   }

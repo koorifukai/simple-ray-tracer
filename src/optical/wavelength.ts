@@ -52,10 +52,10 @@ export function wavelengthToRGB(wavelength: number, gamma: number = 0.8): RGB {
     g = 0.0;
     b = 0.0;
   } else {
-    // Outside visible spectrum
-    r = 0.0;
-    g = 0.0;
-    b = 0.0;
+    // Outside visible spectrum - show as white for visualization of invisible rays (UV/IR)
+    r = 1.0;
+    g = 1.0;
+    b = 1.0;
   }
 
   return { r, g, b };
