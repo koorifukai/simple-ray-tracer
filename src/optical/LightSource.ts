@@ -348,29 +348,72 @@ export class LightSource {
   /**
    * Generate point source with divergence (equivalent to Python point())
    * Creates divergent rays from a single point in local coordinate system
+   * @param divergence Cone angle in radians
+   * @param aspectRatio Cone ellipticity (>1 = wider in Y, <1 = wider in Z, 0 = 2D fan in XZ plane)
+   * @param dial Rotation around X-axis in degrees
    */
-  point(divergence: number = 0): void {
+  point(divergence: number = 0, aspectRatio: number = 1, dial: number = 0): void {
     this.sourceType = 'point';
     this.divergence = divergence;
     this.rays = [];
 
     const rayData: { position: Vector3, direction: Vector3 }[] = [];
 
-    if (divergence > 0) {
-      // Generate exactly numberOfRays directions within cone
+    if (aspectRatio === 0) {
+      // Special case: 2D fan in XZ plane with angle = 2 * divergence
+      const totalAngle = 2 * divergence;
+      const halfAngle = totalAngle / 2;
+      const dialRad = (dial * Math.PI) / 180;
+      
+      for (let i = 0; i < this.numberOfRays; i++) {
+        // Evenly distribute rays across the fan angle
+        const angle = this.numberOfRays > 1 
+          ? -halfAngle + (i / (this.numberOfRays - 1)) * totalAngle
+          : 0;
+          
+        // Create ray in XZ plane (Y = 0)
+        let localX = Math.cos(angle);
+        let localY = 0; // Always 0 for XZ plane fan
+        let localZ = Math.sin(angle);
+        
+        // Apply dial rotation in Y-Z plane (even though Y starts at 0, rotation can create Y component)
+        const rotY = localY * Math.cos(dialRad) - localZ * Math.sin(dialRad);
+        const rotZ = localY * Math.sin(dialRad) + localZ * Math.cos(dialRad);
+        
+        rayData.push({ 
+          position: new Vector3(0, 0, 0),
+          direction: new Vector3(localX, rotY, rotZ) 
+        });
+      }
+    } else if (divergence > 0) {
+      // 3D cone with aspect ratio
+      // Calculate ellipse parameters (same logic as ring light)
+      let w = 1, h = 1; // w = Y scaling, h = Z scaling
+      if (aspectRatio > 1) {
+        h = h / aspectRatio; // Squeeze Z dimension
+      } else if (aspectRatio < 1) {
+        w *= aspectRatio;    // Squeeze Y dimension
+      }
+      
+      const dialRad = (dial * Math.PI) / 180;
+      
       for (let i = 0; i < this.numberOfRays; i++) {
         // Generate random direction within cone using spherical coordinates
         const theta = this.rng.random() * 2 * Math.PI; // Azimuthal angle
         const phi = Math.acos(1 - this.rng.random() * (1 - Math.cos(divergence))); // Polar angle within cone
         
-        // Local coordinate system: X = forward (main direction), Y = right, Z = up
+        // Local coordinate system: X = forward, Y = right, Z = up
         const localX = Math.cos(phi); // Forward component
-        const localY = Math.sin(phi) * Math.cos(theta); // Right component  
-        const localZ = Math.sin(phi) * Math.sin(theta); // Up component
+        let localY = Math.sin(phi) * Math.cos(theta) * w; // Right component with Y scaling
+        let localZ = Math.sin(phi) * Math.sin(theta) * h; // Up component with Z scaling
+        
+        // Apply dial rotation in Y-Z plane
+        const rotY = localY * Math.cos(dialRad) - localZ * Math.sin(dialRad);
+        const rotZ = localY * Math.sin(dialRad) + localZ * Math.cos(dialRad);
         
         rayData.push({ 
-          position: new Vector3(0, 0, 0), // All rays start from origin in local space
-          direction: new Vector3(localX, localY, localZ) 
+          position: new Vector3(0, 0, 0),
+          direction: new Vector3(localX, rotY, rotZ) 
         });
       }
     } else {
@@ -500,9 +543,9 @@ export class LightSourceFactory {
     } else {
       // Use vector direction (existing behavior)
       direction = new Vector3(
-        sourceData.vector?.[0] || 1,
-        sourceData.vector?.[1] || 0,
-        sourceData.vector?.[2] || 0
+        sourceData.vector?.[0] !== undefined ? sourceData.vector[0] : 1,
+        sourceData.vector?.[1] !== undefined ? sourceData.vector[1] : 0,
+        sourceData.vector?.[2] !== undefined ? sourceData.vector[2] : 0
       ).normalize();
     }
 
@@ -554,10 +597,12 @@ export class LightSourceFactory {
       case 'point':
         {
           if (param === null || param === undefined) {
-            light.point(); // No divergence
+            light.point(); // No divergence, circular, no dial
           } else {
-            const divergenceRadians = param?.[0] || 0; // Already in radians from Python
-            light.point(divergenceRadians); // No conversion needed
+            const divergenceRadians = param?.[0] !== undefined ? param[0] : 0; // Already in radians from Python
+            const aspectRatio = param?.[1] !== undefined ? param[1] : 1;  // 1 = circular, >1 = wider in Y, <1 = wider in Z, 0 = 2D fan
+            const dial = param?.[2] !== undefined ? param[2] : 0;  // deg_cw (clockwise degrees)
+            light.point(divergenceRadians, aspectRatio, dial);
           }
         }
         break;
