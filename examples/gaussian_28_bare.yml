@@ -1,0 +1,24 @@
+assemblies:
+  - aid: 0
+    s1: 
+      {relative: 0, shape: spherical, radius: 54.153, semidia: 29.225, mode: refraction, n2_material: N-SK2}
+    s2:
+      {relative: 8.747, shape: spherical, radius: 152.522,  semidia: 28.141,  mode: refraction, n1_material: N-SK2}
+    s3:
+      {relative: 0.5, shape: spherical, radius: 35.951,  semidia: 24.296,  mode: refraction, n2_material: N-SK16}
+    s4:
+      {relative: 14, shape: plano, semidia: 21.297,  mode: refraction, n1_material: N-SK16, n2_material: F5}
+    s5:
+      {relative: 3.777, shape: spherical, radius: 22.27,  semidia: 14.919,  mode: refraction, n1_material: F5}
+    s6: #stop
+      {relative: 14.253, shape: plano, semidia: 10.229,  mode: aperture}
+    s7:
+      {relative: 12.428, shape: spherical, radius: -25.685, semidia: 13.188,  mode: refraction, n2_material: F5}
+    s8:
+      {relative: 3.777, shape: plano, semidia: 16.468,  mode: refraction, n1_material: F5, n2_material: N-SK16}
+    s9:
+      {relative: 10.834, shape: spherical, radius: -36.98,  semidia: 18.893,  mode: refraction, n1_material: N-SK16}
+    s10:
+      {relative: 0.5, shape: spherical, radius: 196.417,  semidia: 21.311,  mode: refraction, n2_material: N-SK16}
+    s11:
+      {relative: 6.858, shape: spherical, radius: -67.148, semidia: 21.646,  mode: refraction, n1_material: N-SK16}
