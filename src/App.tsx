@@ -14,6 +14,12 @@ function App() {
         setCatalogsLoaded(true);
         const stats = GlassCatalog.getStats();
         console.log(`✓ Glass catalogs loaded: ${stats.total} glasses (${stats.schott} Schott, ${stats.ohara} Ohara)`);
+        
+        // Make test function available in browser console for debugging
+        (window as any).testMaterials = () => GlassCatalog.testMaterialLookup();
+        (window as any).GlassCatalog = GlassCatalog;
+        (window as any).forceReloadCatalog = () => GlassCatalog.forceReload();
+        console.log('🧪 Debug functions available in console: testMaterials(), GlassCatalog, forceReloadCatalog()');
       })
       .catch((error) => {
         console.warn('⚠️  Running without glass catalogs:', error);

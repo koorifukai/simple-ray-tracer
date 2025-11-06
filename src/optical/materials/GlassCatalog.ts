@@ -52,12 +52,24 @@ export class GlassCatalog {
    * Called once per application session
    */
   static async initialize(): Promise<void> {
-    if (this.catalogsLoaded) return;
-    if (this.loadPromise) return this.loadPromise;
+    console.log('🔄 Initializing glass catalog...');
+    
+    if (this.catalogsLoaded) {
+      console.log('✅ Glass catalog already loaded');
+      return;
+    }
+    if (this.loadPromise) {
+      console.log('⏳ Glass catalog loading in progress...');
+      return this.loadPromise;
+    }
 
     this.loadPromise = this.loadCatalogs();
     await this.loadPromise;
     this.catalogsLoaded = true;
+    
+    const stats = this.getStats();
+    console.log(`✅ Glass catalog initialization complete. Total materials: ${stats.total}`);
+    console.log(`   SCHOTT: ${stats.schott} materials, OHARA: ${stats.ohara} materials`);
   }
 
   /**
@@ -65,17 +77,37 @@ export class GlassCatalog {
    */
   private static async loadCatalogs(): Promise<void> {
     try {
-      console.log('Loading glass catalogs...');
+      console.log('🔄 Loading glass catalogs from CSV files...');
       
-      // Load catalogs in parallel
+      // Load catalogs in parallel with cache busting
+      const cacheBuster = `?v=${Date.now()}`;
       const [schottData, oharaData] = await Promise.all([
-        fetch('/simple-ray-tracer/data/glass_catalogs/schott-optical-glass-20250521.csv').then(r => r.text()),
-        fetch('/simple-ray-tracer/data/glass_catalogs/OHARA_20250312_5.csv').then(r => r.text())
+        fetch(`/simple-ray-tracer/data/glass_catalogs/schott-optical-glass-20250521.csv${cacheBuster}`).then(r => r.text()),
+        fetch(`/simple-ray-tracer/data/glass_catalogs/OHARA_20250312_5.csv${cacheBuster}`).then(r => r.text())
       ]);
+
+      console.log('📁 CSV files loaded, parsing data...');
+      const initialCount = this.glasses.size;
 
       // Parse each catalog with manufacturer-specific logic
       this.parseSchottCSV(schottData);
+      const schottCount = this.glasses.size - initialCount;
+      
       this.parseOharaCSV(oharaData);
+      const oharaCount = this.glasses.size - initialCount - schottCount;
+      
+      console.log(`✅ Successfully loaded ${this.glasses.size} glass types`);
+      console.log(`   SCHOTT: ${schottCount} materials`);
+      console.log(`   OHARA: ${oharaCount} materials`);
+      
+      // Log some examples for verification
+      const examples = Array.from(this.glasses.keys()).slice(0, 5);
+      console.log(`   Sample materials: ${examples.join(', ')}`);
+      
+      // Check for our manually added materials
+      const fluoriteFound = this.glasses.has('FLUORITE');
+      const silicaFound = this.glasses.has('SILICA');
+      console.log(`   Manual additions - Fluorite: ${fluoriteFound ? '✅ found' : '❌ missing'}, Silica: ${silicaFound ? '✅ found' : '❌ missing'}`);
       
       console.log(`✓ Loaded ${this.glasses.size} glass types from Schott and Ohara catalogs`);
     } catch (error) {
@@ -178,6 +210,23 @@ export class GlassCatalog {
         if (this.isValidGlassData(glass)) {
           this.glasses.set(glassName.toUpperCase(), glass);
           glassCount++;
+          
+          // Special logging for our manually added materials
+          if (glassName.toLowerCase() === 'fluorite' || glassName.toLowerCase() === 'silica') {
+            console.log(`✅ Successfully loaded ${glassName}: nd=${glass.nd}, vd=${glass.vd}, Sellmeier B1=${glass.sellmeier.b1}`);
+          }
+        } else {
+          // Log validation failures for our special materials
+          if (glassName.toLowerCase() === 'fluorite' || glassName.toLowerCase() === 'silica') {
+            console.log(`❌ Validation failed for ${glassName}:`, {
+              name: glass.name,
+              nd: glass.nd,
+              ne: glass.ne, 
+              vd: glass.vd,
+              ve: glass.ve,
+              sellmeier_b1: glass.sellmeier.b1
+            });
+          }
         }
       } catch (error) {
         // Skip invalid rows silently
@@ -210,23 +259,49 @@ export class GlassCatalog {
     material: string | number, 
     wavelength: number = 587.6  // Default to d-line
   ): number {
+    console.log(`🔍 Refractive index lookup: material="${material}", wavelength=${wavelength}nm`);
+    
     // Backward compatibility: if it's already a number, return it
     if (typeof material === 'number') {
+      console.log(`✅ Material is numeric: returning ${material}`);
       return material;
     }
 
     // Handle special cases
-    if (material.toLowerCase() === 'air') return 1.0;
-    if (material.toLowerCase() === 'vacuum') return 1.0;
+    if (material.toLowerCase() === 'air') {
+      console.log(`✅ Special case: air -> n=1.0`);
+      return 1.0;
+    }
+    if (material.toLowerCase() === 'vacuum') {
+      console.log(`✅ Special case: vacuum -> n=1.0`);
+      return 1.0;
+    }
 
     // Try to find in catalog
+    console.log(`🔍 Searching catalog for material: "${material}"`);
     const glass = this.glasses.get(material.toUpperCase());
     if (glass) {
-      return this.calculateRefractiveIndex(glass, wavelength);
+      console.log(`✅ Material found in catalog: ${glass.name} (${glass.manufacturer})`);
+      const refractiveIndex = this.calculateRefractiveIndex(glass, wavelength);
+      console.log(`✅ Calculated refractive index: ${refractiveIndex.toFixed(6)}`);
+      return refractiveIndex;
+    }
+
+    // If not found, provide detailed error logging
+    console.log(`❌ Material "${material}" not found in catalog`);
+    console.log(`   Catalog status: ${this.catalogsLoaded ? 'loaded' : 'not loaded'}`);
+    console.log(`   Total materials in catalog: ${this.glasses.size}`);
+    
+    // Try to find similar materials
+    const searchName = material.toUpperCase();
+    const similarMaterials = this.findSimilarGlasses(searchName);
+    if (similarMaterials.length > 0) {
+      console.log(`   Similar materials found: ${similarMaterials.slice(0, 5).join(', ')}`);
     }
 
     // If not found, throw descriptive error with suggestions
     const validation = this.validateMaterial(material);
+    console.log(`❌ Error: ${validation.message}`);
     throw new Error(`❌ ${validation.message}`);
   }
 
@@ -408,7 +483,31 @@ export class GlassCatalog {
    * Get glass data by name
    */
   static getGlass(name: string): GlassData | undefined {
-    return this.glasses.get(name.toUpperCase());
+    const searchName = name.toUpperCase();
+    console.log(`🔍 Material lookup: searching for "${name}" (normalized: "${searchName}")`);
+    
+    const result = this.glasses.get(searchName);
+    if (result) {
+      console.log(`✅ Material found: ${result.name} (${result.manufacturer})`);
+      console.log(`   Properties: nd=${result.nd}, vd=${result.vd}, ne=${result.ne}, ve=${result.ve}`);
+    } else {
+      console.log(`❌ Material not found: "${name}"`);
+      console.log(`   Available materials count: ${this.glasses.size}`);
+      
+      // Find similar materials for suggestions
+      const similarMaterials = this.findSimilarGlasses(searchName);
+      if (similarMaterials.length > 0) {
+        console.log(`   Similar materials found: ${similarMaterials.slice(0, 5).join(', ')}`);
+      } else {
+        console.log(`   No similar materials found`);
+      }
+      
+      // Show some available materials for reference
+      const availableNames = Array.from(this.glasses.keys()).slice(0, 10);
+      console.log(`   Sample available materials: ${availableNames.join(', ')}...`);
+    }
+    
+    return result;
   }
 
   /**
@@ -429,6 +528,49 @@ export class GlassCatalog {
       ohara: allGlasses.filter(g => g.manufacturer === 'OHARA').length
     };
   }
+
+  /**
+   * Force reload the catalogs (useful for debugging)
+   */
+  static async forceReload(): Promise<void> {
+    console.log('🔄 Force reloading glass catalogs...');
+    this.catalogsLoaded = false;
+    this.loadPromise = null;
+    this.glasses.clear();
+    await this.initialize();
+  }
+
+  /**
+   * Test material lookup functionality
+   * Useful for debugging in the browser console
+   */
+  static testMaterialLookup(materials: string[] = ['Fluorite', 'Silica', 'BK7', 'SF11']): void {
+    console.log('🧪 Testing material lookup functionality...');
+    console.log(`   Catalog loaded: ${this.catalogsLoaded}`);
+    console.log(`   Total materials: ${this.glasses.size}`);
+    
+    for (const material of materials) {
+      console.log(`\n🔍 Testing material: "${material}"`);
+      try {
+        const glass = this.getGlass(material);
+        if (glass) {
+          console.log(`✅ Found: ${glass.name} (${glass.manufacturer}), nd=${glass.nd}, vd=${glass.vd}`);
+          
+          // Test refractive index calculation
+          try {
+            const n = this.getRefractiveIndex(material, 587.6);
+            console.log(`✅ Refractive index at 587.6nm: ${n.toFixed(6)}`);
+          } catch (error) {
+            console.log(`❌ Refractive index calculation failed: ${error instanceof Error ? error.message : error}`);
+          }
+        }
+      } catch (error) {
+        console.log(`❌ Material lookup failed: ${error instanceof Error ? error.message : error}`);
+      }
+    }
+    
+    console.log('\n🧪 Material lookup test complete');
+  }
 }
 
 /**
@@ -440,22 +582,34 @@ export class MaterialParser {
    * Prioritizes n1/n2 over material names as requested
    */
   static parseN1(surface: any, wavelength: number = 587.6): number {
+    console.log(`🔍 Parsing n1 for surface:`, { 
+      n1: surface.n1, 
+      n1_material: surface.n1_material, 
+      wavelength 
+    });
+    
     // Priority 1: numeric n1 value (backward compatibility)
     if (typeof surface.n1 === 'number') {
+      console.log(`✅ Using numeric n1 value: ${surface.n1}`);
       return surface.n1;
     }
 
     // Priority 2: n1_material name
     if (surface.n1_material) {
+      console.log(`🔍 Looking up n1_material: "${surface.n1_material}"`);
       try {
-        return GlassCatalog.getRefractiveIndex(surface.n1_material, wavelength);
+        const result = GlassCatalog.getRefractiveIndex(surface.n1_material, wavelength);
+        console.log(`✅ n1_material lookup successful: ${result}`);
+        return result;
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
+        console.log(`❌ n1_material lookup failed: ${errorMessage}`);
         throw new Error(`n1_material error: ${errorMessage}`);
       }
     }
 
     // Fallback: Default to air (n=1.0) if no specification
+    console.log(`ℹ️ No n1 or n1_material specified, defaulting to air (n=1.0)`);
     return 1.0;
   }
 
@@ -463,22 +617,34 @@ export class MaterialParser {
    * Parse n2 material specification
    */
   static parseN2(surface: any, wavelength: number = 587.6): number {
+    console.log(`🔍 Parsing n2 for surface:`, { 
+      n2: surface.n2, 
+      n2_material: surface.n2_material, 
+      wavelength 
+    });
+    
     // Priority 1: numeric n2 value (backward compatibility)
     if (typeof surface.n2 === 'number') {
+      console.log(`✅ Using numeric n2 value: ${surface.n2}`);
       return surface.n2;
     }
 
     // Priority 2: n2_material name
     if (surface.n2_material) {
+      console.log(`🔍 Looking up n2_material: "${surface.n2_material}"`);
       try {
-        return GlassCatalog.getRefractiveIndex(surface.n2_material, wavelength);
+        const result = GlassCatalog.getRefractiveIndex(surface.n2_material, wavelength);
+        console.log(`✅ n2_material lookup successful: ${result}`);
+        return result;
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
+        console.log(`❌ n2_material lookup failed: ${errorMessage}`);
         throw new Error(`n2_material error: ${errorMessage}`);
       }
     }
 
     // Fallback: Default to air (n=1.0) if no specification
+    console.log(`ℹ️ No n2 or n2_material specified, defaulting to air (n=1.0)`);
     return 1.0;
   }
 
