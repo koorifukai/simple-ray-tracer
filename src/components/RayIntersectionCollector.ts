@@ -168,7 +168,7 @@ export class RayIntersectionCollector {
     // Create intersection point record
     const intersectionRecord: RayIntersectionPoint = {
       rayId,
-      lightId: Math.floor(ray.lightId), // Use base light ID (remove fractional parts)
+      lightId: ray.lightId, // Preserve full light ID (including surface-ID information)
       wavelength: ray.wavelength,
       intensity: ray.intensity,
       
@@ -211,7 +211,7 @@ export class RayIntersectionCollector {
     // Update statistics
     this.intersectionData.totalIntersections++;
     this.intersectionData.wavelengths.add(ray.wavelength);
-    this.intersectionData.lightSources.add(Math.floor(ray.lightId));
+    this.intersectionData.lightSources.add(ray.lightId); // Preserve full light ID
   }
   
   /**

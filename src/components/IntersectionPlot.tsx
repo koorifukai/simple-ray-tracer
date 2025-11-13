@@ -34,8 +34,8 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
     
     if (analysisType === 'Spot Diagram') {
       // For spot diagram, surfaceId is actually a light ID
-      const lightId = parseInt(surfaceId);
-      console.log(`📊 IntersectionPlot: Creating spot diagram for light ID: ${lightId}`);
+      const baseLightId = parseInt(surfaceId);
+      console.log(`📊 IntersectionPlot: Creating spot diagram for base light ID: ${baseLightId} (includes all branched rays)`);
       
       // Find all surfaces that this light intersects
       const availableSurfaces = collector.getAvailableSurfaces();
@@ -44,7 +44,10 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
       availableSurfaces.forEach(surface => {
         const surfaceData = collector.getSurfaceIntersectionData(surface.id);
         if (surfaceData && surfaceData.intersectionPoints) {
-          const lightPoints = surfaceData.intersectionPoints.filter(point => point.lightId === lightId);
+          // Include all rays from base light ID (original + all surface-branched rays)
+          const lightPoints = surfaceData.intersectionPoints.filter(point => 
+            Math.floor(point.lightId) === baseLightId
+          );
           if (lightPoints.length > 0) {
             surfacesWithLight.push({
               surfaceId: surface.id,
@@ -54,11 +57,11 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
         }
       });
       
-      console.log(`📊 IntersectionPlot: Light ${lightId} intersects ${surfacesWithLight.length} surfaces:`, 
+      console.log(`📊 IntersectionPlot: Base light ${baseLightId} intersects ${surfacesWithLight.length} surfaces:`, 
         surfacesWithLight.map(s => s.surfaceId));
       
       if (surfacesWithLight.length === 0) {
-        console.log(`📊 IntersectionPlot: No intersection data for light ${lightId}`);
+        console.log(`📊 IntersectionPlot: No intersection data for base light ${baseLightId}`);
         return [];
       }
       

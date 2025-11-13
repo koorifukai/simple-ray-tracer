@@ -202,8 +202,6 @@ export class LightSource {
     this.sourceType = 'linear';
     this.rays = [];
 
-    console.log(`🔍 LINEAR: Generating ${this.numberOfRays} rays with width=${width}, dial=${dial}`);
-
     // Generate rays in local coordinate system: +X = forward, Y-Z plane = perpendicular
     // Add 90° offset so dial=0 points to 12 o'clock (positive Z)
     const dialRad = (dial + 90) * Math.PI / 180;
@@ -220,10 +218,6 @@ export class LightSource {
       // Local position offset, local direction is always +X
       const localPosition = new Vector3(0, localY, localZ);
       const localDirection = new Vector3(1, 0, 0); // Always forward in local space
-      
-      if (i < 3 || i >= this.numberOfRays - 3) { // Log first and last few rays
-        console.log(`  Ray ${i}: t=${t.toFixed(3)}, offset=${localOffset.toFixed(3)}, localPos=(${localPosition.x.toFixed(3)}, ${localPosition.y.toFixed(3)}, ${localPosition.z.toFixed(3)})`);
-      }
       
       rayData.push({ position: localPosition, direction: localDirection });
     }

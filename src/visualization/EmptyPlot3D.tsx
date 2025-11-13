@@ -222,31 +222,7 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
                     cornerX = mesh.x.slice(0, 4);
                     cornerY = mesh.y.slice(0, 4);
                     cornerZ = mesh.z.slice(0, 4);
-                    // console.log(`Using first 4 vertices as corners (fallback)`);
                   }
-                
-                // COMPREHENSIVE DEBUGGING: Log everything needed to trace coordinate calculation
-                // console.log(`🔍 PLOTLY VISUALIZATION: Surface ${surface.id} Corner Analysis`);
-                // console.log(`================================================================`);
-                // console.log(`Surface Properties:`);
-                // console.log(`  ID: ${surface.id}`);
-                // console.log(`  Shape: ${surface.shape}`);
-                // console.log(`  Position: [${surface.position.x.toFixed(6)}, ${surface.position.y.toFixed(6)}, ${surface.position.z.toFixed(6)}]`);
-                // console.log(`  Normal: [${surface.normal?.x.toFixed(6)}, ${surface.normal?.y.toFixed(6)}, ${surface.normal?.z.toFixed(6)}]`);
-                // console.log(`  Radius: ${surface.radius || 'none'}, Dial: ${(surface as any).localDialAngle ? ((surface as any).localDialAngle * 180 / Math.PI).toFixed(2) + '°' : 'none'}`);
-                // console.log(`  Width: ${surface.width || 'default'}, Height: ${surface.height || 'default'}, Semidia: ${surface.semidia || 'none'}`);
-                // console.log(`  Transform matrices (EUREKA methodology):`);
-                // console.log(`    - unified transform: ${surface.transform ? 'YES' : 'NO'}`);
-                // console.log(`    - forwardTransform: ${surface.forwardTransform ? 'YES' : 'NO'}`);
-                // console.log(`    - inverseTransform: ${surface.inverseTransform ? 'YES' : 'NO'}`);
-                // 
-                // console.log(`Mesh Generation Results:`);
-                // console.log(`  Total mesh vertices: ${mesh.x.length}`);
-                // console.log(`  Mesh type: ${mesh.type}`);
-                // console.log(`  Corner coordinates being plotted in Plotly:`);
-                // cornerX.forEach((x, i) => {
-                //   console.log(`    Corner ${i+1}: [${x.toFixed(6)}, ${cornerY[i].toFixed(6)}, ${cornerZ[i].toFixed(6)}]`);
-                // });
                 
                 // Create simplified hover text for each corner
                 const cornerHoverText = cornerX.map((x, i) => 
@@ -325,8 +301,6 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
               console.log('🎯 VISUALIZATION: Intersection collection already active');
             }
             
-            // console.log('System light sources:', opticalSystem.lightSources);
-            
             opticalSystem.lightSources.forEach((source, index) => {
               // console.log(`Processing light source ${index}:`, source);
               // console.log(`Source constructor:`, source.constructor.name);
@@ -342,25 +316,15 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
                 // Try to generate and trace rays
                 try {
                   if (source.generateRays && typeof source.generateRays === 'function') {
-                    // console.log(`Generating rays for light source ${index}...`);
                     const rays = source.generateRays(source.numberOfRays || 10); // Generate all requested rays
-                    // console.log(`Generated ${rays.length} rays`);
                     
                     rays.forEach((ray: Ray, rayIndex: number) => {
                       try {
                         
                         // Check if we have surfaces to trace through
                         if (opticalSystem && opticalSystem.surfaces && opticalSystem.surfaces.length > 0) {
-                          // console.log(`Optical system surfaces:`, opticalSystem.surfaces.map(s => ({
-                          //   id: s.id, shape: s.shape, mode: s.mode, position: s.position
-                          // })));
-                          // 
-                          // console.log(`Tracing ray ${rayIndex} through ${opticalSystem.surfaces.length} surfaces`);
-                          // console.log(`Initial ray:`, { position: ray.position, direction: ray.direction });
-                          
                           // Trace ray through optical system
                           const rayPath = RayTracer.traceRaySequential(ray, opticalSystem.surfaces);
-                          // console.log(`🔍 VISUALIZATION: Received ${rayPath.length} ray segments from RayTracer`);
                           
                           // Group rays by light ID to handle branching correctly
                           const rayGroups = new Map<number, Ray[]>();

@@ -247,12 +247,8 @@ export class OpticalSystemParser {
         Object.entries(sourceGroup).forEach(([key, sourceData]: [string, any]) => {
           const lid = sourceData.lid?.toString();
           if (lid && referencedLights.has(lid)) {
-            console.log(`Creating referenced light source "${key}" (lid ${lid}) with data:`, sourceData);
             const lightSource = LightSourceFactory.createFromYAML(key, sourceData);
-            console.log(`Created light source:`, lightSource);
             system.lightSources.push(lightSource);
-          } else {
-            console.log(`Skipping unreferenced light source "${key}" (lid ${lid || 'undefined'})`);
           }
         });
       });
@@ -335,7 +331,7 @@ export class OpticalSystemParser {
     }
 
     // 🚀 PHASE 2: Pre-compute wavelength-dependent refractive indices for performance
-    console.log(`🔬 Pre-computing wavelength-dependent refractive indices...`);
+    // Pre-compute all wavelength-dependent refractive indices
     await OpticalSystemParser.precomputeWavelengthTables(system);
 
     return system;
@@ -436,11 +432,8 @@ export class OpticalSystemParser {
     // Trace rays from each light source
     system.lightSources.forEach((lightSource) => {
       const source = lightSource as any; // Cast to bypass TypeScript interface confusion
-      console.log(`Tracing rays for light source:`, source);
-      console.log(`Source has generateRays:`, typeof source.generateRays);
       
       const rays = source.generateRays(source.numberOfRays);
-      console.log(`Generated ${rays.length} rays`);
       
       // Reset first ray tracking for simplified logging
       RayTracer.resetFirstRayTracking();
@@ -469,13 +462,10 @@ export class OpticalSystemParser {
   static async precomputeWavelengthTables(system: OpticalSystem): Promise<void> {
     // Ensure glass catalog is loaded before pre-computation
     if (!GlassCatalog.isLoaded()) {
-      console.log('🔄 Glass catalog not ready - attempting to initialize...');
       try {
         await GlassCatalog.initialize();
-        console.log('✅ Glass catalog initialized successfully');
       } catch (error) {
-        console.warn('⚠️  Glass catalog failed to load - proceeding with numeric values only');
-        console.warn('⚠️  Error:', error);
+        // Glass catalog failed to load - proceeding with numeric values only
       }
     }
 
@@ -539,7 +529,7 @@ export class OpticalSystemParser {
       });
     });
 
-    console.log(`✅ Pre-computed ${materialLookups} glass catalog lookups, ${numericFallbacks} numeric fallbacks`);
+    // Summary log removed - user is confident with IOR lookup
     console.log(`🏆 Wavelength tables ready - O(1) runtime material access!`);
   }
 }

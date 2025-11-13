@@ -12,8 +12,6 @@ function App() {
     GlassCatalog.initialize()
       .then(() => {
         setCatalogsLoaded(true);
-        const stats = GlassCatalog.getStats();
-        console.log(`✓ Glass catalogs loaded: ${stats.total} glasses (${stats.schott} Schott, ${stats.ohara} Ohara)`);
         
         // Make test function available in browser console for debugging
         (window as any).testMaterials = () => GlassCatalog.testMaterialLookup();

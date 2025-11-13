@@ -103,28 +103,6 @@ export class RayTracer {
   }
 
   /**
-   * Generate next cascading light ID for ray branching (EUREKA methodology)
-   * Examples: 1 -> 1.1, 1.1 -> 1.11, 1.2 -> 1.21, etc.
-   * This prevents ID collisions when rays split multiple times
-   */
-  static getNextCascadingLightId(currentLightId: number): number {
-    const lightIdStr = currentLightId.toString();
-    
-    // Count decimal places to determine next level
-    const decimalIndex = lightIdStr.indexOf('.');
-    if (decimalIndex === -1) {
-      // No decimal places: 1 -> 1.1
-      return currentLightId + 0.1;
-    } else {
-      // Has decimal places: add one more digit level
-      const decimalPart = lightIdStr.substring(decimalIndex + 1);
-      // Create increment for next level: 0.01, 0.001, 0.0001, etc.
-      const nextIncrement = Math.pow(10, -(decimalPart.length + 1));
-      return currentLightId + nextIncrement;
-    }
-  }
-
-  /**
    * Check if a wavelength should interact with a surface based on the 'sel' parameter
    * @param wavelength - Wavelength in nanometers
    * @param sel - Selection string (e.g., 'o532', 'x633', 'o488-x532-o633', or undefined)
@@ -529,20 +507,20 @@ export class RayTracer {
           this.log('ray', `Partial surface: creating reflected AND transmitted rays (transmission coeff: ${transmissionCoeff})`);
         }
         
-        // EUREKA-style cascading light ID assignment for branching:
-        // Calculate next available fractional ID level to avoid collisions
+        // Surface-ID based light ID assignment for collision-free branching:
+        // Use surface numerical ID to create unique namespace: surface.numericalId + 0.1*originalLightId
         const originalLightId = currentRay.lightId; // Use current ray's light ID
-        const shadowLightId = this.getNextCascadingLightId(originalLightId);
+        const shadowLightId = (surface.numericalId || 0) + 0.1 * originalLightId;
         
         if (!isFirstTrace) {
-          console.log(`🔍 LIGHT ID CASCADING: ${originalLightId} -> ${originalLightId} & ${shadowLightId} (PARTIAL surface)`);
+          console.log(`🔍 SURFACE-ID LID ASSIGNMENT: ${originalLightId} -> ${originalLightId} & ${shadowLightId} (surface ${surface.numericalId}, PARTIAL)`);
         }
         
         let transmittedRayForTracing: Ray;
         let reflectedRayForTracing: Ray;
         
         if (transmissionCoeff > 0.5) {
-          // Transmission dominant: transmitted keeps original LID, reflected gets +0.1
+          // Transmission dominant: transmitted keeps original LID, reflected gets surface-ID namespace
           transmittedRayForTracing = new Ray(
             result.transmitted.position,
             result.transmitted.direction,
@@ -554,11 +532,11 @@ export class RayTracer {
             result.reflected.position,
             result.reflected.direction,
             result.reflected.wavelength,
-            shadowLightId, // Gets LID+0.1
+            shadowLightId, // Gets surface-ID based LID
             result.reflected.intensity
           );
         } else {
-          // Reflection dominant: reflected keeps original LID, transmitted gets +0.1
+          // Reflection dominant: reflected keeps original LID, transmitted gets surface-ID namespace
           reflectedRayForTracing = new Ray(
             result.reflected.position,
             result.reflected.direction,
@@ -570,7 +548,7 @@ export class RayTracer {
             result.transmitted.position,
             result.transmitted.direction,
             result.transmitted.wavelength,
-            shadowLightId, // Gets LID+0.1
+            shadowLightId, // Gets surface-ID based LID
             result.transmitted.intensity
           );
         }
@@ -689,7 +667,7 @@ export class RayTracer {
           this.log('ray', `Ray transmitted, new direction:`, currentRay.direction);
           this.log('ray', `Added transmitted ray segment to path`);
           // Debug: Show light ID continuation
-          if (currentRay.lightId !== Math.floor(currentRay.lightId)) {
+          if (Math.abs(currentRay.lightId - Math.round(currentRay.lightId)) > 1e-10) {
             console.log(`🔍 FRACTIONAL RAY CONTINUES: Light ID ${currentRay.lightId} continues through ${surface.mode} surface (${surface.id})`);
           }
         }
@@ -701,7 +679,7 @@ export class RayTracer {
           this.log('ray', `Ray reflected, new direction:`, currentRay.direction);
           this.log('ray', `Added reflected ray segment to path`);
           // Debug: Show light ID continuation  
-          if (currentRay.lightId !== Math.floor(currentRay.lightId)) {
+          if (Math.abs(currentRay.lightId - Math.round(currentRay.lightId)) > 1e-10) {
             console.log(`🔍 FRACTIONAL RAY CONTINUES: Light ID ${currentRay.lightId} continues through ${surface.mode} surface (${surface.id})`);
           }
         }
