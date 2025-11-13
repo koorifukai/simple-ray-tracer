@@ -507,13 +507,30 @@ export class RayTracer {
           this.log('ray', `Partial surface: creating reflected AND transmitted rays (transmission coeff: ${transmissionCoeff})`);
         }
         
-        // Surface-ID based light ID assignment for collision-free branching:
-        // Use surface numerical ID to create unique namespace: surface.numericalId + 0.1*originalLightId
-        const originalLightId = currentRay.lightId; // Use current ray's light ID
-        const shadowLightId = (surface.numericalId || 0) + 0.1 * originalLightId;
+        // Generation-based hierarchical LID system:
+        // n' = 1000*(n//1000+1) + surface_order + decimal_place_of(n)
+        const originalLightId = currentRay.lightId;
+        const surfaceOrder = surface.numericalId || 0;
+        
+        // Extract generation and ancestral ID
+        const currentGeneration = Math.floor(originalLightId / 1000);
+        const nextGeneration = currentGeneration + 1;
+        
+        // For original lights (0-9), convert to decimal form (0.0-0.9)
+        // For shadow lights, preserve existing decimal part
+        let ancestralId: number;
+        if (originalLightId < 10 && originalLightId === Math.floor(originalLightId)) {
+          // Original single-digit light: convert to decimal
+          ancestralId = originalLightId / 10; // 0→0.0, 1→0.1, ..., 9→0.9
+        } else {
+          // Shadow light: extract decimal part
+          ancestralId = originalLightId - Math.floor(originalLightId);
+        }
+        
+        const shadowLightId = 1000 * nextGeneration + surfaceOrder + ancestralId;
         
         if (!isFirstTrace) {
-          console.log(`🔍 SURFACE-ID LID ASSIGNMENT: ${originalLightId} -> ${originalLightId} & ${shadowLightId} (surface ${surface.numericalId}, PARTIAL)`);
+          console.log(`🔍 GENERATION LID: ${originalLightId} -> ${originalLightId} & ${shadowLightId} (gen ${currentGeneration}→${nextGeneration}, surface ${surfaceOrder}, ancestral ${ancestralId.toFixed(1)})`);
         }
         
         let transmittedRayForTracing: Ray;
@@ -528,6 +545,9 @@ export class RayTracer {
             originalLightId, // Keeps original LID
             result.transmitted.intensity
           );
+          // Ensure transmitted ray continues independently (don't inherit stopsAt)
+          transmittedRayForTracing.stopsAt = -1;
+          
           reflectedRayForTracing = new Ray(
             result.reflected.position,
             result.reflected.direction,
@@ -535,6 +555,8 @@ export class RayTracer {
             shadowLightId, // Gets surface-ID based LID
             result.reflected.intensity
           );
+          // Ensure reflected ray continues independently (don't inherit stopsAt)
+          reflectedRayForTracing.stopsAt = -1;
         } else {
           // Reflection dominant: reflected keeps original LID, transmitted gets surface-ID namespace
           reflectedRayForTracing = new Ray(
@@ -544,6 +566,9 @@ export class RayTracer {
             originalLightId, // Keeps original LID
             result.reflected.intensity
           );
+          // Ensure reflected ray continues independently (don't inherit stopsAt)
+          reflectedRayForTracing.stopsAt = -1;
+          
           transmittedRayForTracing = new Ray(
             result.transmitted.position,
             result.transmitted.direction,
@@ -551,6 +576,8 @@ export class RayTracer {
             shadowLightId, // Gets surface-ID based LID
             result.transmitted.intensity
           );
+          // Ensure transmitted ray continues independently (don't inherit stopsAt)
+          transmittedRayForTracing.stopsAt = -1;
         }
         
         // Continue tracing transmitted ray through remaining surfaces
@@ -718,6 +745,7 @@ export class RayTracer {
           this.log('general', `Ray was blocked during propagation - terminating at intersection point (no extension)`);
         }
         // Ray path ends exactly where it was blocked - no extension
+        return; // Exit immediately, don't process any extension logic
         
       } else {
         // Ray completed full propagation through all surfaces - apply extension rules

@@ -760,26 +760,53 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
       const collector = RayIntersectionCollector.getInstance();
       const availableSurfaces = collector.getAvailableSurfaces();
       
-      // Extract unique light IDs from intersection data
-      const lightIds = new Set<string>();
+      // Extract unique light IDs from intersection data, filtering to only lights that reach the last surface
+      const allLightIds = new Set<number>();
       
+      // Find the last active surface (highest numerical ID, excluding "inactive" surfaces)
+      let lastSurfaceId = '';
+      let maxNumericalId = -1;
       availableSurfaces.forEach(surface => {
+        // Get surface data to check mode
         const surfaceData = collector.getSurfaceIntersectionData(surface.id);
-        if (surfaceData && surfaceData.intersectionPoints) {
-          surfaceData.intersectionPoints.forEach(point => {
-            lightIds.add(point.lightId.toString());
-          });
+        if (surfaceData && surfaceData.surface && surfaceData.surface.mode !== 'inactive') {
+          if (surface.numericalId !== undefined && surface.numericalId > maxNumericalId) {
+            maxNumericalId = surface.numericalId;
+            lastSurfaceId = surface.id;
+          }
         }
       });
       
-      // Convert to light source array with labels
-      Array.from(lightIds).sort((a, b) => parseInt(a) - parseInt(b)).forEach(lightId => {
-        // Try to get wavelength from YAML data
+      console.log(`📊 OpticalDesignApp: Last active surface for spot diagram filtering: ${lastSurfaceId} (No.${maxNumericalId}) - excluding inactive surfaces`);
+      
+      // Only include lights that reach the last surface
+      if (lastSurfaceId) {
+        const lastSurfaceData = collector.getSurfaceIntersectionData(lastSurfaceId);
+        if (lastSurfaceData && lastSurfaceData.intersectionPoints) {
+          lastSurfaceData.intersectionPoints.forEach(point => {
+            allLightIds.add(point.lightId); // Include both original and shadow LIDs that reach the last surface
+          });
+        }
+      }
+      
+      console.log(`📊 OpticalDesignApp: Light IDs that reach last surface:`, [...allLightIds].sort((a, b) => a - b));
+      
+      // Convert to light source array with simple labels, sorted by light ID
+      Array.from(allLightIds).sort((a, b) => a - b).forEach(lightId => {
+        // Try to get wavelength from YAML data for original lights, or inherit for shadow lights
         let wavelength = 'unknown';
+        let searchLightId = lightId;
+        
+        // For shadow lights, extract ancestral light ID for wavelength lookup
+        if (lightId >= 1000) {
+          const decimalPart = lightId - Math.floor(lightId);
+          searchLightId = Math.round(decimalPart * 10); // Extract ancestral ID (0.0→0, 0.1→1, ..., 0.9→9)
+        }
+        
         if (parsedData.light_sources && Array.isArray(parsedData.light_sources)) {
           parsedData.light_sources.forEach((sourceGroup: any) => {
             Object.entries(sourceGroup).forEach(([, sourceData]: [string, any]) => {
-              if (sourceData.lid?.toString() === lightId) {
+              if (sourceData.lid === searchLightId) {
                 wavelength = `${sourceData.wavelength}nm`;
               }
             });
@@ -787,7 +814,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
         }
         
         lightSources.push({
-          id: lightId,
+          id: lightId.toString(),
           label: `Light ${lightId} (${wavelength})`,
           wavelength: wavelength !== 'unknown' ? parseInt(wavelength.replace('nm', '')) : undefined
         });

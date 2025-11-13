@@ -111,12 +111,13 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
               // Create display name and surface ID line
               let displayName: string;
               let surfaceIdLine: string;
+              const numOrder = surface.numericalId !== undefined ? ` (No.${surface.numericalId})` : '';
               if (surface.assemblyId && surface.elementIndex) {
                 displayName = `aid: ${surface.assemblyId} ele: ${surface.elementIndex}`;
-                surfaceIdLine = `Surface ID: aid=${surface.assemblyId}; s=${surface.id}`;
+                surfaceIdLine = `Surface ID: aid=${surface.assemblyId}; s=${surface.id}${numOrder}`;
               } else {
                 displayName = `Surface ${surface.id}`;
-                surfaceIdLine = `Surface ID: sid=${surface.id}`;
+                surfaceIdLine = `Surface ID: sid=${surface.id}${numOrder}`;
               }
               
               // Create detailed hover template (no redundant first line)

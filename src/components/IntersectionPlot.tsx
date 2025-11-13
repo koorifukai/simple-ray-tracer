@@ -33,21 +33,24 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
     const collector = RayIntersectionCollector.getInstance();
     
     if (analysisType === 'Spot Diagram') {
-      // For spot diagram, surfaceId is actually a light ID
-      const baseLightId = parseInt(surfaceId);
-      console.log(`📊 IntersectionPlot: Creating spot diagram for base light ID: ${baseLightId} (includes all branched rays)`);
+      // For spot diagram, surfaceId contains a specific light ID (original or shadow)
+      const selectedLightId = parseFloat(surfaceId);
+      console.log(`📊 IntersectionPlot: Creating spot diagram for light ID: ${selectedLightId}`);
       
-      // Find all surfaces that this light intersects
+      // Find all surfaces that this specific light ID intersects
       const availableSurfaces = collector.getAvailableSurfaces();
+      console.log(`📊 IntersectionPlot SPOT DEBUG: Available surfaces:`, availableSurfaces.map(s => s.id));
+      
       const surfacesWithLight: {surfaceId: string, points: any[]}[] = [];
       
       availableSurfaces.forEach(surface => {
         const surfaceData = collector.getSurfaceIntersectionData(surface.id);
         if (surfaceData && surfaceData.intersectionPoints) {
-          // Include all rays from base light ID (original + all surface-branched rays)
-          const lightPoints = surfaceData.intersectionPoints.filter(point => 
-            Math.floor(point.lightId) === baseLightId
+          const allPoints = surfaceData.intersectionPoints;
+          const lightPoints = allPoints.filter(point => 
+            Math.abs(point.lightId - selectedLightId) < 1e-10
           );
+          
           if (lightPoints.length > 0) {
             surfacesWithLight.push({
               surfaceId: surface.id,
@@ -57,19 +60,15 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
         }
       });
       
-      console.log(`📊 IntersectionPlot: Base light ${baseLightId} intersects ${surfacesWithLight.length} surfaces:`, 
-        surfacesWithLight.map(s => s.surfaceId));
+      console.log(`📊 IntersectionPlot: Light ${selectedLightId} intersects ${surfacesWithLight.length} surfaces`);
       
       if (surfacesWithLight.length === 0) {
-        console.log(`📊 IntersectionPlot: No intersection data for base light ${baseLightId}`);
         return [];
       }
       
-      // Use the last surface (highest numerical ID or last in array)
       const lastSurface = surfacesWithLight[surfacesWithLight.length - 1];
-      console.log(`📊 IntersectionPlot: Using last surface "${lastSurface.surfaceId}" with ${lastSurface.points.length} points for spot diagram`);
       
-      return lastSurface.points.map(hit => ({
+      const spotData = lastSurface.points.map(hit => ({
         y: hit.crossSectionY,
         z: hit.crossSectionZ,
         wavelength: hit.wavelength,
@@ -77,6 +76,8 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
         rayId: hit.rayId,
         lightId: hit.lightId
       }));
+        
+      return spotData;
       
     } else {
       // Original logic for hit map
@@ -455,11 +456,23 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
       wavelengthGroups.get(point.wavelength)!.push(point);
     });
 
-    console.log(`📊 RAY PLOTTING: Processing ${data.length} points from ${new Set(data.map(p => Math.floor(p.lightId))).size} light sources`);
+    // Helper function to extract ancestral light ID from generation-based system
+    const getBaseLightId = (lightId: number): number => {
+      if (lightId >= 1000) {
+        // Shadow light: extract ancestral ID from decimal part (0.0-0.9)
+        const decimalPart = lightId - Math.floor(lightId);
+        return Math.round(decimalPart * 10); // 0.0→0, 0.1→1, ..., 0.9→9
+      } else {
+        // Original light: use as-is
+        return Math.floor(lightId);
+      }
+    };
+
+    console.log(`📊 RAY PLOTTING: Processing ${data.length} points from ${new Set(data.map(p => getBaseLightId(p.lightId))).size} light sources`);
     console.log(`📊 RAY PLOTTING: Wavelength groups:`, Array.from(wavelengthGroups.keys()));
-    console.log(`📊 RAY PLOTTING: Light source breakdown:`, [...new Set(data.map(p => Math.floor(p.lightId)))].map(lid => ({
+    console.log(`📊 RAY PLOTTING: Light source breakdown:`, [...new Set(data.map(p => getBaseLightId(p.lightId)))].map(lid => ({
       lightId: lid,
-      count: data.filter(p => Math.floor(p.lightId) === lid).length
+      count: data.filter(p => getBaseLightId(p.lightId) === lid).length
     })));
 
     const traces = Array.from(wavelengthGroups.entries()).map(([wavelength, points]) => {
@@ -580,14 +593,24 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
     const allPoints: RayIntersectionPoint[] = validSurfaceData.intersectionPoints;
     console.log(`🎯 GLOBAL BOUNDS: Analyzing ${allPoints.length} total intersection points on final surface`);
     
-    // Group intersection points by light ID
+    // Helper function to extract base light ID for new 1000+ system
+    const getBaseLightId = (lightId: number): number => {
+      if (lightId >= 1000) {
+        const fractionalPart = lightId - Math.floor(lightId);
+        return Math.round(fractionalPart * 1000);
+      } else {
+        return Math.floor(lightId);
+      }
+    };
+    
+    // Group intersection points by light ID using new 1000+ system
     const lightGroups = new Map<number, RayIntersectionPoint[]>();
     allPoints.forEach(point => {
-      const lightId = Math.floor(point.lightId);
-      if (!lightGroups.has(lightId)) {
-        lightGroups.set(lightId, []);
+      const baseLightId = getBaseLightId(point.lightId);
+      if (!lightGroups.has(baseLightId)) {
+        lightGroups.set(baseLightId, []);
       }
-      lightGroups.get(lightId)!.push(point);
+      lightGroups.get(baseLightId)!.push(point);
     });
     
     console.log(`🎯 GLOBAL BOUNDS: Found ${lightGroups.size} light sources:`, Array.from(lightGroups.keys()));
@@ -644,8 +667,6 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
 
   // Create spot diagram plot (pure spot pattern, no geometry)
   const createSpotDiagram = (data: IntersectionPoint[]) => {
-    console.log(`🎯 SPOT DIAGRAM: Creating plot with ${data.length} intersection points`);
-    
     if (data.length === 0) {
       console.log('🎯 SPOT DIAGRAM: No data available, using 0.6mm default view');
       return {
@@ -657,7 +678,7 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
           name: 'No Data'
         }],
         layout: {
-          xaxis: { 
+          xaxis: {
             title: 'Y Position (mm)', 
             range: [-0.3, 0.3],
             constrain: 'domain',
@@ -691,17 +712,17 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
       wavelengthGroups.get(point.wavelength)!.push(point);
     });
 
-    console.log(`🎯 SPOT DIAGRAM: Found ${wavelengthGroups.size} wavelengths:`, Array.from(wavelengthGroups.keys()));
-
     // Create traces for each wavelength
     const traces: any[] = [];
     
     wavelengthGroups.forEach((points, wavelength) => {
       const color = getWavelengthColor(wavelength);
+      const xValues = points.map(p => -p.y);
+      const yValues = points.map(p => p.z);
       
       traces.push({
-        x: points.map(p => -p.y), // COORDINATE FIX: Mirror horizontal coordinates to match optical convention
-        y: points.map(p => p.z), // Z position on surface
+        x: xValues,
+        y: yValues,
         type: 'scatter',
         mode: 'markers',
         marker: {
@@ -736,7 +757,7 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
     const zMin = lightZCenter - rangeSize / 2;
     const zMax = lightZCenter + rangeSize / 2;
 
-    console.log(`🎯 SPOT DIAGRAM: Using global scale (${rangeSize.toFixed(6)}mm), centered on light data: Y:[${yMin.toFixed(6)}, ${yMax.toFixed(6)}], Z:[${zMin.toFixed(6)}, ${zMax.toFixed(6)}]`);
+    console.log(`🎯 SPOT DIAGRAM: Using global scale (${rangeSize.toFixed(6)}mm), centered on light data`);
 
     return {
       data: traces,

@@ -121,8 +121,6 @@ export class VariableParser {
       }
     });
     
-    console.log(`📊 Optimization: Found ${variables.length} active variables: ${variables.map(v => v.name).join(', ')}`);
-    
     return variables;
   }
   
