@@ -1,0 +1,64 @@
+
+# Gaussian 28 example
+display_settings:
+  show_grid: True
+  show_corners: True
+  density_for_intensity: True
+assemblies:
+  - aid: 0
+    s1: 
+      {relative: 0, angles: [45,0], shape: plano, semidia: 30, mode: partial, n2_material: Silica, transmission: 0.7}
+    s2:
+      {relative: 10, angles: [45,0], shape: plano, semidia: 30, mode: refraction, n1_material: Silica, transmission: 0.3}
+    s3:
+      {relative: 20, angles: [45,0], shape: plano, semidia: 30, mode: reflection}
+
+surfaces:
+  - mir:
+      {sid: 0, shape: plano, height: 50, width: 50, mode: reflection}
+    half_mir:
+      {sid: 1, shape: plano, height: 50, width: 50, mode: partial, n2_material: Silica,  transmission: 0.7}
+    wk_half_mir:
+      {sid: 2, shape: plano, height: 50, width: 50, mode: partial, n1_material: Silica, transmission: 0.3}
+    stop:
+      {sid: 3, shape: plano, height: 50, width: 150, mode: absorption}
+
+light_sources:
+  - l1:
+      {lid: 0, position: [-10,0,0], vector: [1,0,0], number: 1, wavelength: 633, type: linear, param: [10,0]}
+    l2:
+      {lid: 1, position: [-10,0,0], vector: [1,0,0], number: 1, wavelength: 532, type: linear, param: [10,45]}
+    l3:
+      {lid: 2, position: [-10,0,0], vector: [1,0,0], number: 1, wavelength: 488, type: linear, param: [10,90]}
+
+optical_trains:
+  - r: 
+     {lid: 0}
+    g: 
+     {lid: 1}
+    b: 
+     {lid: 2}
+    m1:
+     {sid: 0, position: [30,0,0], angles: [0,45]}
+    m2:
+     {sid: 0, position: [30,0,30], angles: [0,-45]}
+    t1:
+     {sid: 1, position: [0,0,30], angles: [-135,0]}
+    t2:
+     {sid: 2, position: [-30,0,30], angles: [-135,0]}
+    t3:
+     {aid: 0, position: [-90,0,30], angles: [-180,0]}
+    stop:
+     {sid: 3, position: [-60,30,30], angles: [90,0]}
+    
+    
+optimization_settings:
+  iterations: 20
+  V1: [120,140,20]
+  V2: [15,25,5]
+  V3: [80,90,5]
+  V4: [-25,-15,5]
+  obj: -1
+  mode: aberrations
+  #mode: angle
+  param: None

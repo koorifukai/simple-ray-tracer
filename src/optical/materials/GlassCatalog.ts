@@ -272,21 +272,12 @@ export class GlassCatalog {
       const λ2 = λ * λ;
       const { b1, b2, b3, c1, c2, c3 } = glass.sellmeier;
       
-      console.log(`  OHARA Sellmeier coefficients:`, { 
-        A1: b1, A2: b2, A3: b3, 
-        B1: c1, B2: c2, B3: c3 
-      });
-      
       const term1 = (b1 * λ2) / (λ2 - c1);
       const term2 = (b2 * λ2) / (λ2 - c2);
       const term3 = (b3 * λ2) / (λ2 - c3);
       
-      console.log(`  Terms: ${term1.toFixed(6)}, ${term2.toFixed(6)}, ${term3.toFixed(6)}`);
-      
       const n2 = 1 + term1 + term2 + term3;
       const n = Math.sqrt(Math.max(n2, 1.0));
-      
-      console.log(`  n² = ${n2.toFixed(6)}, n = ${n.toFixed(6)}`);
       
       return n;
     } else {
@@ -441,7 +432,7 @@ export class GlassCatalog {
    * Force reload the catalogs (useful for debugging)
    */
   static async forceReload(): Promise<void> {
-    console.log('🔄 Force reloading glass catalogs...');
+    // console.log('🔄 Force reloading glass catalogs...');
     this.catalogsLoaded = false;
     this.loadPromise = null;
     this.glasses.clear();

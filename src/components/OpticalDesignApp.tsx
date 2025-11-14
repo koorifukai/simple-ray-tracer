@@ -551,7 +551,6 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
           } else {
             console.log('⚠️ Optimization reached max iterations but found better values. YAML updated.');
           }
-          console.log('📊 Final objective:', result.finalObjective.toExponential(3));
           console.log('🔧 Optimized variables:', result.optimizedVariables);
         }
       } else {
@@ -776,8 +775,6 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
           }
         }
       });
-      
-      console.log(`📊 OpticalDesignApp: Last active surface for spot diagram filtering: ${lastSurfaceId} (No.${maxNumericalId}) - excluding inactive surfaces`);
       
       // Only include lights that reach the last surface
       if (lastSurfaceId) {

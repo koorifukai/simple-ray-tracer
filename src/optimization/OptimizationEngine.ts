@@ -50,8 +50,8 @@ export class OptimizationEngine {
         }
         
         console.log(`🔧 Starting LM optimization with ${problem.variables.length} variables...`);
-        console.log(`📊 Variables: ${problem.variables.map(v => `${v.name}=[${v.min}, ${v.max}]`).join(', ')}`);
-        console.log(`🎯 Mode: ${problem.settings.mode}, Target: surface ${problem.settings.obj}`);
+        // Variables and mode info
+        // Mode and target info
         
         // Run Levenberg-Marquardt optimization
         this.runLevenbergMarquardt(problem).then(resolve);
@@ -101,7 +101,7 @@ export class OptimizationEngine {
       variables: Object.fromEntries(variables.map(v => [v.name, v.current]))
     });
     
-    console.log(`🎯 Initial objective: ${currentObjective.value.toExponential(3)}`);
+    // Initial objective calculated
     
     let iteration = 0;
     let bestVariables = [...variables];
@@ -244,7 +244,7 @@ export class OptimizationEngine {
     const variableMap = VariableParser.createVariableMap(variables);
     
     // Debug: Log the current variable values
-    console.log(`📊 Current variables:`, Object.entries(variableMap).map(([name, value]) => `${name}=${value.toFixed(6)}`).join(', '));
+    // Current variables
     
     // Substitute variables in YAML
     const substitutedYaml = VariableParser.substituteVariables(problem.originalYaml, variableMap);

@@ -41,7 +41,7 @@ export class ObjectiveFunctions {
       }
       
       // Debug: Log target surface details
-      console.log(`🎯 Target Surface Details: obj=${settings.obj}, id="${targetSurface.id}", numericalId=${targetSurface.numericalId}, mode="${targetSurface.mode}", shape="${targetSurface.shape}"`);
+      // Target surface details
       console.log(`📋 Total surfaces in system: ${system.surfaces.length}`);
 
       // Generate and trace rays through the system
@@ -84,12 +84,12 @@ export class ObjectiveFunctions {
       // Negative indexing from end
       const index = surfaces.length + objIndex;
       const targetSurface = index >= 0 ? surfaces[index] : null;
-      console.log(`🎯 Negative indexing: obj=${objIndex} → index=${index} → surface="${targetSurface?.id || 'NOT_FOUND'}"`);
+      // Negative indexing
       return targetSurface;
     } else {
       // Positive indexing from start
       const targetSurface = objIndex < surfaces.length ? surfaces[objIndex] : null;
-      console.log(`🎯 Positive indexing: obj=${objIndex} → surface="${targetSurface?.id || 'NOT_FOUND'}"`);
+      // Positive indexing
       return targetSurface;
     }
   }
@@ -117,7 +117,7 @@ export class ObjectiveFunctions {
     
     const orderedSurfaces = OpticalSystemParser.getSurfacesInOrder(system);
     
-    console.log(`🎯 Optimization target surface: "${targetSurface.id}"`);
+    // Optimization target surface identified
     console.log(`📋 Available surfaces: ${orderedSurfaces.map(s => `"${s.id}"`).join(', ')}`);
     console.log(`🔍 Target surface details: mode="${targetSurface.mode}", shape="${targetSurface.shape}", numericalId=${targetSurface.numericalId}, index=${orderedSurfaces.indexOf(targetSurface)}`);
     
@@ -153,9 +153,7 @@ export class ObjectiveFunctions {
             const availableKeys = Array.from(intersectionData.surfaces.keys());
             console.log(`🔍 Target key: "${targetSurfaceKey}" (numericalId=${targetSurface.numericalId}, id="${targetSurface.id}")`);
             console.log(`📋 Available keys in collector: [${availableKeys.map(k => `"${k}"`).join(', ')}]`);
-            console.log(`🎯 Total surfaces in collector: ${intersectionData.surfaces.size}`);
-            console.log(`🎯 Total rays recorded: ${intersectionData.totalRays}`);
-            console.log(`🎯 Total intersections: ${intersectionData.totalIntersections}`);
+            // Collector statistics
           }
           
           // Debug: Check if surface data exists and has intersections

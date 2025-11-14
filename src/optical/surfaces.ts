@@ -395,9 +395,13 @@ export class OpticalSurfaceFactory {
         n2: surfaceData.n2,
         n1_material: surfaceData.n1_material,
         n2_material: surfaceData.n2_material,
+        transmission: surfaceData.transmission !== undefined ? Math.max(0, Math.min(1, surfaceData.transmission)) : undefined,
+        sel: surfaceData.sel,
         transform: localTransform,
         forwardTransform: new Matrix4().identity(), // Will be computed later
         inverseTransform: new Matrix4().identity(), // Will be computed later
+        conic: surfaceData.conic,
+        aspheric: surfaceData.aspheric,
         opacity: 0.3
       };
 

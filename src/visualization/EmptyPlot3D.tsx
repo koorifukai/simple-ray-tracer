@@ -18,10 +18,10 @@ try {
   const savedState = sessionStorage.getItem(CAMERA_STATE_KEY);
   if (savedState) {
     globalCameraState = JSON.parse(savedState);
-    console.log('📷 Loaded camera state from session:', globalCameraState);
+    // console.log('📷 Loaded camera state from session:', globalCameraState);
   }
 } catch (error) {
-  console.warn('Failed to load camera state from session storage:', error);
+  // console.warn('Failed to load camera state from session storage:', error);
 }
 
 // Utility functions for camera state persistence
@@ -29,9 +29,9 @@ const saveCameraState = (cameraState: any) => {
   try {
     globalCameraState = cameraState;
     sessionStorage.setItem(CAMERA_STATE_KEY, JSON.stringify(cameraState));
-    console.log('📷 Camera state saved to session:', cameraState);
+    // console.log('📷 Camera state saved to session:', cameraState);
   } catch (error) {
-    console.warn('Failed to save camera state to session storage:', error);
+    // console.warn('Failed to save camera state to session storage:', error);
   }
 };
 
@@ -297,9 +297,9 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
             
             if (!collector.isCollectionActive()) {
               collector.startCollection();
-              console.log('🎯 VISUALIZATION: Started intersection data collection for upcoming ray trace');
+              // Started intersection data collection
             } else {
-              console.log('🎯 VISUALIZATION: Intersection collection already active');
+              // Intersection collection already active
             }
             
             opticalSystem.lightSources.forEach((source, index) => {

@@ -25,7 +25,8 @@ export class Ray {
     direction: Vector3,
     wavelength: number = 587.6,
     lightId: number = -1,
-    intensity: number = 1.0
+    intensity: number = 1.0,
+    startsAt: number = 0     // Surface index where ray starts
   ) {
     this.position = position.clone();
     this.direction = direction.normalize();
@@ -34,7 +35,7 @@ export class Ray {
     this.lightId = lightId;
     this.pathLength = 0;
     this.isActive = true;
-    this.startsAt = 0;       // Usually starts from surface 0
+    this.startsAt = startsAt; // Use provided starting surface index
     this.stopsAt = -1;       // -1 means ray reaches the end, positive number means stopped at that surface
   }
 
@@ -57,13 +58,16 @@ export class Ray {
    * Create a copy of this ray
    */
   clone(): Ray {
-    return new Ray(
+    const clonedRay = new Ray(
       this.position.clone(),
       this.direction.clone(),
       this.wavelength,
       this.lightId,
-      this.intensity
+      this.intensity,
+      this.startsAt
     );
+    clonedRay.stopsAt = this.stopsAt; // Preserve stopsAt as well
+    return clonedRay;
   }
 }
 

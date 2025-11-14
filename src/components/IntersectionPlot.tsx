@@ -35,11 +35,11 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
     if (analysisType === 'Spot Diagram') {
       // For spot diagram, surfaceId contains a specific light ID (original or shadow)
       const selectedLightId = parseFloat(surfaceId);
-      console.log(`📊 IntersectionPlot: Creating spot diagram for light ID: ${selectedLightId}`);
+      // Creating spot diagram for selected light
       
       // Find all surfaces that this specific light ID intersects
       const availableSurfaces = collector.getAvailableSurfaces();
-      console.log(`📊 IntersectionPlot SPOT DEBUG: Available surfaces:`, availableSurfaces.map(s => s.id));
+
       
       const surfacesWithLight: {surfaceId: string, points: any[]}[] = [];
       
@@ -60,7 +60,7 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
         }
       });
       
-      console.log(`📊 IntersectionPlot: Light ${selectedLightId} intersects ${surfacesWithLight.length} surfaces`);
+      // Light intersects multiple surfaces
       
       if (surfacesWithLight.length === 0) {
         return [];
@@ -81,23 +81,14 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
       
     } else {
       // Original logic for hit map
-      console.log(`📊 IntersectionPlot: Requesting data for surface ID: "${surfaceId}"`);
-      console.log(`📊 IntersectionPlot: Available surfaces in collector:`, collector.getAvailableSurfaces().map(s => ({
-        id: s.id,
-        numericalId: s.numericalId ?? 'undefined',
-        name: s.name
-      })));
-      
       const surfaceData = collector.getSurfaceIntersectionData(surfaceId);
       
-      console.log(`📊 IntersectionPlot: Surface data for "${surfaceId}":`, surfaceData);
-      
       if (!surfaceData || surfaceData.intersectionPoints.length === 0) {
-        console.log(`📊 IntersectionPlot: No intersection data available for surface "${surfaceId}"`);
+        // No intersection data available
         return [];
       }
       
-      console.log(`📊 IntersectionPlot: Found ${surfaceData.intersectionPoints.length} intersection points for surface "${surfaceId}"`);
+      // Found intersection points for surface
       
       return surfaceData.intersectionPoints.map(hit => ({
         y: hit.crossSectionY,
@@ -397,7 +388,7 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
   // Create hit map plot
   const createHitMapPlot = (data: IntersectionPoint[]) => {
     if (data.length === 0) {
-      console.log('📊 HIT MAP: No intersection data, creating empty plot with surface background');
+      // No intersection data, creating empty plot
       const surfaceShapes = getSurfaceShape();
       console.log(`🎨 BACKGROUND (empty): Retrieved ${surfaceShapes.length} surface shapes for empty plot background`);
       
@@ -456,27 +447,8 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
       wavelengthGroups.get(point.wavelength)!.push(point);
     });
 
-    // Helper function to extract ancestral light ID from generation-based system
-    const getBaseLightId = (lightId: number): number => {
-      if (lightId >= 1000) {
-        // Shadow light: extract ancestral ID from decimal part (0.0-0.9)
-        const decimalPart = lightId - Math.floor(lightId);
-        return Math.round(decimalPart * 10); // 0.0→0, 0.1→1, ..., 0.9→9
-      } else {
-        // Original light: use as-is
-        return Math.floor(lightId);
-      }
-    };
-
-    console.log(`📊 RAY PLOTTING: Processing ${data.length} points from ${new Set(data.map(p => getBaseLightId(p.lightId))).size} light sources`);
-    console.log(`📊 RAY PLOTTING: Wavelength groups:`, Array.from(wavelengthGroups.keys()));
-    console.log(`📊 RAY PLOTTING: Light source breakdown:`, [...new Set(data.map(p => getBaseLightId(p.lightId)))].map(lid => ({
-      lightId: lid,
-      count: data.filter(p => getBaseLightId(p.lightId) === lid).length
-    })));
-
     const traces = Array.from(wavelengthGroups.entries()).map(([wavelength, points]) => {
-      console.log(`📊 RAY PLOTTING: Creating trace for λ=${wavelength}nm with ${points.length} points`);
+      // Creating trace for wavelength
       return {
         x: points.map(p => -p.y), // COORDINATE FIX: Mirror horizontal coordinates to match optical convention
         y: points.map(p => p.z),
@@ -492,7 +464,7 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
       };
     });
 
-    console.log(`📊 RAY PLOTTING: Created ${traces.length} traces for plotting`);
+    // Traces created for plotting
     
     // Get surface shapes for background
     const surfaceShapes = getSurfaceShape();
@@ -500,15 +472,9 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
     
     // Debug: Log the actual shapes being passed to Plotly
     if (surfaceShapes.length > 0) {
-      console.log('🎨 BACKGROUND: Shape details:', surfaceShapes.map(shape => ({
-        type: shape.type,
-        coordinates: shape.type === 'circle' ? { x0: shape.x0, y0: shape.y0, x1: shape.x1, y1: shape.y1 } :
-                    shape.type === 'rect' ? { x0: shape.x0, y0: shape.y0, x1: shape.x1, y1: shape.y1 } : 'unknown',
-        fillcolor: shape.fillcolor,
-        layer: shape.layer
-      })));
+
     } else {
-      console.warn('🎨 BACKGROUND: No surface shapes generated - background will be empty');
+      // No surface shapes generated
     }
 
     return {
@@ -572,26 +538,26 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
       const surfaceData = collector.getSurfaceIntersectionData(surface.id);
       if (surfaceData && surfaceData.intersectionPoints.length > 0) {
         lastSurfaceData = surfaceData;
-        console.log(`🎯 GLOBAL BOUNDS: Using surface "${surface.id}" (numerical: ${surface.numericalId}) as last surface with ${surfaceData.intersectionPoints.length} intersections`);
+        // Using surface as last surface
         break;
       }
     }
     
     if (!lastSurfaceData) {
-      console.log('🎯 GLOBAL BOUNDS: No surface data found, using 0.6mm default view');
+      // No surface data found, using default view
       return { yMin: -0.3, yMax: 0.3, zMin: -0.3, zMax: 0.3, center: { y: 0, z: 0 } };
     }
     
     const validSurfaceData: SurfaceIntersectionData = lastSurfaceData;
     
     if (validSurfaceData.intersectionPoints.length === 0) {
-      console.log('🎯 GLOBAL BOUNDS: No intersection points found, using 0.6mm default view');
+      // No intersection points found, using default view
       return { yMin: -0.3, yMax: 0.3, zMin: -0.3, zMax: 0.3, center: { y: 0, z: 0 } };
     }
     
     // EUREKA APPROACH: Group points by light ID and find maximum extent of any light
     const allPoints: RayIntersectionPoint[] = validSurfaceData.intersectionPoints;
-    console.log(`🎯 GLOBAL BOUNDS: Analyzing ${allPoints.length} total intersection points on final surface`);
+    // Analyzing intersection points on final surface
     
     // Helper function to extract base light ID for new 1000+ system
     const getBaseLightId = (lightId: number): number => {
@@ -613,7 +579,7 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
       lightGroups.get(baseLightId)!.push(point);
     });
     
-    console.log(`🎯 GLOBAL BOUNDS: Found ${lightGroups.size} light sources:`, Array.from(lightGroups.keys()));
+    // Found light sources
     
     // Calculate extent (size) for each light source
     let maxLightExtent = 0;
@@ -638,19 +604,19 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
         maxLightExtent = lightExtent;
       }
       
-      console.log(`🎯 LIGHT ${lightId}: Y:[${minY.toFixed(6)}, ${maxY.toFixed(6)}] range=${yRange.toFixed(6)}mm, Z:[${minZ.toFixed(6)}, ${maxZ.toFixed(6)}] range=${zRange.toFixed(6)}mm, max extent=${lightExtent.toFixed(6)}mm`);
+      // Light extent calculated
     });
     
     // Handle edge case: if all lights have zero extent
     if (maxLightExtent === 0) {
-      console.log('🎯 GLOBAL BOUNDS: All lights have zero extent, using 0.6mm default view');
+      // All lights have zero extent, using default view
       return { yMin: -0.3, yMax: 0.3, zMin: -0.3, zMax: 0.3, center: { y: 0, z: 0 } };
     }
     
     // Use 1.2x padding around the maximum light extent
     const paddedRange = maxLightExtent * 1.2;
     
-    console.log(`🎯 GLOBAL BOUNDS: Maximum light extent = ${maxLightExtent.toFixed(6)}mm`);
+    // Maximum light extent calculated
     console.log(`🎯 GLOBAL BOUNDS: Final view range = ${paddedRange.toFixed(6)}mm (1.2x padding)`);
     console.log(`🎯 GLOBAL BOUNDS: Light extents:`, lightExtents.map(l => `Light ${l.lightId}: ${l.maxExtent.toFixed(6)}mm`));
     
@@ -882,29 +848,22 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
   // };
 
   const updatePlot = () => {
-    console.log('📊 PLOT UPDATE: Starting plot update...');
     if (!plotRef.current) {
-      console.warn('📊 PLOT UPDATE: Plot ref not available, skipping update');
       return;
     }
 
     const data = getIntersectionData();
-    console.log(`📊 PLOT UPDATE: Retrieved ${data.length} intersection points for analysis`);
 
     let plotConfig: any;
 
     if (analysisType === 'Hit Map') {
       plotConfig = createHitMapPlot(data);
     } else {
-      console.log('📊 PLOT UPDATE: Creating spot diagram for selected light source');
       plotConfig = createSpotDiagram(data);
     }
 
-    console.log(`📊 PLOT UPDATE: Created plot config with ${plotConfig.data.length} traces`);
-
     // Create or update plot
     if (!plotlyInstanceRef.current) {
-      console.log('📊 PLOT UPDATE: Creating new plot...');
       Plotly.newPlot(plotRef.current, plotConfig.data, plotConfig.layout, {
         responsive: true,
         displayModeBar: true,
@@ -912,7 +871,6 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
         modeBarButtonsToAdd: ['resetScale2d']
       }).then((plotDiv: any) => {
         plotlyInstanceRef.current = plotDiv;
-        console.log('📊 PLOT UPDATE: New plot created successfully');
         
         // Force equal axis scaling after creation
         setTimeout(() => {
@@ -930,22 +888,17 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
         }, 100);
       });
     } else {
-      console.log('📊 PLOT UPDATE: Updating existing plot...');
       Plotly.react(plotRef.current, plotConfig.data, plotConfig.layout).then(() => {
-        console.log('📊 PLOT UPDATE: Existing plot updated successfully');
       });
     }
   };
 
   useEffect(() => {
-    console.log(`📊 IntersectionPlot EFFECT: Component mounted/updated for surface ${surfaceId}, analysis: ${analysisType}`);
     updatePlot();
   }, [surfaceId, analysisType, yamlContent, systemData]);
 
   useEffect(() => {
-    console.log('📊 IntersectionPlot EFFECT: Setting up ray trace listener...');
     const handleRayTraceComplete = () => {
-      console.log('📊 IntersectionPlot LISTENER: Ray trace completed, updating plot...');
       setTimeout(() => updatePlot(), 100); // Small delay to ensure data collection is complete
     };
 
@@ -953,7 +906,6 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
     window.addEventListener('rayTraceComplete', handleRayTraceComplete);
 
     return () => {
-      console.log('📊 IntersectionPlot CLEANUP: Removing ray trace listener...');
       window.removeEventListener('rayTraceComplete', handleRayTraceComplete);
     };
   }, []);

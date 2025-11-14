@@ -149,29 +149,19 @@ export class OpticalSystemParser {
               -Math.cos(elevationRad) * Math.sin(azimuthRad),  // Y component  
               Math.sin(elevationRad)                           // Z component
             ).normalize();
-            console.log(`  Normal from angles [${trainData.angles[0]}, ${trainData.angles[1]}]: [${normal.x.toFixed(3)}, ${normal.y.toFixed(3)}, ${normal.z.toFixed(3)}]`);
           }
           
           if (trainData.lid !== undefined) {
             referencedLights.add(trainData.lid.toString());
-            console.log(`  Referenced light: lid ${trainData.lid} at position (${absolutePosition.x}, ${absolutePosition.y}, ${absolutePosition.z})`);
             opticalTrainElements.push({ trainName, trainData, position: absolutePosition.clone(), angles, normal, dial, type: 'light' });
           }
           
           if (trainData.aid !== undefined) {
             opticalTrainElements.push({ trainName, trainData, position: absolutePosition.clone(), angles, normal, dial, type: 'assembly' });
-            console.log(`  Referenced assembly: aid ${trainData.aid} at position (${absolutePosition.x}, ${absolutePosition.y}, ${absolutePosition.z})`);
-            if (dial !== undefined) {
-              console.log(`    Assembly dial: ${dial}°`);
-            }
           }
           
           if (trainData.sid !== undefined) {
             opticalTrainElements.push({ trainName, trainData, position: absolutePosition.clone(), angles, normal, dial, type: 'surface' });
-            console.log(`  Referenced surface: sid ${trainData.sid} at position (${absolutePosition.x}, ${absolutePosition.y}, ${absolutePosition.z})`);
-            if (dial !== undefined) {
-              console.log(`    Surface dial: ${dial}°`);
-            }
           }
         });
       });
@@ -478,10 +468,10 @@ export class OpticalSystemParser {
       }
     });
 
-    console.log(`📊 Found ${wavelengths.size} unique wavelengths: [${Array.from(wavelengths).join(', ')}]nm`);
+    // Found unique wavelengths for pre-computation
 
     if (wavelengths.size === 0) {
-      console.log('📊 No wavelengths found - skipping pre-computation');
+      // No wavelengths found - skipping pre-computation
       return;
     }
 
