@@ -416,6 +416,9 @@ export class OpticalSystemParser {
   static traceOpticalSystem(system: OpticalSystem): { source: LightSourceClass; rayPaths: Ray[][] }[] {
     const results: { source: LightSourceClass; rayPaths: Ray[][] }[] = [];
     
+    // Initialize ray accountability system
+    RayTracer.initializeRayAccountability(system);
+    
     // Get surfaces in order along optical axis
     const orderedSurfaces = this.getSurfacesInOrder(system);
     
@@ -441,6 +444,17 @@ export class OpticalSystemParser {
       
       results.push({ source: lightSource, rayPaths });
     });
+    
+    // Log ray accountability statistics
+    const accountability = RayTracer.getRayAccountability();
+    const systemStats = this.getSystemRayAccountability(system);
+    
+    console.log('📊 RAY ACCOUNTABILITY SUMMARY:');
+    console.log(`   Light Sources: ${systemStats.systemTotals.totalSources}`);
+    console.log(`   Total System Rays: ${systemStats.systemTotals.totalSystemRays}`);
+    if (accountability.totalBranchedRays > 0) {
+      console.log(`   Branching Events: ${accountability.branchingEvents}`);
+    }
     
     return results;
   }
@@ -521,5 +535,75 @@ export class OpticalSystemParser {
 
     // Summary log removed - user is confident with IOR lookup
     console.log(`🏆 Wavelength tables ready - O(1) runtime material access!`);
+  }
+  
+  /**
+   * Get comprehensive ray accountability for the entire optical system
+   */
+  static getSystemRayAccountability(system: OpticalSystem): {
+    lightSources: Array<{
+      lid: number;
+      totalRays: number;
+    }>;
+    systemTotals: {
+      totalSources: number;
+      totalSystemRays: number;
+    };
+  } {
+    const lightSources = system.lightSources.map(source => ({
+      lid: source.lid,
+      totalRays: (source as any).getRayCount()
+    }));
+    
+    const systemTotals = lightSources.reduce((totals, source) => ({
+      totalSources: totals.totalSources + 1,
+      totalSystemRays: totals.totalSystemRays + source.totalRays
+    }), {
+      totalSources: 0,
+      totalSystemRays: 0
+    });
+    
+    return { lightSources, systemTotals };
+  }
+  
+  /**
+   * Find light source that owns a specific ray by lightId
+   */
+  static findRayOwner(system: OpticalSystem, lightId: number): LightSourceClass | null {
+    // Extract base light ID (remove generation and surface order)
+    const baseLightId = Math.floor(lightId) % 1000;
+    const decimalPart = lightId - Math.floor(lightId);
+    
+    // For original lights (0-9), check decimal conversion
+    let targetLid = baseLightId;
+    if (decimalPart > 0 && decimalPart < 1 && baseLightId < 100) {
+      // This might be a decimal-converted original light (0.1 → lid 1)
+      targetLid = Math.floor(decimalPart * 10);
+    }
+    
+    return system.lightSources.find(source => {
+      // ROBUST LID MATCHING: Tolerance of 0.05 handles single decimal precision
+      return Math.abs(source.lid - targetLid) < 0.05;
+    }) || null;
+  }
+  
+  /**
+   * MAIN WORKFLOW FUNCTION: Get all rays in the system efficiently
+   * Use this for analysis: spot diagrams, ray intersection counts, etc.
+   */
+  static getAllSystemRays(system: OpticalSystem): {
+    allRays: Ray[];              // Every ray in the system
+    raysByLight: Map<number, Ray[]>; // Organized by light source
+  } {
+    const allRays: Ray[] = [];
+    const raysByLight = new Map<number, Ray[]>();
+    
+    system.lightSources.forEach(source => {
+      const lightRays = (source as any).getAllRays();
+      allRays.push(...lightRays);
+      raysByLight.set(source.lid, lightRays);
+    });
+    
+    return { allRays, raysByLight };
   }
 }

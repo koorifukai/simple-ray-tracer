@@ -106,7 +106,7 @@ export class LightSource {
   public direction: Vector3;
   public wavelength: number;
   public numberOfRays: number;
-  public rays: Ray[];
+  public rays: Ray[]; // All rays from this light (source + branched)
   public sourceType: LightSourceType;
   public divergence: number;
   
@@ -129,7 +129,7 @@ export class LightSource {
     this.direction = direction.normalize();
     this.wavelength = wavelength;
     this.numberOfRays = numberOfRays;
-    this.rays = [];
+    this.rays = []; // All rays (source + branched)
     this.sourceType = 'linear';
     this.divergence = 0;
     
@@ -432,7 +432,7 @@ export class LightSource {
    * Applies unified transformation to both position and direction
    */
   private createRaysFromLocalData(rayData: { position: Vector3, direction: Vector3 }[]): void {
-    this.rays = [];
+    this.rays = []; // Reset ray collection
     
     rayData.forEach(data => {
       // Transform local position to world coordinates
@@ -442,7 +442,7 @@ export class LightSource {
       const worldDirection = this.forwardTransform.transformVectorV3(data.direction);
       
       const ray = new Ray(worldPosition, worldDirection, this.wavelength, this.lid);
-      this.rays.push(ray);
+      this.rays.push(ray); // All rays in single collection
     });
   }
 
@@ -488,20 +488,61 @@ export class LightSource {
   }
 
   /**
-   * Generate and return rays for ray tracing visualization
-   * Returns a limited number of rays for performance
+   * Get initial rays for ray tracing (only original source rays)
+   * Used to start ray tracing process - branched rays added during tracing
    */
-  generateRays(maxRays?: number): Ray[] {
+  getInitialRays(maxRays?: number): Ray[] {
     if (this.rays.length === 0) {
       // If no rays generated yet, create a default linear pattern
       this.linear(10);
     }
     
-    if (maxRays && maxRays < this.rays.length) {
-      return this.rays.slice(0, maxRays);
+    // Only return initial rays for tracing start (branched rays added during trace)
+    const initialRays = this.rays.filter(ray => ray.startsAt === 0);
+    
+    if (maxRays && maxRays < initialRays.length) {
+      return initialRays.slice(0, maxRays);
     }
     
-    return this.rays;
+    return initialRays;
+  }
+  
+  /**
+   * Get initial rays for ray tracing (alias for backward compatibility)
+   * @deprecated Use getInitialRays() instead
+   */
+  generateRays(maxRays?: number): Ray[] {
+    return this.getInitialRays(maxRays);
+  }
+  
+  /**
+   * Add a branched ray to this light source for accountability
+   * Called by ray tracer when partial surfaces create new rays
+   */
+  addBranchedRay(ray: Ray): void {
+    this.rays.push(ray);
+  }
+  
+  /**
+   * Get all rays from this light source (MAIN WORKFLOW FUNCTION)
+   * Use this for all analysis: spot diagrams, ray counts, intersection analysis, etc.
+   */
+  getAllRays(): Ray[] {
+    return [...this.rays]; // Return copy to prevent external modification
+  }
+  
+  /**
+   * Get ray count (MAIN WORKFLOW FUNCTION)
+   */
+  getRayCount(): number {
+    return this.rays.length;
+  }
+  
+  /**
+   * Clear all rays (useful for system reset)
+   */
+  clearAllRays(): void {
+    this.rays = [];
   }
 }
 

@@ -803,7 +803,10 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
         if (parsedData.light_sources && Array.isArray(parsedData.light_sources)) {
           parsedData.light_sources.forEach((sourceGroup: any) => {
             Object.entries(sourceGroup).forEach(([, sourceData]: [string, any]) => {
-              if (sourceData.lid === searchLightId) {
+              // ROBUST LID MATCHING: Tolerance of 0.05 handles single decimal precision
+              const lidMatch = Math.abs(sourceData.lid - searchLightId) < 0.05;
+              
+              if (lidMatch) {
                 wavelength = `${sourceData.wavelength}nm`;
               }
             });

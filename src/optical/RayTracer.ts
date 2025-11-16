@@ -57,6 +57,23 @@ export class RayTracer {
     simplified: false, // Disabled simplified ray tracing logs
     intersection: true, // ✅ ENABLED - Shows wavelength-dependent refractive indices!
   };
+  
+  /**
+   * ROBUST LID MATCHING: Eliminates floating point precision issues
+   * Always uses tolerance-based matching for maximum reliability
+   * Tolerance of 0.05 handles single decimal precision with margin
+   */
+  private static readonly LID_TOLERANCE = 0.05;
+  
+  static lidEquals(lid1: number, lid2: number): boolean {
+    // Always use tolerance-based comparison for foolproof matching
+    // Handles both integer and decimal LIDs uniformly
+    return Math.abs(lid1 - lid2) < this.LID_TOLERANCE;
+  }
+  
+  static findLightByLid(lightSources: any[], targetLid: number): any | null {
+    return lightSources.find(source => this.lidEquals(source.lid, targetLid)) || null;
+  }
   static log(category: 'general'|'surface'|'ray'|'simplified'|'intersection', ...args: any[]) {
     if (this.logConfig[category]) {
       console.log(...args);
@@ -73,12 +90,132 @@ export class RayTracer {
   
   // Surface sequence for diffuse scattering calculations
   private static surfaceSequence: OpticalSurface[] = [];
+  
+  // Ray accountability: track all created rays for efficient retrieval
+  private static rayRegistry: Map<number, Ray[]> = new Map(); // lightId -> branched rays
+  private static activeOpticalSystem: any = null; // Reference to current optical system
 
   /**
    * Set the surface sequence for diffuse scattering calculations
    */
   static setSurfaceSequence(surfaces: OpticalSurface[]): void {
     this.surfaceSequence = surfaces;
+  }
+  
+  /**
+   * Initialize ray accountability for a tracing session
+   */
+  static initializeRayAccountability(opticalSystem: any): void {
+    this.activeOpticalSystem = opticalSystem;
+    this.rayRegistry.clear();
+  }
+  
+  /**
+   * Register a branched ray with its parent light source for accountability
+   */
+  static registerBranchedRay(ray: Ray): void {
+    if (!this.activeOpticalSystem) return;
+    
+    // CORRECTED LID ANALYSIS: [generation*1000 + surface_number + 0.ancestral_light_id]
+    const lightId = ray.lightId;
+    
+    // Extract generation and ancestral LID
+    const generation = Math.floor(lightId / 1000);
+    const remainder = lightId - (generation * 1000);
+    const surfaceNumber = Math.floor(remainder);
+    const decimalPart = remainder - surfaceNumber;
+    const ancestralLID = Math.round(decimalPart * 10);
+    
+    let originalLightId: number;
+    if (generation === 0) {
+      // Original ray: use lightId directly
+      originalLightId = ray.lightId;
+    } else {
+      // Shadow ray: ancestral LID is the original
+      originalLightId = ancestralLID;
+    }
+    
+    // Find the light source that owns this ray
+    const parentLight = this.findLightByLid(this.activeOpticalSystem.lightSources || [], originalLightId);
+    
+    if (parentLight && typeof parentLight.addBranchedRay === 'function') {
+      parentLight.addBranchedRay(ray);
+    } else {
+      // Enhanced debugging for LID relationships
+      const lidInfo = this.analyzeLIDRelationships(ray.lightId);
+      console.warn(`Failed to find parent light for ray ${ray.lightId}`);
+      console.warn(`  Generation: ${lidInfo.generation}, Ancestral: ${lidInfo.ancestralLID}, Immediate Parent: ${lidInfo.immediateParentLID || 'None'}, Surface: ${lidInfo.surfaceNumber || 'Unknown'}`);
+    }
+    
+    // Also add to local registry for quick lookup
+    const baseId = Math.floor(ray.lightId);
+    if (!this.rayRegistry.has(baseId)) {
+      this.rayRegistry.set(baseId, []);
+    }
+    this.rayRegistry.get(baseId)!.push(ray);
+  }
+  
+  /**
+   * Analyze LID relationships using corrected encoding (for debugging and accountability)
+   */
+  static analyzeLIDRelationships(rayLightId: number): {
+    generation: number;
+    ancestralLID: number;
+    immediateParentLID: number | null;
+    surfaceNumber?: number;
+  } {
+    // CORRECTED LID ANALYSIS: [generation*1000 + surface_number + 0.ancestral_light_id]
+    const generation = Math.floor(rayLightId / 1000);
+    const remainder = rayLightId - (generation * 1000);
+    const surfaceNumber = Math.floor(remainder);
+    const decimalPart = remainder - surfaceNumber;
+    const ancestralLID = Math.round(decimalPart * 10);
+    
+    if (generation === 0) {
+      // Original ray
+      return {
+        generation: 0,
+        ancestralLID: rayLightId,
+        immediateParentLID: null
+      };
+    } else {
+      // Shadow ray: analyze relationships
+      let immediateParentLID: number | null = null;
+      
+      if (generation === 1) {
+        // Gen 1: parent is the ancestral light
+        immediateParentLID = ancestralLID;
+      } else {
+        // Gen 2+: immediate parent cannot be determined from LID alone
+        immediateParentLID = null;
+      }
+      
+      return {
+        generation,
+        ancestralLID,
+        immediateParentLID,
+        surfaceNumber
+      };
+    }
+  }
+  
+  /**
+   * Get ray accountability statistics
+   */
+  static getRayAccountability(): { totalBranchedRays: number; branchingEvents: number } {
+    const totalBranchedRays = Array.from(this.rayRegistry.values())
+      .reduce((total, rays) => total + rays.length, 0);
+    const branchingEvents = this.rayRegistry.size;
+    
+    return { totalBranchedRays, branchingEvents };
+  }
+  
+  /**
+   * Clear ray accountability (call between tracing sessions)
+   */
+  static clearRayAccountability(): void {
+    this.rayRegistry.clear();
+    this.activeOpticalSystem = null;
   }
 
   /**
@@ -412,69 +549,100 @@ export class RayTracer {
       return; // Skip if no rays to analyze
     }
 
-    // Group rays by light ID
+    // Group rays by their ACTUAL light ID, not ancestral LID
     const raysByLight = new Map<number, Ray[]>();
     rays.forEach(ray => {
-      const lightId = ray.lightId;
-      if (!raysByLight.has(lightId)) {
-        raysByLight.set(lightId, []);
+      const actualLightId = ray.lightId; // Use actual LID, not ancestral
+      if (!raysByLight.has(actualLightId)) {
+        raysByLight.set(actualLightId, []);
       }
-      raysByLight.get(lightId)!.push(ray);
+      raysByLight.get(actualLightId)!.push(ray);
     });
 
-    console.log('\n📏 RAY SEGMENT LENGTHS BY LIGHT (Chronological Order):');
+    console.log('\n📏 RAY PATH ANALYSIS BY LIGHT ID:');
     console.log('=' .repeat(60));
 
-    // Process each light separately
-    raysByLight.forEach((lightRays, lightId) => {
-      // Sort rays by their order in the path (assuming they're already in order)
+    // Process each light separately, sorted by LID for consistent output
+    const sortedLightIds = Array.from(raysByLight.keys()).sort((a, b) => a - b);
+    
+    sortedLightIds.forEach(lightId => {
+      const lightRays = raysByLight.get(lightId)!;
+      
+      // Determine ray type using generation-based logic
+      const generation = Math.floor(lightId / 1000);
+      const remainder = lightId - (generation * 1000);
+      const surfaceNumber = Math.floor(remainder);
+      const decimalPart = remainder - surfaceNumber;
+      const ancestralLID = Math.round(decimalPart * 10);
+      
+      let rayType: string;
+      if (generation === 0) {
+        rayType = 'Original';
+      } else {
+        rayType = `Shadow/Branched (Gen ${generation}, Surface ${surfaceNumber}, Ancestral ${ancestralLID})`;
+      }
+      
+      // Sort rays chronologically within this light ID
       lightRays.sort((a, b) => {
-        // Primary sort by position along the optical axis (x-coordinate)
-        const xDiff = a.position.x - b.position.x;
-        if (Math.abs(xDiff) > 1e-6) return xDiff;
+        // Primary sort: ray that starts earlier in surface sequence comes first
+        const startsAtDiff = (a.startsAt || 0) - (b.startsAt || 0);
+        if (startsAtDiff !== 0) return startsAtDiff;
         
-        // Secondary sort by distance from origin for branched rays
-        const distA = a.position.length();
-        const distB = b.position.length();
-        return distA - distB;
+        // Secondary sort: accumulated path length (chronological within same starting surface)
+        return (a.pathLength || 0) - (b.pathLength || 0);
       });
 
       console.log(`\n🔍 Light ID ${lightId}:`);
-      console.log(`  Ray type: ${lightId >= 1000 ? 'Shadow/Branched' : 'Original'}`);
-      console.log(`  Total segments: ${lightRays.length}`);
+      console.log(`  Ray type: ${rayType}`);
+      console.log(`  Total path points: ${lightRays.length}`);
 
-      let totalPathLength = 0;
-      const segmentLengths: number[] = [];
+      // Use proper path analysis for consecutive segments
+      let totalOpticalPathLength = 0;
+      let validSegments = 0;
 
-      // Calculate segment lengths between consecutive rays
-      for (let i = 0; i < lightRays.length - 1; i++) {
-        const currentRay = lightRays[i];
-        const nextRay = lightRays[i + 1];
-        const segmentLength = currentRay.position.distanceTo(nextRay.position);
+      // Show the complete ray path with proper segment analysis
+      for (let i = 0; i < lightRays.length; i++) {
+        const ray = lightRays[i];
+        const isLastRay = i === lightRays.length - 1;
         
-        // Skip zero-length or near-zero segments
-        if (segmentLength > 1e-6) {
-          segmentLengths.push(segmentLength);
-          totalPathLength += segmentLength;
-
-          console.log(`  Segment ${segmentLengths.length}: ${segmentLength.toFixed(3)} units [${currentRay.position.x.toFixed(2)},${currentRay.position.y.toFixed(2)},${currentRay.position.z.toFixed(2)}] → [${nextRay.position.x.toFixed(2)},${nextRay.position.y.toFixed(2)},${nextRay.position.z.toFixed(2)}]`);
+        // Calculate segment length to next ray point
+        let segmentLength = 0;
+        if (!isLastRay) {
+          const nextRay = lightRays[i + 1];
+          segmentLength = ray.position.distanceTo(nextRay.position);
+          
+          if (segmentLength > 1e-6) {
+            validSegments++;
+            totalOpticalPathLength += segmentLength;
+            
+            console.log(`  Path ${i + 1}→${i + 2}: ${segmentLength.toFixed(3)} units [${ray.position.x.toFixed(2)},${ray.position.y.toFixed(2)},${ray.position.z.toFixed(2)}] → [${nextRay.position.x.toFixed(2)},${nextRay.position.y.toFixed(2)},${nextRay.position.z.toFixed(2)}]`);
+          } else {
+            console.log(`  Path ${i + 1}→${i + 2}: ${segmentLength.toFixed(6)} units (too small) [${ray.position.x.toFixed(2)},${ray.position.y.toFixed(2)},${ray.position.z.toFixed(2)}] → [${nextRay.position.x.toFixed(2)},${nextRay.position.y.toFixed(2)},${nextRay.position.z.toFixed(2)}]`);
+          }
+        } else {
+          // Final ray position
+          console.log(`  Final point: [${ray.position.x.toFixed(2)},${ray.position.y.toFixed(2)},${ray.position.z.toFixed(2)}] (Path length: ${ray.pathLength?.toFixed(3) || 'N/A'})`);
         }
       }
 
-      console.log(`  ✅ Total optical path length: ${totalPathLength.toFixed(3)} units`);
+      console.log(`  ✅ Total optical path length: ${totalOpticalPathLength.toFixed(3)} units`);
+      console.log(`  📏 Valid segments: ${validSegments} (${lightRays.length - 1} expected)`);
       
-      // Show segment statistics
-      if (segmentLengths.length > 0) {
-        const avgSegmentLength = totalPathLength / segmentLengths.length;
-        const maxSegmentLength = Math.max(...segmentLengths);
-        const minSegmentLength = Math.min(...segmentLengths);
-        
-        console.log(`  📊 Segment stats: Avg=${avgSegmentLength.toFixed(3)}, Max=${maxSegmentLength.toFixed(3)}, Min=${minSegmentLength.toFixed(3)}`);
+      // Show path statistics
+      if (validSegments > 0) {
+        const avgSegmentLength = totalOpticalPathLength / validSegments;
+        console.log(`  📊 Average segment length: ${avgSegmentLength.toFixed(3)} units`);
+      }
+      
+      // Show any path discontinuities
+      const discontinuities = lightRays.length - 1 - validSegments;
+      if (discontinuities > 0) {
+        console.log(`  ⚠️  Path discontinuities: ${discontinuities} (zero-length or invalid segments)`);
       }
     });
 
     console.log('\n' + '='.repeat(60));
-    console.log(`📈 Summary: Analyzed ${raysByLight.size} light source(s) with ${rays.length} total ray segments`);
+    console.log(`📈 Summary: Analyzed ${raysByLight.size} light path(s) with ${rays.length} total ray points`);
   }
 
   /**
@@ -594,83 +762,45 @@ export class RayTracer {
           this.log('ray', `Partial surface: creating reflected AND transmitted rays (transmission coeff: ${transmissionCoeff})`);
         }
         
-        // Generation-based hierarchical LID system:
-        // n' = 1000*(n//1000+1) + surface_order + decimal_place_of(n)
+        // CORRECTED LID ENCODING: [generation*1000 + surface_number + 0.ancestral_light_id]
         const originalLightId = currentRay.lightId;
-        const surfaceOrder = surface.numericalId || 0;
+        const surfaceOrder = surface.numericalId || i;
         
-        // Extract generation and ancestral ID
+        // Extract current generation and calculate next generation
         const currentGeneration = Math.floor(originalLightId / 1000);
         const nextGeneration = currentGeneration + 1;
         
-        // For original lights (0-9), convert to decimal form (0.0-0.9)
-        // For shadow lights, preserve existing decimal part
-        let ancestralId: number;
-        if (originalLightId < 10 && originalLightId === Math.floor(originalLightId)) {
-          // Original single-digit light: convert to decimal
-          ancestralId = originalLightId / 10; // 0→0.0, 1→0.1, ..., 9→0.9
+        // Extract ancestral LID from current ray
+        let ancestralLID: number;
+        if (currentGeneration === 0) {
+          // Original ray: itself is the ancestral
+          ancestralLID = originalLightId;
         } else {
-          // Shadow light: extract decimal part
-          ancestralId = originalLightId - Math.floor(originalLightId);
+          // Shadow ray: extract ancestral from decimal part
+          const remainder = originalLightId - (currentGeneration * 1000);
+          const decimalPart = remainder - Math.floor(remainder);
+          ancestralLID = Math.round(decimalPart * 10);
         }
         
-        const shadowLightId = 1000 * nextGeneration + surfaceOrder + ancestralId;
+        // Generate shadow LID: generation*1000 + surface + 0.ancestral
+        const shadowLightId = nextGeneration * 1000 + surfaceOrder + (ancestralLID / 10);
         
         // Always show LID SPLIT for partial surfaces, regardless of first trace status
-        console.log(`🔍 LID SPLIT [${surface.id}]: ${originalLightId} → ${originalLightId} (${transmissionCoeff > 0.5 ? 'transmitted' : 'reflected'}) & ${shadowLightId} (${transmissionCoeff > 0.5 ? 'reflected' : 'transmitted'})`);
+        console.log(`🔍 LID SPLIT [${surface.id}]: ${originalLightId} → ${originalLightId} (${transmissionCoeff > 0.5 ? 'transmitted' : 'reflected'}) & ${shadowLightId} (${transmissionCoeff > 0.5 ? 'reflected' : 'transmitted'})`);        
         
-        let transmittedRayForTracing: Ray;
-        let reflectedRayForTracing: Ray;
+        // Determine which ray keeps original LID and which gets shadow LID
+        const keepOriginalLID = transmissionCoeff > 0.5 ? 'transmitted' : 'reflected';
         
-        if (transmissionCoeff > 0.5) {
-          // Transmission dominant: transmitted keeps original LID, reflected gets surface-ID namespace
-          transmittedRayForTracing = new Ray(
-            result.transmitted.position,
-            result.transmitted.direction,
-            result.transmitted.wavelength,
-            originalLightId, // Keeps original LID
-            result.transmitted.intensity,
-            i // CRITICAL FIX: Start from current partial surface, not surface 0
-          );
-          // Ensure transmitted ray continues independently (don't inherit stopsAt)
-          transmittedRayForTracing.stopsAt = -1;
-          
-          reflectedRayForTracing = new Ray(
-            result.reflected.position,
-            result.reflected.direction,
-            result.reflected.wavelength,
-            shadowLightId, // Gets surface-ID based LID
-            result.reflected.intensity,
-            i // CRITICAL FIX: Start from current partial surface, not surface 0
-          );
-          // Ensure reflected ray continues independently (don't inherit stopsAt)
-          reflectedRayForTracing.stopsAt = -1;
-        } else {
-          // Reflection dominant: reflected keeps original LID, transmitted gets surface-ID namespace
-          reflectedRayForTracing = new Ray(
-            result.reflected.position,
-            result.reflected.direction,
-            result.reflected.wavelength,
-            originalLightId, // Keeps original LID
-            result.reflected.intensity,
-            i // CRITICAL FIX: Start from current partial surface, not surface 0
-          );
-          // Ensure reflected ray continues independently (don't inherit stopsAt)
-          reflectedRayForTracing.stopsAt = -1;
-          
-          transmittedRayForTracing = new Ray(
-            result.transmitted.position,
-            result.transmitted.direction,
-            result.transmitted.wavelength,
-            shadowLightId, // Gets surface-ID based LID
-            result.transmitted.intensity,
-            i // CRITICAL FIX: Start from current partial surface, not surface 0
-          );
-          // Ensure transmitted ray continues independently (don't inherit stopsAt)
-          transmittedRayForTracing.stopsAt = -1;
-        }
+        // Create both rays with appropriate LIDs (fresh rays with no path inheritance)
+        const transmittedRayForTracing = this.createFreshBranchedRay(
+          result.transmitted!, originalLightId, shadowLightId, 
+          keepOriginalLID === 'transmitted', i
+        );
         
-        // Continue tracing transmitted ray through remaining surfaces
+        const reflectedRayForTracing = this.createFreshBranchedRay(
+          result.reflected!, originalLightId, shadowLightId,
+          keepOriginalLID === 'reflected', i
+        );        // Continue tracing transmitted ray through remaining surfaces
         const transmittedPaths = this.traceRayWithBranching(
           transmittedRayForTracing, 
           surfaces, 
@@ -686,101 +816,33 @@ export class RayTracer {
           false
         );
         
-        // Combine current ray path with both branches
+        // BEAM SPLITTER PHYSICS: Original ray continues with its existing path
+        // New rays start fresh with empty paths from the intersection point
         const allPaths: Ray[][] = [];
         
-        // CRITICAL FIX: Each branch gets its own complete path with consistent Light ID
-        // The original rayPath should ONLY be used as the foundation up to the split point
+        // Original ray continues with existing path up to branching point
+        const originalContinuationPath = [...rayPath];
         
-        // Add transmitted branch paths - each path has consistent transmitted LID throughout
-        for (const path of transmittedPaths) {
-          // Create complete transmitted path: [original_path_with_transmitted_LID] + [transmitted_continuation]
-          const transmittedCompletePath: Ray[] = [];
-          
-          // Convert original path to transmitted LID (up to intersection point)
-          for (const originalRay of rayPath) {
-            transmittedCompletePath.push(new Ray(
-              originalRay.position,
-              originalRay.direction,
-              originalRay.wavelength,
-              transmittedRayForTracing.lightId, // Consistent transmitted LID
-              originalRay.intensity,
-              originalRay.startsAt // Preserve original startsAt
-            ));
+        // Add transmitted paths (each starts fresh from intersection)
+        for (const transmittedPath of transmittedPaths) {
+          if (keepOriginalLID === 'transmitted') {
+            // Transmitted ray continues original path
+            allPaths.push([...originalContinuationPath, ...transmittedPath]);
+          } else {
+            // Transmitted ray is new - starts fresh from intersection
+            allPaths.push(transmittedPath);
           }
-          
-          // Add transmitted continuation with correct LID
-          for (const continuationRay of path) {
-            transmittedCompletePath.push(new Ray(
-              continuationRay.position,
-              continuationRay.direction,
-              continuationRay.wavelength,
-              transmittedRayForTracing.lightId, // Consistent transmitted LID
-              continuationRay.intensity,
-              continuationRay.startsAt // Preserve continuation startsAt
-            ));
-          }
-          
-          allPaths.push(transmittedCompletePath);
         }
         
-        // Fallback for empty transmitted paths
-        if (transmittedPaths.length === 0) {
-          const transmittedOnlyPath = rayPath.map(ray => new Ray(
-            ray.position,
-            ray.direction,
-            ray.wavelength,
-            transmittedRayForTracing.lightId, // Consistent transmitted LID
-            ray.intensity,
-            ray.startsAt // Preserve original startsAt
-          ));
-          allPaths.push(transmittedOnlyPath);
-        }
-        
-        // Add reflected branch paths - each path has consistent reflected LID throughout  
-        for (const path of reflectedPaths) {
-          // Create complete reflected path: [original_path_with_reflected_LID] + [reflected_continuation]
-          const reflectedCompletePath: Ray[] = [];
-          
-          // Convert original path to reflected LID (up to intersection point)
-          for (const originalRay of rayPath) {
-            reflectedCompletePath.push(new Ray(
-              originalRay.position,
-              originalRay.direction,
-              originalRay.wavelength,
-              reflectedRayForTracing.lightId, // Consistent reflected LID
-              originalRay.intensity,
-              originalRay.startsAt // Preserve original startsAt
-            ));
+        // Add reflected paths (each starts fresh from intersection)
+        for (const reflectedPath of reflectedPaths) {
+          if (keepOriginalLID === 'reflected') {
+            // Reflected ray continues original path
+            allPaths.push([...originalContinuationPath, ...reflectedPath]);
+          } else {
+            // Reflected ray is new - starts fresh from intersection
+            allPaths.push(reflectedPath);
           }
-          
-          // Add reflected continuation with correct LID
-          for (const continuationRay of path) {
-            reflectedCompletePath.push(new Ray(
-              continuationRay.position,
-              continuationRay.direction,
-              continuationRay.wavelength,
-              reflectedRayForTracing.lightId, // Consistent reflected LID
-              continuationRay.intensity,
-              continuationRay.startsAt // Preserve continuation startsAt
-            ));
-          }
-          
-          allPaths.push(reflectedCompletePath);
-        }
-        
-        // Fallback for empty reflected paths  
-        if (reflectedPaths.length === 0) {
-          // Create complete reflected path from original path with reflected LID
-          const reflectedOnlyPath = rayPath.map(ray => new Ray(
-            ray.position,
-            ray.direction,
-            ray.wavelength,
-            reflectedRayForTracing.lightId, // Consistent reflected LID
-            ray.intensity,
-            ray.startsAt // Preserve original startsAt
-          ));
-          allPaths.push(reflectedOnlyPath);
         }
         
         return allPaths;
@@ -823,6 +885,35 @@ export class RayTracer {
     this.completeRayPath(rayPath, rayWasBlocked, surfaces, lastSuccessfulRayDirection, isFirstTrace);
     
     return [rayPath]; // Return single path array
+  }
+
+  /**
+   * Create a fresh branched ray with appropriate LID assignment
+   * BEAM SPLITTER PHYSICS: New rays start with empty path, only inheriting intersection position and direction
+   */
+  private static createFreshBranchedRay(
+    physicsRay: Ray,
+    originalLightId: number,
+    shadowLightId: number,
+    keepOriginalLID: boolean,
+    startSurfaceIndex: number
+  ): Ray {
+    const branchedRay = new Ray(
+      physicsRay.position,     // Only inherit intersection position
+      physicsRay.direction,    // Only inherit new direction
+      physicsRay.wavelength,
+      keepOriginalLID ? originalLightId : shadowLightId,
+      physicsRay.intensity,
+      startSurfaceIndex
+    );
+    // Fresh ray: NO path length inheritance - starts at 0
+    branchedRay.pathLength = 0;
+    branchedRay.stopsAt = -1; // Ensure ray continues independently
+    
+    // Register branched ray for accountability
+    this.registerBranchedRay(branchedRay);
+    
+    return branchedRay;
   }
 
   /**
