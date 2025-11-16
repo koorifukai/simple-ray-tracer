@@ -287,6 +287,15 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
             RayTracer.clearWarnings();
             console.log('🧹 Cleared ray tracer state for new tracing session');
             
+            // CRITICAL FIX: Clear light source rays BEFORE ray tracing to prevent dual-session contamination
+            // This prevents head-to-tail connections between visualization and analysis sessions
+            opticalSystem.lightSources.forEach((source) => {
+              if (source.clearAllRays && typeof source.clearAllRays === 'function') {
+                source.clearAllRays();
+              }
+            });
+            console.log('🧹 VISUALIZATION: Cleared light source rays for session isolation');
+            
             // CRITICAL FIX: Clear and start intersection data collection BEFORE ray tracing
             // This ensures clean data for each ray tracing session
             const collector = RayIntersectionCollector.getInstance();
@@ -324,39 +333,27 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
                         
                         // Check if we have surfaces to trace through
                         if (opticalSystem && opticalSystem.surfaces && opticalSystem.surfaces.length > 0) {
-                          // Trace ray through optical system
-                          const rayPath = RayTracer.traceRaySequential(ray, opticalSystem.surfaces);
+                          // Trace ray through optical system - now returns structured collection
+                          const rayPathCollection = RayTracer.traceRaySequential(ray, opticalSystem.surfaces);
                           
-                          // Group rays by light ID to handle branching correctly
-                          const rayGroups = new Map<number, Ray[]>();
-                          for (const pathRay of rayPath) {
-                            const lightId = pathRay.lightId;
-                            if (!rayGroups.has(lightId)) {
-                              rayGroups.set(lightId, []);
-                            }
-                            rayGroups.get(lightId)!.push(pathRay);
-                          }
+                          // Get structured paths for visualization
+                          const visualizationPaths = rayPathCollection.getVisualizationData();
                           
-                          // Ray grouping logging disabled for performance
-                          
-                          // Plot each ray group (light ID) separately
-                          rayGroups.forEach((groupRays, lightId) => {
-                            // All rays (original and branched) use the same wavelength-based color
-                            // since branched rays have the same wavelength as the original ray
+                          // Plot each structured path separately (no more flattening chaos!)
+                          visualizationPaths.forEach((pathData) => {
+                            const { lightId, rays: pathRays } = pathData;
                             const rayColor = color;
                             
-                            // Note: Branched rays (fractional light IDs) maintain the same wavelength
-                            // and thus the same color as the original ray, just with different intensity
+                            console.log(`📊 PLOTTING STRUCTURED PATH [Light ${lightId}]: ${pathRays.length} ray points, ${pathRays.length - 1} segments`);
                             
-                            // Plot the ray group as connected segments
-                            // console.log(`🔍 PLOTTING: Light ID ${lightId} with ${groupRays.length} segments`);
-                            for (let i = 0; i < groupRays.length - 1; i++) {
-                              const startRay = groupRays[i];
-                              const endRay = groupRays[i + 1];
+                            let plottedSegmentCount = 0;
+                            
+                            // Plot consecutive segments in this path
+                            for (let i = 0; i < pathRays.length - 1; i++) {
+                              const startRay = pathRays[i];
+                              const endRay = pathRays[i + 1];
                               
-                              // console.log(`  Segment ${i}: (${startRay.position.x.toFixed(3)}, ${startRay.position.y.toFixed(3)}, ${startRay.position.z.toFixed(3)}) -> (${endRay.position.x.toFixed(3)}, ${endRay.position.y.toFixed(3)}, ${endRay.position.z.toFixed(3)})`);
-                              
-                              // Validate coordinates before plotting
+                              // Validate coordinates
                               const coords = [
                                 startRay.position.x, startRay.position.y, startRay.position.z,
                                 endRay.position.x, endRay.position.y, endRay.position.z
@@ -364,8 +361,10 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
                               
                               if (coords.some(coord => !isFinite(coord))) {
                                 console.warn(`Invalid coordinates for light ID ${lightId} segment ${i + 1}:`, coords);
-                                continue; // Skip this segment
+                                continue;
                               }
+                              
+                              plottedSegmentCount++;
                               
                               plotData.push({
                                 type: 'scatter3d',
@@ -375,13 +374,15 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
                                 z: [startRay.position.z, endRay.position.z],
                                 line: {
                                   color: rayColor,
-                                  width: 3 // Make thicker for easier visibility
+                                  width: 3
                                 },
                                 name: `Light ${lightId} Seg ${i + 1}`,
                                 showlegend: false,
                                 hoverinfo: 'skip'
                               });
                             }
+                            
+                            console.log(`✅ STRUCTURED PLOT [Light ${lightId}]: ${plottedSegmentCount} segments plotted (Expected: ${pathRays.length - 1})`);
                           });
                         } else {
                           // No surfaces - just show simple ray extension
@@ -429,6 +430,48 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
                 console.warn(`Light source ${index} missing position or wavelength:`, source);
               }
             });
+            
+            // FINAL VISUAL PLOTTING SUMMARY
+            const totalVisualSegments = plotData.filter(trace => 
+              trace.type === 'scatter3d' && 
+              trace.mode === 'lines' && 
+              trace.name && 
+              trace.name.includes('Light')
+            ).length;
+            
+            if (totalVisualSegments > 0) {
+              console.log(`\n📈 VISUALIZATION SUMMARY: ${totalVisualSegments} total ray segments plotted to Plotly`);
+              console.log(`   Compare this with ray segment analysis above to verify consistency`);
+            }
+            
+            // SESSION SUMMARY: Count total segments plotted per light ID
+            const segmentsByLightId = new Map<number, number>();
+            plotData.forEach(trace => {
+              if (trace.type === 'scatter3d' && 
+                  trace.mode === 'lines' && 
+                  trace.name && 
+                  trace.name.includes('Light')) {
+                const match = trace.name.match(/Light (\d+(?:\.\d+)?)/);
+                if (match) {
+                  const lightId = parseFloat(match[1]);
+                  segmentsByLightId.set(lightId, (segmentsByLightId.get(lightId) || 0) + 1);
+                }
+              }
+            });
+            
+            if (segmentsByLightId.size > 0) {
+              console.log(`\n📈 SESSION SUMMARY: Plotted segments by Light ID`);
+              console.log('=' .repeat(50));
+              const sortedLightIds = Array.from(segmentsByLightId.keys()).sort((a, b) => a - b);
+              let totalSegments = 0;
+              sortedLightIds.forEach(lightId => {
+                const count = segmentsByLightId.get(lightId)!;
+                totalSegments += count;
+                console.log(`  Light ${lightId}: ${count} segments plotted`);
+              });
+              console.log(`  📊 Total: ${totalSegments} segments across ${segmentsByLightId.size} light ID(s)`);
+              console.log('=' .repeat(50));
+            }
             
           } catch (error) {
             console.error('Error during light source visualization:', error);

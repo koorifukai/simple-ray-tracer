@@ -9,19 +9,22 @@ assemblies:
     s1: 
       {relative: 0, angles: [45,0], shape: plano, semidia: 30, mode: partial, n2_material: Silica, transmission: 0.7}
     s2:
-      {relative: 10, angles: [45,0], shape: plano, semidia: 30, mode: refraction, n1_material: Silica, transmission: 0.3}
+      {relative: 10, angles: [45,0], shape: plano, semidia: 30, mode: partial, n1_material: Silica, transmission: 0.3}
     s3:
       {relative: 20, angles: [45,0], shape: plano, semidia: 30, mode: reflection}
 
 surfaces:
   - mir:
       {sid: 0, shape: plano, height: 50, width: 50, mode: reflection}
-    half_mir:
-      {sid: 1, shape: plano, height: 50, width: 50, mode: partial, n2_material: Silica,  transmission: 0.7}
     wk_half_mir:
+      {sid: 1, shape: plano, height: 50, width: 50, mode: partial, n2_material: Silica,  transmission: 0.7}
+    st_half_mir:
       {sid: 2, shape: plano, height: 50, width: 50, mode: partial, n1_material: Silica, transmission: 0.3}
+    lar_mir:
+      {sid: 3, shape: plano, height: 50, width: 150, mode: reflection}
     stop:
-      {sid: 3, shape: plano, height: 50, width: 150, mode: absorption}
+      {sid: 4, shape: plano, height: 50, width: 150, mode: absorption}
+    
 
 light_sources:
   - l1:
@@ -44,8 +47,10 @@ optical_trains:
      {sid: 2, position: [-30,0,30], angles: [-135,0]}
     t3:
      {aid: 0, position: [-90,0,30], angles: [-180,0]}
+    lar_mir:
+     {sid: 3, position: [-60,30,30], angles: [90,45]}
     stop:
-     {sid: 3, position: [-60,30,30], angles: [90,0]}
+     {sid: 4, position: [-60,30,100], angles: [90,-90], dial: 90}
     
     
 optimization_settings:

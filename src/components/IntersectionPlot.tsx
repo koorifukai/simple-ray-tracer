@@ -562,8 +562,9 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
     // Helper function to extract base light ID for new 1000+ system
     const getBaseLightId = (lightId: number): number => {
       if (lightId >= 1000) {
+        // CORRECTED: Extract ancestral LID from decimal part
         const fractionalPart = lightId - Math.floor(lightId);
-        return Math.round(fractionalPart * 1000);
+        return Math.round(fractionalPart * 10); // 0.1 → 1, 0.2 → 2, etc.
       } else {
         return Math.floor(lightId);
       }

@@ -138,8 +138,10 @@ export class ObjectiveFunctions {
       
       sourceRays.forEach((ray: Ray) => {
         try {
-          const rayPath = RayTracer.traceRaySequential(ray, orderedSurfaces);
-          tracedPaths.push(rayPath);
+          const rayPathCollection = RayTracer.traceRaySequential(ray, orderedSurfaces);
+          // Convert structured collection to legacy format for optimization compatibility
+          const legacyPaths = rayPathCollection.getAllPaths().map(path => path.rays);
+          tracedPaths.push(...legacyPaths);
           
           // Extract intersection with TARGET surface from collector using same key logic as collector
           const intersectionData = collector.getIntersectionData();
@@ -180,15 +182,16 @@ export class ObjectiveFunctions {
             const isAbsorptionSurface = targetSurface.mode === 'absorption';
             const isValidHit = hit.isValid && (isAbsorptionSurface || !hit.wasBlocked);
             
-            // CRITICAL: Use the FINAL ray segment that hits the objective surface
+            // CRITICAL: Use the FINAL ray segment from traced paths
             // This is the ray segment AFTER all refractions/reflections from previous surfaces
-            const finalRaySegment = rayPath.length > 0 ? rayPath[rayPath.length - 1] : ray;
+            const finalPath = tracedPaths.length > 0 ? tracedPaths[tracedPaths.length - 1] : [];
+            const finalRaySegment = finalPath.length > 0 ? finalPath[finalPath.length - 1] : ray;
             
             // Debug: Log the validation properties to see why rays are invalid
             if (sourceIndex === 0 && targetIntersections.length < 3) { // Log first few rays
               console.log(`🔍 Ray ${targetIntersections.length}: isValid=${hit.isValid}, wasBlocked=${hit.wasBlocked}, isAbsorption=${isAbsorptionSurface}, final valid=${isValidHit}`);
               console.log(`🔍 Ray ${targetIntersections.length}: hit point=(${hit.hitPoint.x.toFixed(3)}, ${hit.hitPoint.y.toFixed(3)}, ${hit.hitPoint.z.toFixed(3)})`);
-              console.log(`🔍 Ray ${targetIntersections.length}: rayPath length=${rayPath.length}, using final segment`);
+              console.log(`🔍 Ray ${targetIntersections.length}: tracedPaths length=${tracedPaths.length}, using final segment`);
               console.log(`🔍 Ray ${targetIntersections.length}: final ray dir=(${finalRaySegment.direction.x.toFixed(3)}, ${finalRaySegment.direction.y.toFixed(3)}, ${finalRaySegment.direction.z.toFixed(3)})`);
             }
             

@@ -435,8 +435,10 @@ export class OpticalSystemParser {
       
       rays.forEach((ray: Ray) => {
         try {
-          const rayPath = RayTracer.traceRaySequential(ray, orderedSurfaces);
-          rayPaths.push(rayPath);
+          const rayPathCollection = RayTracer.traceRaySequential(ray, orderedSurfaces);
+          // Convert structured collection to legacy format for compatibility
+          const legacyPaths = rayPathCollection.getAllPaths().map(path => path.rays);
+          rayPaths.push(...legacyPaths);
         } catch (error) {
           console.warn(`Failed to trace ray from source ${source.id}:`, error);
         }
