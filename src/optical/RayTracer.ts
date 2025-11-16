@@ -526,15 +526,17 @@ export class RayTracer {
     // Create structured ray path collection
     const rayPathCollection = new RayPathCollection();
     
+    // Each path has ONE consistent lightId throughout
+    // Classify by generation: gen 0 = primary (from light source), gen 1+ = shadow (branched)
     for (let pathIndex = 0; pathIndex < allRayPaths.length; pathIndex++) {
       const path = allRayPaths[pathIndex];
       if (path.length > 0) {
-        // Get light ID from first ray in path
+        // Extract consistent light ID from the path (should be same for all rays in path)
         const lightId = path[0].lightId;
         
-        // Determine path type based on light ID
+        // Classify based on lightId generation
         const generation = Math.floor(lightId / 1000);
-        const pathType = generation === 0 ? 'original' : 'reflected'; // Simplified classification
+        const pathType = generation === 0 ? 'primary' : 'shadow';
         
         rayPathCollection.addPath(lightId, path, pathType);
       }
@@ -913,27 +915,39 @@ export class RayTracer {
           false
         );
         
-        // SIMPLIFIED LOGIC: One ray continues, one starts fresh
+        // CORRECTED LOGIC: Each recursive call returns COMPLETE paths already
+        // The continuing ray (original LID) needs its history prepended
+        // New branched rays (shadow LID) start fresh from branching point
         const allPaths: Ray[][] = [];
         
-        // Add transmitted paths
+        // Process transmitted paths
         for (const transmittedPath of transmittedPaths) {
-          if (keepOriginalLID === 'transmitted') {
-            // Transmitted ray continues original path - combine naturally
-            allPaths.push([...rayPath, ...transmittedPath]);
+          if (transmittedPath.length === 0) continue;
+          
+          const pathLID = transmittedPath[0].lightId;
+          
+          if (this.lidEquals(pathLID, originalLightId)) {
+            // This path continues with original LID - prepend history up to split point
+            // Skip first point of transmittedPath to avoid duplicate (intersection already in rayPath)
+            allPaths.push([...rayPath, ...transmittedPath.slice(1)]);
           } else {
-            // Transmitted ray is new - already starts fresh
+            // This path has a NEW shadow LID - already complete from branching point
             allPaths.push(transmittedPath);
           }
         }
         
-        // Add reflected paths
+        // Process reflected paths
         for (const reflectedPath of reflectedPaths) {
-          if (keepOriginalLID === 'reflected') {
-            // Reflected ray continues original path - combine naturally
-            allPaths.push([...rayPath, ...reflectedPath]);
+          if (reflectedPath.length === 0) continue;
+          
+          const pathLID = reflectedPath[0].lightId;
+          
+          if (this.lidEquals(pathLID, originalLightId)) {
+            // This path continues with original LID - prepend history up to split point
+            // Skip first point of reflectedPath to avoid duplicate (intersection already in rayPath)
+            allPaths.push([...rayPath, ...reflectedPath.slice(1)]);
           } else {
-            // Reflected ray is new - already starts fresh
+            // This path has a NEW shadow LID - already complete from branching point
             allPaths.push(reflectedPath);
           }
         }

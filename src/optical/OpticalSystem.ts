@@ -263,19 +263,16 @@ export class OpticalSystemParser {
         const mergedSurfaceData = { ...template.data };
         if (element.dial !== undefined) {
           mergedSurfaceData.dial = element.dial; // Optical train dial overrides surface dial
-          console.log(`  Applied dial from optical train: ${element.dial}°`);
         }
         
         // Apply normal from optical train if specified
         if (element.normal) {
           mergedSurfaceData.normal = [element.normal.x, element.normal.y, element.normal.z];
-          console.log(`  Applied normal from optical train: [${element.normal.x.toFixed(3)}, ${element.normal.y.toFixed(3)}, ${element.normal.z.toFixed(3)}]`);
         }
         
         // Apply angles from optical train if specified (and no normal)
         if (!element.normal && (element.angles.x !== 0 || element.angles.y !== 0 || element.angles.z !== 0)) {
           mergedSurfaceData.angles = [element.angles.x, element.angles.y, element.angles.z];
-          console.log(`  Applied angles from optical train: [${element.angles.x}°, ${element.angles.y}°, ${element.angles.z}°]`);
         }
         
         // Create surface with optical train position and merged data
@@ -287,7 +284,6 @@ export class OpticalSystemParser {
         );
         
         system.surfaces.push(surface);
-        console.log(`  Added surface "${element.trainName}" at position (${surface.position.x}, ${surface.position.y}, ${surface.position.z})`);
       } else if (element.type === 'assembly') {
         const aid = element.trainData.aid.toString();
         const template = assemblyTemplates.get(aid);

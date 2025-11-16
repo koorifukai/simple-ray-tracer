@@ -101,11 +101,6 @@ export class OpticalSurfaceFactory {
       opacity: 0.3 // Default transparent white
     };
 
-    // Debug log for numerical ID assignment
-    if (numericalId !== undefined) {
-      console.log(`  Surface ${id} assigned numerical ID: ${numericalId}`);
-    }
-
     // Geometric properties
     if (surfaceData.radius !== undefined) {
       surface.radius = surfaceData.radius;
@@ -409,9 +404,6 @@ export class OpticalSurfaceFactory {
       if (assemblyId) {
         surface.assemblyId = assemblyId;
         surface.elementIndex = elementIndex + 1;
-        
-        // Debug log for numerical ID assignment
-        console.log(`  Surface ${key} assigned numerical ID: ${surface.numericalId}`);
       }
       
       // Store relative normal for global placement

@@ -6,7 +6,7 @@ import { Ray } from './LightSource';
 export interface RayPath {
   lightId: number;
   rays: Ray[];
-  pathType: 'original' | 'transmitted' | 'reflected' | 'diffuse';
+  pathType: 'primary' | 'shadow' | 'diffuse';
   parentLightId?: number; // For branched rays
 }
 
@@ -20,7 +20,7 @@ export class RayPathCollection {
   /**
    * Add a complete ray path to the collection
    */
-  addPath(lightId: number, rays: Ray[], pathType: RayPath['pathType'] = 'original', parentLightId?: number): void {
+  addPath(lightId: number, rays: Ray[], pathType: RayPath['pathType'] = 'primary', parentLightId?: number): void {
     if (rays.length === 0) return;
 
     this.paths.push({
@@ -122,7 +122,7 @@ export class RayPathCollection {
     
     let classification: string;
     if (generation === 0) {
-      classification = 'Original';
+      classification = 'From Light Source';
     } else {
       classification = `Shadow/Branched (Gen ${generation}, Surface ${surfaceNumber}, Ancestral ${ancestralLID})`;
     }

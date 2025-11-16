@@ -110,6 +110,9 @@ export class LightSource {
   public sourceType: LightSourceType;
   public divergence: number;
   
+  // Store original generation parameters for regeneration
+  private generationParams: any[] = [];
+  
   // Transformation matrices for proper 3D positioning (like surfaces)
   public forwardTransform: Matrix4 = new Matrix4();
   public inverseTransform: Matrix4 = new Matrix4();
@@ -204,6 +207,7 @@ export class LightSource {
    */
   linear(width: number, dial: number = 0): void {
     this.sourceType = 'linear';
+    this.generationParams = [width, dial];
     this.rays = [];
 
     // Generate rays in local coordinate system: +X = forward, Y-Z plane = perpendicular
@@ -236,6 +240,7 @@ export class LightSource {
    */
   ring(radius: number, aspectRatio: number = 1, dial: number = 0): void {
     this.sourceType = 'ring';
+    this.generationParams = [radius, aspectRatio, dial];
     this.rays = [];
 
     const dialRad = (dial * Math.PI) / 180;
@@ -274,6 +279,7 @@ export class LightSource {
    */
   uniform(radius: number): void {
     this.sourceType = 'uniform';
+    this.generationParams = [radius];
     this.rays = [];
 
     const rayData: { position: Vector3, direction: Vector3 }[] = [];
@@ -319,6 +325,7 @@ export class LightSource {
    */
   gaussian(halfESquare: number): void {
     this.sourceType = 'gaussian';
+    this.generationParams = [halfESquare];
     this.rays = [];
 
     const sigma = halfESquare / (2 * Math.sqrt(2));
@@ -353,6 +360,7 @@ export class LightSource {
   point(divergence: number = 0, aspectRatio: number = 1, dial: number = 0): void {
     this.sourceType = 'point';
     this.divergence = divergence;
+    this.generationParams = [divergence, aspectRatio, dial];
     this.rays = [];
 
     const rayData: { position: Vector3, direction: Vector3 }[] = [];
@@ -493,8 +501,8 @@ export class LightSource {
    */
   getInitialRays(maxRays?: number): Ray[] {
     if (this.rays.length === 0) {
-      // If no rays generated yet, create a default linear pattern
-      this.linear(10);
+      // Regenerate rays using stored type and parameters
+      this.regenerateRays();
     }
     
     // Only return initial rays for tracing start (branched rays added during trace)
@@ -505,6 +513,31 @@ export class LightSource {
     }
     
     return initialRays;
+  }
+  
+  /**
+   * Regenerate rays using stored type and parameters
+   */
+  private regenerateRays(): void {
+    switch (this.sourceType) {
+      case 'linear':
+        this.linear(this.generationParams[0] ?? 20, this.generationParams[1] ?? 0);
+        break;
+      case 'ring':
+        this.ring(this.generationParams[0] ?? 20, this.generationParams[1] ?? 1, this.generationParams[2] ?? 0);
+        break;
+      case 'uniform':
+        this.uniform(this.generationParams[0] ?? 20);
+        break;
+      case 'gaussian':
+        this.gaussian(this.generationParams[0] ?? 20);
+        break;
+      case 'point':
+        this.point(this.generationParams[0] ?? 0, this.generationParams[1] ?? 1, this.generationParams[2] ?? 0);
+        break;
+      default:
+        this.linear(20);
+    }
   }
   
   /**
