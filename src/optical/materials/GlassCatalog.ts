@@ -449,16 +449,15 @@ export class GlassCatalog {
     console.log(`   Total materials: ${this.glasses.size}`);
     
     for (const material of materials) {
-      console.log(`\n🔍 Testing material: "${material}"`);
       try {
         const glass = this.getGlass(material);
         if (glass) {
-          console.log(`✅ Found: ${glass.name} (${glass.manufacturer}), nd=${glass.nd}, vd=${glass.vd}`);
+          console.log(`Found: ${glass.name} (${glass.manufacturer}), nd=${glass.nd}, vd=${glass.vd}`);
           
           // Test refractive index calculation
           try {
             const n = this.getRefractiveIndex(material, 587.6);
-            console.log(`✅ Refractive index at 587.6nm: ${n.toFixed(6)}`);
+            console.log(`Refractive index at 587.6nm: ${n.toFixed(6)}`);
           } catch (error) {
             console.log(`❌ Refractive index calculation failed: ${error instanceof Error ? error.message : error}`);
           }

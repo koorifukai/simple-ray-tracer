@@ -68,12 +68,7 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
         let opticalSystem = null;
         if (yamlContent) {
           try {
-            // console.log('🚀 EmptyPlot3D: Starting YAML parsing...');
-            // console.log('YAML content length:', yamlContent.length);
-            // console.log('YAML preview:', yamlContent.substring(0, 200) + '...');
             opticalSystem = await OpticalSystemParser.parseYAML(yamlContent);
-            // console.log('✅ EmptyPlot3D: Parsed optical system successfully:', opticalSystem);
-            // console.log('Number of surfaces created:', opticalSystem.surfaces.length);
           } catch (error) {
             console.error('❌ EmptyPlot3D: Failed to parse optical system:', error);
           }
@@ -266,10 +261,6 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
                   name: `${surface.id} corners`,
                   showlegend: false
                   });
-                  // console.log(`✅ Added corner markers for surface ${surface.id} to Plotly`);
-                  // console.log(`================================================================\n`);
-                } else {
-                  // console.log(`Skipping corner markers for ${surface.shape} surface ${surface.id} (corners disabled or no defined corners)`);
                 }
               } catch (cornerError) {
                 console.warn(`Failed to add corner markers for surface ${surface.id}:`, cornerError);
@@ -344,8 +335,6 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
                             const { lightId, rays: pathRays } = pathData;
                             const rayColor = color;
                             
-                            console.log(`📊 PLOTTING STRUCTURED PATH [Light ${lightId}]: ${pathRays.length} ray points, ${pathRays.length - 1} segments`);
-                            
                             let plottedSegmentCount = 0;
                             
                             // Plot consecutive segments in this path
@@ -381,8 +370,6 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
                                 hoverinfo: 'skip'
                               });
                             }
-                            
-                            console.log(`✅ STRUCTURED PLOT [Light ${lightId}]: ${plottedSegmentCount} segments plotted (Expected: ${pathRays.length - 1})`);
                           });
                         } else {
                           // No surfaces - just show simple ray extension

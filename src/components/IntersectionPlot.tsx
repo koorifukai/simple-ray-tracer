@@ -106,13 +106,6 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
     const shapes: any[] = [];
     const surfaceColor = 'rgba(255,255,255,0.2)'; // Standard background color
     
-    console.log('🎨 Generating 2D surface geometry:', {
-      shape: surface.shape,
-      semidia: surface.semidia,
-      height: surface.height,
-      width: surface.width
-    });
-    
     // Determine surface type and create appropriate 2D cross-section
     const shape = surface.shape || 'plano'; // Default to plano if not specified
     
@@ -138,8 +131,6 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
         layer: 'below'
       });
       
-      console.log(`✅ Generated rectangular cross-section (priority): ${width}×${height}mm for shape="${shape}"`);
-      
     } else if (shape === 'cylindrical') {
       // Cylindrical surfaces: render as rectangle using height × width
       const height = surface.height || 50;
@@ -161,8 +152,6 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
         layer: 'below'
       });
       
-      console.log(`✅ Generated rectangular cross-section: ${width}×${height}mm`);
-      
     } else if (shape === 'spherical' || shape === 'plano') {
       // Spherical and plano surfaces without explicit dimensions: render as circle using semidia
       const radius = surface.semidia || 25; // Default 25mm radius if not specified
@@ -182,8 +171,6 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
         fillcolor: surfaceColor,
         layer: 'below'
       });
-      
-      console.log(`✅ Generated circular cross-section: radius=${radius}mm for shape="${shape}" (no explicit dimensions)`);
       
     } else if (surface.height && surface.width) {
       // Surfaces with explicit height/width: render as rectangle
@@ -206,8 +193,6 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
         layer: 'below'
       });
       
-      console.log(`✅ Generated explicit rectangular cross-section: ${width}×${height}mm`);
-      
     } else if (surface.semidia) {
       // Fallback: if we have semidia, render as circle
       const radius = surface.semidia;
@@ -227,8 +212,6 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
         fillcolor: surfaceColor,
         layer: 'below'
       });
-      
-      console.log(`✅ Generated fallback circular cross-section: radius=${radius}mm`);
     }
     
     return shapes;
@@ -236,8 +219,6 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
 
   // Get surface from intersection data and generate 2D cross-section
   const getSurfaceShape = (): any[] => {
-    console.log(`🎨 SURFACE RENDERING: Starting surface cross-section rendering for surface ID: "${surfaceId}"`);
-    
     // Check if this is a numerical ID (indicates we're using the unified system)
     const isNumericalId = /^\d+$/.test(surfaceId);
     
@@ -247,14 +228,6 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
     
     if (surfaceData && surfaceData.surface) {
       const surface = surfaceData.surface;
-      console.log(`✅ SURFACE LOOKUP: Found surface "${surfaceId}" (numerical ID: ${surface.numericalId}) in intersection data`);
-      console.log('🎨 Surface properties:', {
-        shape: surface.shape,
-        height: surface.height,
-        width: surface.width,
-        semidia: surface.semidia,
-        radius: surface.radius
-      });
       
       // Generate 2D cross-section geometry using the surface object
       return generateSurfaceGeometry(surface);
@@ -262,12 +235,10 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
     
     // If we're using numerical IDs but no intersection data yet, wait for ray tracing to complete
     if (isNumericalId) {
-      console.log(`⏳ SURFACE RENDERING: Numerical ID "${surfaceId}" detected but no intersection data available yet - waiting for ray tracing to complete`);
       return []; // Return empty shapes, don't try YAML fallback for numerical IDs
     }
     
     // PRIORITY 2: Fallback to YAML lookup (for fallback cases when no intersection data)
-    console.log('🎨 SURFACE RENDERING: No intersection data available, falling back to YAML lookup...');
     
     let system: any = systemData;
     
@@ -276,23 +247,19 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
       try {
         if (typeof (window as any).jsyaml !== 'undefined') {
           system = (window as any).jsyaml.load(yamlContent);
-          console.log('🎨 SURFACE RENDERING: Parsed YAML for surface lookup');
         } else {
-          console.warn('🎨 SURFACE RENDERING: js-yaml not available in window, cannot parse YAML');
+          console.warn('js-yaml not available in window, cannot parse YAML');
           return [];
         }
       } catch (error) {
-        console.error('🎨 SURFACE RENDERING: Failed to parse YAML:', error);
+        console.error('Failed to parse YAML:', error);
         return [];
       }
     }
 
     if (!system) {
-      console.warn('🎨 SURFACE RENDERING: No system data available');
       return [];
     }
-
-    console.log('🎨 SURFACE RENDERING: System data available, looking for surface:', surfaceId);
 
     // YAML structure lookup for assemblies with direct surface properties
     let targetSurface: any = null;
@@ -301,8 +268,6 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
     let surfaceKeyToFind = surfaceId;
     
     if (isNumericalId) {
-      console.log(`🔍 SURFACE LOOKUP: Numerical ID "${surfaceId}" detected, mapping to surface names...`);
-      
       // Build a mapping of numerical IDs to surface names
       const surfaceMapping: {[key: string]: string} = {};
       let currentNumericalId = 0;
@@ -332,11 +297,8 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
       }
       
       surfaceKeyToFind = surfaceMapping[surfaceId];
-      console.log(`🔍 SURFACE MAPPING: Numerical ID "${surfaceId}" maps to surface "${surfaceKeyToFind}"`);
-      console.log(`🔍 Full mapping:`, surfaceMapping);
       
       if (!surfaceKeyToFind) {
-        console.warn(`❌ NUMERICAL ID MAPPING FAILED: No surface found for numerical ID "${surfaceId}"`);
         return [];
       }
     }
@@ -345,7 +307,6 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
     if (system.assemblies && Array.isArray(system.assemblies)) {
       for (const assembly of system.assemblies) {
         if (assembly[surfaceKeyToFind]) {
-          console.log(`✅ SURFACE LOOKUP: Found surface "${surfaceKeyToFind}" in assembly aid=${assembly.aid}`);
           targetSurface = assembly[surfaceKeyToFind];
           break;
         }
@@ -356,7 +317,6 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
     if (!targetSurface && system.surfaces && Array.isArray(system.surfaces)) {
       for (const surfaceGroup of system.surfaces) {
         if (surfaceGroup[surfaceKeyToFind]) {
-          console.log(`✅ SURFACE LOOKUP: Found surface "${surfaceKeyToFind}" in standalone surfaces`);
           targetSurface = surfaceGroup[surfaceKeyToFind];
           break;
         }
@@ -364,24 +324,10 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
     }
 
     if (!targetSurface) {
-      console.warn(`❌ SURFACE LOOKUP FAILED: Could not find surface "${surfaceKeyToFind}" (original: "${surfaceId}") in system data`);
-      console.log('🔍 Available surfaces:', {
-        assemblies: system.assemblies ? system.assemblies.map((a: any) => Object.keys(a).filter((k: string) => k !== 'aid')) : 'none',
-        surfaces: system.surfaces ? system.surfaces.map((s: any) => Object.keys(s)) : 'none'
-      });
       return [];
     }
 
     // Generate 2D cross-section geometry using the found surface
-    console.log('🎨 SURFACE RENDERING: Generating geometry for found surface:', {
-      originalSurfaceId: surfaceId,
-      actualSurfaceKey: surfaceKeyToFind,
-      shape: targetSurface.shape,
-      height: targetSurface.height,
-      width: targetSurface.width,
-      semidia: targetSurface.semidia
-    });
-
     return generateSurfaceGeometry(targetSurface);
   };
 
@@ -390,7 +336,6 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
     if (data.length === 0) {
       // No intersection data, creating empty plot
       const surfaceShapes = getSurfaceShape();
-      console.log(`🎨 BACKGROUND (empty): Retrieved ${surfaceShapes.length} surface shapes for empty plot background`);
       
       return {
         data: [{
@@ -468,14 +413,6 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
     
     // Get surface shapes for background
     const surfaceShapes = getSurfaceShape();
-    console.log(`🎨 BACKGROUND: Retrieved ${surfaceShapes.length} surface shapes for background`);
-    
-    // Debug: Log the actual shapes being passed to Plotly
-    if (surfaceShapes.length > 0) {
-
-    } else {
-      // No surface shapes generated
-    }
 
     return {
       data: traces,
@@ -617,10 +554,6 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
     // Use 1.2x padding around the maximum light extent
     const paddedRange = maxLightExtent * 1.2;
     
-    // Maximum light extent calculated
-    console.log(`🎯 GLOBAL BOUNDS: Final view range = ${paddedRange.toFixed(6)}mm (1.2x padding)`);
-    console.log(`🎯 GLOBAL BOUNDS: Light extents:`, lightExtents.map(l => `Light ${l.lightId}: ${l.maxExtent.toFixed(6)}mm`));
-    
     const bounds = {
       yMin: -paddedRange / 2,
       yMax: paddedRange / 2,
@@ -635,7 +568,6 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
   // Create spot diagram plot (pure spot pattern, no geometry)
   const createSpotDiagram = (data: IntersectionPoint[]) => {
     if (data.length === 0) {
-      console.log('🎯 SPOT DIAGRAM: No data available, using 0.6mm default view');
       return {
         data: [{
           x: [],
@@ -723,8 +655,6 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
     const yMax = lightYCenter + rangeSize / 2;
     const zMin = lightZCenter - rangeSize / 2;
     const zMax = lightZCenter + rangeSize / 2;
-
-    console.log(`🎯 SPOT DIAGRAM: Using global scale (${rangeSize.toFixed(6)}mm), centered on light data`);
 
     return {
       data: traces,
@@ -884,7 +814,6 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
               'yaxis.fixedrange': false,
               'dragmode': 'pan'
             });
-            console.log('✅ PLOT UPDATE: Applied post-creation equal axis constraints');
           }
         }, 100);
       });

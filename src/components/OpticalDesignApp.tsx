@@ -238,10 +238,6 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
       const problem = VariableParser.parseOptimizationProblem(yamlInput);
       const hasOptimization = problem !== null && problem.variables.length > 0;
       
-      if (hasOptimization) {
-        console.log('✅ Found optimization variables:', problem.variables.map(v => v.name));
-      }
-      
       // STEP 2: Get processed YAML with variable substitution (if needed)
       let processedYaml = yamlInput;
       if (hasOptimization && problem.variables.length > 0) {
@@ -259,7 +255,6 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
       // STEP 3: Parse the final YAML once
       const parsedData = yaml.load(processedYaml) as any;
       
-      console.log('✅ SINGLE YAML PROCESSING: Completed successfully');
       return {
         processedYaml,
         parsedData,
@@ -335,8 +330,6 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
           
           // Update ray statistics after processing
           setTimeout(updateRayStats, 100); // Small delay to ensure ray tracing completes
-        } else {
-          console.log('✅ YAML content unchanged - skipping duplicate processing');
         }
         
       } catch (err) {
@@ -433,7 +426,6 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
         
         // Single trigger for all updates - no conditional logic for analysis type
         setRefreshTrigger(prev => prev + 1);
-        console.log('✅ Auto-update re-enabled - ray tracing updated immediately and surface selection reset');
       } catch (err) {
         console.error('❌ Failed to update ray tracing when re-enabling auto-update:', err);
       }
@@ -547,7 +539,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
           }, 100);
           
           if (result.success) {
-            console.log('✅ Optimization successful! YAML updated with optimized values.');
+            console.log('Optimization successful! YAML updated with optimized values.');
           } else {
             console.log('⚠️ Optimization reached max iterations but found better values. YAML updated.');
           }
@@ -628,7 +620,6 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
         return; // No need to monitor if we already have data
       }
       
-      console.log(`🔍 Starting intersection data monitoring for ${analysisType} (no existing data)`);
       let lastCount = 0;
       let checkCount = 0;
       
@@ -678,7 +669,6 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
       const collector = RayIntersectionCollector.getInstance();
       const availableSurfaces = collector.getAvailableSurfaces();
       
-      console.log(`📊 OpticalDesignApp: Available surfaces from collector:`, availableSurfaces);
       
       if (availableSurfaces.length > 0) {
         // Use numerical IDs as the primary reference for surface selection
@@ -689,14 +679,12 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
             : `Surf: ${surface.name} (${surface.intersectionCount} hits)`
         }));
       } else {
-        console.log(`📊 OpticalDesignApp: No intersection data available yet - ray tracing may still be in progress`);
         // Return empty array instead of fallback when ray tracing is in progress
         return [];
       }
     }
     
     // PRIORITY 2: Fallback to YAML structure if no hit data available (for display purposes only)
-    console.log(`📊 OpticalDesignApp: Falling back to YAML structure for surface list`);
     
     // Add surfaces from assemblies
     if (parsedData.assemblies && Array.isArray(parsedData.assemblies)) {
@@ -785,8 +773,6 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
           });
         }
       }
-      
-      console.log(`📊 OpticalDesignApp: Light IDs that reach last surface:`, [...allLightIds].sort((a, b) => a - b));
       
       // Convert to light source array with simple labels, sorted by light ID
       Array.from(allLightIds).sort((a, b) => a - b).forEach(lightId => {

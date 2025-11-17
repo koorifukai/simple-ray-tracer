@@ -77,9 +77,6 @@ export class ObjectiveFunctions {
   private static getTargetSurface(system: OpticalSystem, objIndex: number): OpticalSurface | null {
     const surfaces = OpticalSystemParser.getSurfacesInOrder(system);
     
-    console.log(`🔍 Target surface selection: obj=${objIndex}, total surfaces=${surfaces.length}`);
-    console.log(`📋 Surface order: ${surfaces.map((s, i) => `[${i}]="${s.id}"`).join(', ')}`);
-    
     if (objIndex < 0) {
       // Negative indexing from end
       const index = surfaces.length + objIndex;
@@ -118,8 +115,6 @@ export class ObjectiveFunctions {
     const orderedSurfaces = OpticalSystemParser.getSurfacesInOrder(system);
     
     // Optimization target surface identified
-    console.log(`📋 Available surfaces: ${orderedSurfaces.map(s => `"${s.id}"`).join(', ')}`);
-    console.log(`🔍 Target surface details: mode="${targetSurface.mode}", shape="${targetSurface.shape}", numericalId=${targetSurface.numericalId}, index=${orderedSurfaces.indexOf(targetSurface)}`);
     
     // Clear and prepare ray intersection collector
     const collector = RayIntersectionCollector.getInstance();
@@ -127,7 +122,7 @@ export class ObjectiveFunctions {
     collector.startCollection(true);
     
     // Trace rays from each light source
-    system.lightSources.forEach((lightSource, sourceIndex) => {
+    system.lightSources.forEach((lightSource) => {
       const source = lightSource as any;
       const sourceRays = source.generateRays(source.numberOfRays);
       const tracedPaths: Ray[][] = [];
@@ -150,30 +145,6 @@ export class ObjectiveFunctions {
           const targetSurfaceKey = targetSurface.numericalId?.toString() || targetSurface.id;
           const targetSurfaceData = intersectionData.surfaces.get(targetSurfaceKey);
           
-          // Debug: Log available surface keys vs target key
-          if (sourceIndex === 0 && targetIntersections.length === 0) { // Only log once per light source
-            const availableKeys = Array.from(intersectionData.surfaces.keys());
-            console.log(`🔍 Target key: "${targetSurfaceKey}" (numericalId=${targetSurface.numericalId}, id="${targetSurface.id}")`);
-            console.log(`📋 Available keys in collector: [${availableKeys.map(k => `"${k}"`).join(', ')}]`);
-            // Collector statistics
-          }
-          
-          // Debug: Check if surface data exists and has intersections
-          if (sourceIndex === 0 && targetIntersections.length < 3) { // Log first few rays
-            console.log(`🔍 Ray ${targetIntersections.length}: targetSurfaceData=${!!targetSurfaceData}, intersectionPoints=${targetSurfaceData?.intersectionPoints.length || 0}`);
-            if (targetSurfaceData && targetSurfaceData.intersectionPoints.length > 0) {
-              const hit = targetSurfaceData.intersectionPoints[targetSurfaceData.intersectionPoints.length - 1];
-              console.log(`🔍 Ray ${targetIntersections.length}: Last intersection at surface "${targetSurface.id}" - hitPoint=(${hit.hitPoint.x.toFixed(3)}, ${hit.hitPoint.y.toFixed(3)}, ${hit.hitPoint.z.toFixed(3)})`);
-            } else {
-              console.log(`🔍 Ray ${targetIntersections.length}: No intersection data found for surface "${targetSurface.id}"`);
-              if (targetSurfaceData) {
-                console.log(`🔍 Ray ${targetIntersections.length}: Surface data exists but has ${targetSurfaceData.intersectionPoints.length} intersection points`);
-              } else {
-                console.log(`🔍 Ray ${targetIntersections.length}: No surface data found for key "${targetSurfaceKey}"`);
-              }
-            }
-          }
-          
           if (targetSurfaceData && targetSurfaceData.intersectionPoints.length > 0) {
             const hit = targetSurfaceData.intersectionPoints[targetSurfaceData.intersectionPoints.length - 1]; // Get last intersection
             
@@ -187,14 +158,6 @@ export class ObjectiveFunctions {
             const finalPath = tracedPaths.length > 0 ? tracedPaths[tracedPaths.length - 1] : [];
             const finalRaySegment = finalPath.length > 0 ? finalPath[finalPath.length - 1] : ray;
             
-            // Debug: Log the validation properties to see why rays are invalid
-            if (sourceIndex === 0 && targetIntersections.length < 3) { // Log first few rays
-              console.log(`🔍 Ray ${targetIntersections.length}: isValid=${hit.isValid}, wasBlocked=${hit.wasBlocked}, isAbsorption=${isAbsorptionSurface}, final valid=${isValidHit}`);
-              console.log(`🔍 Ray ${targetIntersections.length}: hit point=(${hit.hitPoint.x.toFixed(3)}, ${hit.hitPoint.y.toFixed(3)}, ${hit.hitPoint.z.toFixed(3)})`);
-              console.log(`🔍 Ray ${targetIntersections.length}: tracedPaths length=${tracedPaths.length}, using final segment`);
-              console.log(`🔍 Ray ${targetIntersections.length}: final ray dir=(${finalRaySegment.direction.x.toFixed(3)}, ${finalRaySegment.direction.y.toFixed(3)}, ${finalRaySegment.direction.z.toFixed(3)})`);
-            }
-            
             targetIntersections.push({
               point: new Vector3(hit.hitPoint.x, hit.hitPoint.y, hit.hitPoint.z),
               normal: new Vector3(hit.hitNormal.x, hit.hitNormal.y, hit.hitNormal.z),
@@ -207,8 +170,6 @@ export class ObjectiveFunctions {
           console.warn(`Ray tracing failed for optimization:`, error);
         }
       });
-      
-      console.log(`🔍 Light source ${sourceIndex}: ${sourceRays.length} rays traced, ${targetIntersections.length} hit target surface "${targetSurface.id}"`);
       
       results.push({
         sourceRays,
@@ -382,7 +343,7 @@ export class ObjectiveFunctions {
     console.log(`🎯 Target cos(angle) = ${targetCos.toFixed(4)}`);
     
     // Calculate angles for each ray using surface normals directly (both in global coordinates)
-    const angles = validIntersections.map((intersection, index) => {
+    const angles = validIntersections.map((intersection) => {
       // Get normalized ray direction and surface normal (both in global coordinates)
       const rayDir = intersection.ray.direction.normalize();
       const surfaceNormal = intersection.normal.normalize();
@@ -405,14 +366,7 @@ export class ObjectiveFunctions {
       // Calculate angular deviation in degrees for better understanding
       const angularDeviationDeg = Math.abs(actualAngleDeg - targetAngleDegrees);
       
-      // Debug logging for first few rays
-      if (index < 3) {
-        console.log(`🔍 Ray ${index}: rayDir=(${rayDir.x.toFixed(3)}, ${rayDir.y.toFixed(3)}, ${rayDir.z.toFixed(3)}) |mag|=${rayDir.length().toFixed(3)}`);
-        console.log(`🔍 Ray ${index}: surfaceNormal=(${surfaceNormal.x.toFixed(3)}, ${surfaceNormal.y.toFixed(3)}, ${surfaceNormal.z.toFixed(3)}) |mag|=${surfaceNormal.length().toFixed(3)}`);
-        console.log(`🔍 Ray ${index}: incidentDir=(${incidentRayDir.x.toFixed(3)}, ${incidentRayDir.y.toFixed(3)}, ${incidentRayDir.z.toFixed(3)}) |mag|=${incidentRayDir.length().toFixed(3)}`);
-        console.log(`🔍 Ray ${index}: dot(normal, -ray)=${actualCos.toFixed(4)}, angle=${actualAngleDeg.toFixed(1)}°, target=${targetAngleDegrees.toFixed(1)}°`);
-        console.log(`🔍 Ray ${index}: angularDev=${angularDeviationDeg.toFixed(1)}°, cosDeviation=${cosDeviation.toFixed(4)}, squared=${(cosDeviation * cosDeviation).toFixed(6)}`);
-      }
+      
       
       return { cosDeviation, actualAngleDeg, actualAngleRad, actualCos, angularDeviationDeg };
     });

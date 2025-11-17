@@ -579,7 +579,7 @@ export class RayTracer {
     const sortedLightIds = Array.from(raysByLight.keys()).sort((a, b) => a - b);
     
     sortedLightIds.forEach(lightId => {
-      this.analyzeSingleRayPath(lightId, raysByLight.get(lightId)!);
+      this.analyzeSingleRayPath(raysByLight.get(lightId)!);
     });
 
     console.log('\n' + '='.repeat(60));
@@ -590,17 +590,10 @@ export class RayTracer {
    * Analyze a single ray path with proper chronological ordering
    * Each ray is processed the same way regardless of origin
    */
-  private static analyzeSingleRayPath(lightId: number, lightRays: Ray[]): void {
-    // Determine ray classification for supplementary information
-    const rayInfo = this.classifyRayById(lightId);
-    
+  private static analyzeSingleRayPath(lightRays: Ray[]): void {
     // Sort rays chronologically (same logic for all rays)
     const sortedRays = this.sortRaysChronologically(lightRays);
     
-    console.log(`\n🔍 Light ID ${lightId}:`);
-    console.log(`  Ray classification: ${rayInfo.description}`);
-    console.log(`  Total path points: ${sortedRays.length}`);
-
     // Analyze path segments with proper validation
     const pathAnalysis = this.analyzePathSegments(sortedRays);
     
@@ -609,28 +602,6 @@ export class RayTracer {
     
     // Display summary statistics (same calculations for all rays)
     this.displayPathSummary(pathAnalysis, sortedRays.length);
-  }
-
-  /**
-   * Classify ray by ID for supplementary information
-   * Does not affect processing logic - all rays processed equally
-   */
-  private static classifyRayById(lightId: number): { description: string; generation: number; ancestralLID?: number } {
-    const generation = Math.floor(lightId / 1000);
-    const remainder = lightId - (generation * 1000);
-    const surfaceNumber = Math.floor(remainder);
-    const decimalPart = remainder - surfaceNumber;
-    const ancestralLID = Math.round(decimalPart * 10);
-    
-    if (generation === 0) {
-      return { description: 'Original', generation: 0 };
-    } else {
-      return { 
-        description: `Shadow/Branched (Gen ${generation}, Surface ${surfaceNumber}, Ancestral ${ancestralLID})`, 
-        generation,
-        ancestralLID 
-      };
-    }
   }
 
   /**
@@ -703,18 +674,8 @@ export class RayTracer {
    * Display path summary - same statistics for all rays
    */
   private static displayPathSummary(pathAnalysis: { totalLength: number; validSegments: number; segments: Array<{ length: number; isValid: boolean }> }, totalPoints: number): void {
-    console.log(`  ✅ Total optical path length: ${pathAnalysis.totalLength.toFixed(3)} units`);
-    console.log(`  📏 Valid segments: ${pathAnalysis.validSegments} (${totalPoints - 1} expected)`);
-    
-    if (pathAnalysis.validSegments > 0) {
-      const avgSegmentLength = pathAnalysis.totalLength / pathAnalysis.validSegments;
-      console.log(`  📊 Average segment length: ${avgSegmentLength.toFixed(3)} units`);
-    }
-    
-    const discontinuities = (totalPoints - 1) - pathAnalysis.validSegments;
-    if (discontinuities > 0) {
-      console.log(`  ⚠️  Path discontinuities: ${discontinuities} (zero-length or invalid segments)`);
-    }
+    console.log(`  Total optical path length: ${pathAnalysis.totalLength.toFixed(3)} units`);
+    console.log(`  Valid segments: ${pathAnalysis.validSegments} (${totalPoints - 1} expected)`);
   }
 
   /**

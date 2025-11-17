@@ -27,7 +27,7 @@ export function testZemaxConverter() {
     // Convert the data
     const convertedYaml = ZemaxImporter.convertToYaml(testZemaxData);
     
-    console.log('✅ Conversion successful!\n');
+    console.log('Conversion successful!\n');
     console.log('📄 Generated YAML:');
     console.log('=' .repeat(50));
     console.log(convertedYaml);
@@ -36,13 +36,13 @@ export function testZemaxConverter() {
     // Validate the conversion
     const validation = ZemaxImporter.validateConversion(testZemaxData, convertedYaml);
     
-    console.log('\n🔍 Validation Results:');
+    console.log('\nValidation Results:');
     console.log(`Valid: ${validation.isValid}`);
     if (validation.issues.length > 0) {
       console.log('Issues found:');
       validation.issues.forEach(issue => console.log(`  ⚠️  ${issue}`));
     } else {
-      console.log('  ✅ No issues found');
+      console.log('  No issues found');
     }
     
   } catch (error) {
