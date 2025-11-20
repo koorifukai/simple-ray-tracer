@@ -74,7 +74,7 @@ export class Ray {
 /**
  * Light source types supported
  */
-export type LightSourceType = 'linear' | 'ring' | 'uniform' | 'gaussian' | 'point';
+export type LightSourceType = 'linear' | 'ring' | 'uniform' | 'gaussian' | 'point' | 'F';
 
 /**
  * Simple seeded pseudo-random number generator for deterministic ray generation
@@ -436,6 +436,84 @@ export class LightSource {
   }
 
   /**
+   * Generate F-shaped marker with circle (for orientation visualization)
+   * Always creates 25 rays: 8 on circle + 17 forming F shape
+   * @param radius Circle radius and F size scaling
+   * @param dial Rotation around X-axis in degrees
+   */
+  fMarker(radius: number = 10, dial: number = 0): void {
+    this.sourceType = 'F';
+    this.generationParams = [radius, dial];
+    this.rays = [];
+    this.numberOfRays = 25; // Fixed: 12 circle + 13 F-shape
+
+    const rayData: { position: Vector3, direction: Vector3 }[] = [];
+    const dialRad = (dial * Math.PI) / 180;
+
+    // Part 1: 12 rays on circle of given radius
+    for (let i = 0; i < 12; i++) {
+      const theta = (i / 12) * 2 * Math.PI;
+      let localY = Math.cos(theta) * radius;
+      let localZ = Math.sin(theta) * radius;
+
+      // Apply dial rotation
+      const rotY = localY * Math.cos(dialRad) - localZ * Math.sin(dialRad);
+      const rotZ = localY * Math.sin(dialRad) + localZ * Math.cos(dialRad);
+
+      rayData.push({ 
+        position: new Vector3(0, rotY, rotZ), 
+        direction: new Vector3(1, 0, 0) 
+      });
+    }
+
+    // Part 2: 13 rays forming F shape
+    // F is centered so right end of short horizontal line is at origin (0,0)
+    // Scale F proportionally to radius
+    const fScale = radius * 0.5; // F is 80% of circle radius
+    
+    // F shape definition (in local Y-Z plane, before dial rotation):
+    // Vertical line (left): 7 points from bottom to top
+    // Top horizontal: 4 points going right
+    // Middle horizontal (short): 3 points going right
+    // Total: 7 + 4 + 3 = 14 points, but we'll add 3 more for better definition
+    
+    const fPoints: [number, number][] = [
+      // Vertical line (7 points): from bottom to top, positioned left of origin
+      [fScale * 0.6, -fScale],      // Bottom
+      [fScale * 0.6, -fScale * 0.67],
+      [fScale * 0.6, -fScale * 0.33],
+      [fScale * 0.6, 0],            // Middle (where short horizontal attaches)
+      [fScale * 0.6, fScale * 0.33],
+      [fScale * 0.6, fScale * 0.67],
+      [fScale * 0.6, fScale],       // Top
+      
+      // Top horizontal line (4 points): from vertical to right
+      [fScale * 0.3, fScale],
+      [fScale * 0.1, fScale],
+      [fScale * -0.2, fScale],
+      [fScale * -0.5, fScale],
+      
+      // Middle horizontal line (5 points): from vertical to origin (right end at 0,0)
+      [fScale * 0.3, 0],
+      [0, 0]                         // Right end at origin (circle center)
+    ];
+
+    // Add F points with dial rotation
+    fPoints.forEach(([localY, localZ]) => {
+      // Apply dial rotation
+      const rotY = localY * Math.cos(dialRad) - localZ * Math.sin(dialRad);
+      const rotZ = localY * Math.sin(dialRad) + localZ * Math.cos(dialRad);
+
+      rayData.push({ 
+        position: new Vector3(0, rotY, rotZ), 
+        direction: new Vector3(1, 0, 0) 
+      });
+    });
+
+    this.createRaysFromLocalData(rayData);
+  }
+
+  /**
    * Create rays from local position and direction data
    * Applies unified transformation to both position and direction
    */
@@ -534,6 +612,9 @@ export class LightSource {
         break;
       case 'point':
         this.point(this.generationParams[0] ?? 0, this.generationParams[1] ?? 1, this.generationParams[2] ?? 0);
+        break;
+      case 'F':
+        this.fMarker(this.generationParams[0] ?? 10, this.generationParams[1] ?? 0);
         break;
       default:
         this.linear(20);
@@ -676,6 +757,14 @@ export class LightSourceFactory {
             const dial = param?.[2] !== undefined ? param[2] : 0;  // deg_cw (clockwise degrees)
             light.point(divergenceRadians, aspectRatio, dial);
           }
+        }
+        break;
+      case 'F':
+        {
+          const radius = param?.[0] !== undefined ? param[0] : 10;
+          const dial = param?.[1] !== undefined ? param[1] : 0;
+          light.fMarker(radius, dial);
+          // Note: 'number' keyword is ignored - always generates 25 rays
         }
         break;
       default:
