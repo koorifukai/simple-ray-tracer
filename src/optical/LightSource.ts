@@ -489,9 +489,9 @@ export class LightSource {
       
       // Top horizontal line (4 points): from vertical to right
       [fScale * 0.3, fScale],
-      [fScale * 0.1, fScale],
-      [fScale * -0.2, fScale],
-      [fScale * -0.5, fScale],
+      [fScale * 0, fScale],
+      [fScale * -0.3, fScale],
+      [fScale * -0.6, fScale],
       
       // Middle horizontal line (5 points): from vertical to origin (right end at 0,0)
       [fScale * 0.3, 0],
