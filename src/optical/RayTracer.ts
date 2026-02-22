@@ -445,6 +445,7 @@ export class RayTracer {
     }
 
     // 4. Ray hits surface - apply surface physics in local coordinates
+    //console.log(`[TEST] Ray hitting surface ${surface.id} at local coordinates: (${intersection.point.x.toFixed(3)}, ${intersection.point.y.toFixed(3)}, ${intersection.point.z.toFixed(3)})`);
     const result = this.applySurfacePhysics(localRay, intersection, surface);
     
     if (!useSimplifiedLog) {

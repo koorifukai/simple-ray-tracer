@@ -40,6 +40,7 @@ const getCameraState = () => globalCameraState;
 interface EmptyPlot3DProps {
   title?: string;
   yamlContent?: string;
+  parsedSystem?: any; // Add parsedSystem prop
   isRayTracingActive?: boolean;
   rayTracingTrigger?: number;
 }
@@ -47,6 +48,7 @@ interface EmptyPlot3DProps {
 export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({ 
   title = "Optical System Visualization",
   yamlContent,
+  parsedSystem,
   isRayTracingActive = false,
   rayTracingTrigger
 }) => {
@@ -64,9 +66,9 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
         // Create optical system visualization
         const plotData: any[] = [];
         
-        // Parse optical system if YAML is provided
-        let opticalSystem = null;
-        if (yamlContent) {
+        // Use parsed system if provided, otherwise parse YAML
+        let opticalSystem = parsedSystem;
+        if (!opticalSystem && yamlContent) {
           try {
             opticalSystem = await OpticalSystemParser.parseYAML(yamlContent);
           } catch (error) {
@@ -77,7 +79,7 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
         // Add optical surfaces if system is parsed
         if (opticalSystem) {
           // Add surfaces
-          opticalSystem.surfaces.forEach((surface) => {
+          opticalSystem.surfaces.forEach((surface: any) => {
             try {
               const mesh = SurfaceRenderer.generateMesh(surface);
               
@@ -280,7 +282,7 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
             
             // CRITICAL FIX: Clear light source rays BEFORE ray tracing to prevent dual-session contamination
             // This prevents head-to-tail connections between visualization and analysis sessions
-            opticalSystem.lightSources.forEach((source) => {
+            opticalSystem.lightSources.forEach((source: any) => {
               if (source.clearAllRays && typeof source.clearAllRays === 'function') {
                 source.clearAllRays();
               }
@@ -302,7 +304,7 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
               // Intersection collection already active
             }
             
-            opticalSystem.lightSources.forEach((source, index) => {
+            opticalSystem.lightSources.forEach((source: any, index: number) => {
               // console.log(`Processing light source ${index}:`, source);
               // console.log(`Source constructor:`, source.constructor.name);
               // console.log(`Source generateRays method:`, typeof source.generateRays);
@@ -730,7 +732,7 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
         Plotly.purge(plotRef.current);
       }
     };
-  }, [title, yamlContent, isRayTracingActive, rayTracingTrigger]);
+  }, [title, yamlContent, parsedSystem, isRayTracingActive, rayTracingTrigger]);
 
   return (
     <div 

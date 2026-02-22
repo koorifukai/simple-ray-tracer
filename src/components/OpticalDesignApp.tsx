@@ -3,6 +3,7 @@ import { YamlEditor } from './YamlEditor';
 import { EmptyPlot3D } from '../visualization/EmptyPlot3D';
 import { IntersectionPlot } from './IntersectionPlot';
 import { RayIntersectionCollector } from './RayIntersectionCollector';
+import { OpticalSystemParser } from '../optical/OpticalSystem';
 import { ConvergenceHistory } from './ConvergenceHistory';
 import { Zemax2YamlPanel } from './Zemax2YamlPanel';
 import { OptimizationEngine, VariableParser } from '../optimization';
@@ -113,6 +114,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
   const [yamlContent, setYamlContent] = useState(defaultYaml);
   const [isYamlValid, setIsYamlValid] = useState(true);
   const [parsedData, setParsedData] = useState<any>(initialProcessedResult.parsedData);
+  const [parsedSystem, setParsedSystem] = useState<any>(null); // Store the fully parsed OpticalSystem
   const [autoUpdate, setAutoUpdate] = useState(true);
   const [privacyMode, setPrivacyMode] = useState(false);
   const [lastRayTracedYaml, setLastRayTracedYaml] = useState(initialProcessedResult.processedYaml);
@@ -302,6 +304,14 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
         if (result.processedYaml !== lastRayTracedYaml) {
           console.log('🔄 YAML content changed - updating visualization');
           
+          // Parse the system once here and pass it down
+          OpticalSystemParser.parseYAML(result.processedYaml).then(system => {
+            setParsedSystem(system);
+          }).catch(err => {
+            console.error('Failed to parse optical system:', err);
+            setParsedSystem(null);
+          });
+          
           // Update all state with results from single processing
           setParsedData(result.parsedData);
           setLastRayTracedYaml(result.processedYaml);
@@ -398,6 +408,13 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
     setLastRayTracedYaml(result.processedYaml);
     setHasOptimizationSettings(result.hasOptimization);
     
+    OpticalSystemParser.parseYAML(result.processedYaml).then(system => {
+      setParsedSystem(system);
+    }).catch(err => {
+      console.error('Failed to parse optical system:', err);
+      setParsedSystem(null);
+    });
+    
     // Clear intersection data when creating new system
     const collector = RayIntersectionCollector.getInstance();
     collector.clearData();
@@ -417,6 +434,14 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
       try {
         // Use centralized processing when re-enabling auto-update
         const result = processYamlForVisualization(yamlContent);
+        
+        OpticalSystemParser.parseYAML(result.processedYaml).then(system => {
+          setParsedSystem(system);
+        }).catch(err => {
+          console.error('Failed to parse optical system:', err);
+          setParsedSystem(null);
+        });
+        
         setParsedData(result.parsedData);
         setLastRayTracedYaml(result.processedYaml);
         setHasOptimizationSettings(result.hasOptimization);
@@ -441,6 +466,13 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
       try {
         // Use centralized processing for manual update
         const result = processYamlForVisualization(yamlContent);
+        
+        OpticalSystemParser.parseYAML(result.processedYaml).then(system => {
+          setParsedSystem(system);
+        }).catch(err => {
+          console.error('Failed to parse optical system:', err);
+          setParsedSystem(null);
+        });
         
         // Update all state with single processing result
         setParsedData(result.parsedData);
@@ -1113,7 +1145,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
             <EmptyPlot3D 
               title="Ray Tracer Visualization"
               yamlContent={autoUpdate ? (isYamlValid ? lastRayTracedYaml : undefined) : lastRayTracedYaml}
-              key={refreshTrigger} // Force re-render when secondary analysis changes
+              parsedSystem={parsedSystem}
             />
           </div>
         </div>
