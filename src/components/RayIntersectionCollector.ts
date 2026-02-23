@@ -33,6 +33,8 @@ export interface RayIntersectionPoint {
   
   // Intersection details
   hitDistance: number;   // Distance from ray origin to hit
+  cumulativePhysicalDistance: number; // Total physical distance traveled by ray
+  cumulativeOpticalDistance: number;  // Total optical distance traveled by ray
   isValid: boolean;      // Whether intersection is valid
   wasBlocked: boolean;   // Whether ray was blocked at this surface
   
@@ -183,6 +185,8 @@ export class RayIntersectionCollector {
       exitDirection: exitDirection?.clone(),
       
       hitDistance,
+      cumulativePhysicalDistance: ray.pathLength + hitDistance,
+      cumulativeOpticalDistance: ray.opticalPathLength + (hitDistance * ((ray as any)._currentRefractiveIndex || 1.0)),
       isValid,
       wasBlocked,
       

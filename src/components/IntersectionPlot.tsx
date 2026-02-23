@@ -10,6 +10,8 @@ interface IntersectionPoint {
   intensity: number;
   rayId: string;
   lightId: number;
+  cumulativePhysicalDistance: number;
+  cumulativeOpticalDistance: number;
 }
 
 interface IntersectionPlotProps {
@@ -74,7 +76,9 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
         wavelength: hit.wavelength,
         intensity: hit.intensity,
         rayId: hit.rayId,
-        lightId: hit.lightId
+        lightId: hit.lightId,
+        cumulativePhysicalDistance: hit.cumulativePhysicalDistance || 0,
+        cumulativeOpticalDistance: hit.cumulativeOpticalDistance || 0
       }));
         
       return spotData;
@@ -96,7 +100,9 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
         wavelength: hit.wavelength,
         intensity: hit.intensity,
         rayId: hit.rayId,
-        lightId: hit.lightId
+        lightId: hit.lightId,
+        cumulativePhysicalDistance: hit.cumulativePhysicalDistance || 0,
+        cumulativeOpticalDistance: hit.cumulativeOpticalDistance || 0
       }));
     }
   };
@@ -383,29 +389,30 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
       };
     }
 
-    // Group by wavelength for hit map (include ALL light sources)
-    const wavelengthGroups = new Map<number, IntersectionPoint[]>();
+    // Group by LID for hit map (include ALL light sources)
+    const lidGroups = new Map<number, IntersectionPoint[]>();
     data.forEach(point => {
-      if (!wavelengthGroups.has(point.wavelength)) {
-        wavelengthGroups.set(point.wavelength, []);
+      if (!lidGroups.has(point.lightId)) {
+        lidGroups.set(point.lightId, []);
       }
-      wavelengthGroups.get(point.wavelength)!.push(point);
+      lidGroups.get(point.lightId)!.push(point);
     });
 
-    const traces = Array.from(wavelengthGroups.entries()).map(([wavelength, points]) => {
-      // Creating trace for wavelength
+    const traces = Array.from(lidGroups.entries()).map(([lid, points]) => {
+      // Creating trace for LID
       return {
         x: points.map(p => -p.y), // COORDINATE FIX: Mirror horizontal coordinates to match optical convention
         y: points.map(p => p.z),
+        text: points.map(p => `Physical Dist: ${p.cumulativePhysicalDistance.toFixed(3)} mm<br>Optical Dist: ${p.cumulativeOpticalDistance.toFixed(3)} mm`),
         type: 'scatter' as const,
         mode: 'markers' as const,
         marker: {
-          color: getWavelengthColor(wavelength),
+          color: getWavelengthColor(points[0].wavelength), // Use wavelength color of first point
           size: 6,
           opacity: 0.8
         },
-        name: `${wavelength}nm (${points.length} pts)`,
-        hovertemplate: `Y: %{x:.3f}mm<br>Z: %{y:.3f}mm<br>λ: ${wavelength}nm<extra></extra>`
+        name: `LID ${lid} (${points.length} pts)`,
+        hovertemplate: `Y: %{x:.3f}mm<br>Z: %{y:.3f}mm<br>LID: ${lid}<br>%{text}<extra></extra>`
       };
     });
 
@@ -602,26 +609,28 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
       };
     }
 
-    // Group points by wavelength for color coding
-    const wavelengthGroups = new Map<number, IntersectionPoint[]>();
+    // Group points by LID for color coding
+    const lidGroups = new Map<number, IntersectionPoint[]>();
     data.forEach(point => {
-      if (!wavelengthGroups.has(point.wavelength)) {
-        wavelengthGroups.set(point.wavelength, []);
+      if (!lidGroups.has(point.lightId)) {
+        lidGroups.set(point.lightId, []);
       }
-      wavelengthGroups.get(point.wavelength)!.push(point);
+      lidGroups.get(point.lightId)!.push(point);
     });
 
-    // Create traces for each wavelength
+    // Create traces for each LID
     const traces: any[] = [];
     
-    wavelengthGroups.forEach((points, wavelength) => {
-      const color = getWavelengthColor(wavelength);
+    lidGroups.forEach((points, lid) => {
+      const color = getWavelengthColor(points[0].wavelength);
       const xValues = points.map(p => -p.y);
       const yValues = points.map(p => p.z);
+      const textValues = points.map(p => `Physical Dist: ${p.cumulativePhysicalDistance.toFixed(3)} mm<br>Optical Dist: ${p.cumulativeOpticalDistance.toFixed(3)} mm`);
       
       traces.push({
         x: xValues,
         y: yValues,
+        text: textValues,
         type: 'scatter',
         mode: 'markers',
         marker: {
@@ -629,14 +638,15 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
           size: 6,
           opacity: 0.7
         },
-        name: `${wavelength}nm`,
+        name: `LID ${lid}`,
         hovertemplate: 
           '<b>Spot Position</b><br>' +
           'Y: %{x:.3f} mm<br>' +
           'Z: %{y:.3f} mm<br>' +
-          'Wavelength: ' + wavelength + 'nm<br>' +
+          'LID: ' + lid + '<br>' +
+          '%{text}<br>' +
           '<extra></extra>',
-        showlegend: wavelengthGroups.size > 1 // Only show legend if multiple wavelengths
+        showlegend: lidGroups.size > 1 // Only show legend if multiple LIDs
       });
     });
 
@@ -676,7 +686,7 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
         plot_bgcolor: '#1e1e1e',
         paper_bgcolor: '#1e1e1e',
         font: { color: '#ccc' },
-        showlegend: wavelengthGroups.size > 1,
+        showlegend: lidGroups.size > 1,
         margin: { l: 60, r: 80, t: 40, b: 50 },
         autosize: true,
         dragmode: 'pan',

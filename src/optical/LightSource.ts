@@ -16,6 +16,7 @@ export class Ray {
   public intensity: number;
   public lightId: number;
   public pathLength: number;
+  public opticalPathLength: number;
   public isActive: boolean;
   public startsAt: number;  // Surface numerical ID where ray starts (usually 0)
   public stopsAt: number;   // Surface numerical ID where ray stops (undefined if reaches end)
@@ -34,6 +35,7 @@ export class Ray {
     this.intensity = intensity;
     this.lightId = lightId;
     this.pathLength = 0;
+    this.opticalPathLength = 0;
     this.isActive = true;
     this.startsAt = startsAt; // Use provided starting surface index
     this.stopsAt = -1;       // -1 means ray reaches the end, positive number means stopped at that surface
@@ -41,10 +43,13 @@ export class Ray {
 
   /**
    * Propagate ray by distance along its direction
+   * @param distance Physical distance to propagate
+   * @param refractiveIndex Refractive index of the medium (default 1.0 for air/vacuum)
    */
-  propagate(distance: number): void {
+  propagate(distance: number, refractiveIndex: number = 1.0): void {
     this.position = this.position.add(this.direction.multiply(distance));
     this.pathLength += distance;
+    this.opticalPathLength += distance * refractiveIndex;
   }
 
   /**
@@ -66,6 +71,8 @@ export class Ray {
       this.intensity,
       this.startsAt
     );
+    clonedRay.pathLength = this.pathLength;
+    clonedRay.opticalPathLength = this.opticalPathLength;
     clonedRay.stopsAt = this.stopsAt; // Preserve stopsAt as well
     return clonedRay;
   }

@@ -753,6 +753,35 @@ export class RayTracer {
             currentRay.intensity,
             currentRay.startsAt // Preserve original startsAt
           );
+          
+          // Update path lengths for blocked ray
+          const lastRay = rayPath.length > 0 ? rayPath[rayPath.length - 1] : null;
+          const distanceFromLast = lastRay ? 
+            lastRay.position.distanceTo(result.intersection.point) : 
+            currentRay.position.distanceTo(result.intersection.point);
+            
+          intersectionRay.pathLength = currentRay.pathLength + distanceFromLast;
+          
+          // Calculate OPL using the n1 of the surface we are hitting
+          let n1 = (currentRay as any)._currentRefractiveIndex || 1.0;
+          if (surface.n1_material !== undefined || surface.n1 !== undefined) {
+            if (surface.n1_wavelength_table && surface.n1_wavelength_table.has(currentRay.wavelength)) {
+              n1 = surface.n1_wavelength_table.get(currentRay.wavelength)!;
+            } else {
+              try {
+                n1 = MaterialParser.parseN1(surface, currentRay.wavelength);
+              } catch (e) {
+                n1 = surface.n1 || 1.0;
+              }
+            }
+          }
+          
+          if (this.logConfig.intersection) {
+            this.log('intersection', `OPL Calculation (Blocked): Segment distance ${distanceFromLast.toFixed(4)} * n1 ${n1.toFixed(4)} (λ=${currentRay.wavelength}nm)`);
+          }
+          
+          intersectionRay.opticalPathLength = currentRay.opticalPathLength + (distanceFromLast * n1);
+          
           rayPath.push(intersectionRay);
           if (!isFirstTrace) {
             this.log('ray', `Ray terminated at intersection point:`, result.intersection.point);
@@ -767,7 +796,8 @@ export class RayTracer {
         // Check if this intersection point is significantly different from the last ray position
         const lastRay = rayPath.length > 0 ? rayPath[rayPath.length - 1] : null;
         const distanceFromLast = lastRay ? 
-          lastRay.position.distanceTo(result.intersection.point) : Infinity;
+          lastRay.position.distanceTo(result.intersection.point) : 
+          currentRay.position.distanceTo(result.intersection.point);
         
         // Only add intersection ray if it represents actual movement (> EPSILON)
         if (distanceFromLast > this.EPSILON) {
@@ -779,6 +809,33 @@ export class RayTracer {
             currentRay.intensity,
             currentRay.startsAt // Preserve original startsAt
           );
+          
+          // Update path lengths
+          intersectionRay.pathLength = currentRay.pathLength + distanceFromLast;
+          
+          // Calculate OPL using the n1 of the surface we are hitting
+          let n1 = (currentRay as any)._currentRefractiveIndex || 1.0;
+          if (surface.n1_material !== undefined || surface.n1 !== undefined) {
+            if (surface.n1_wavelength_table && surface.n1_wavelength_table.has(currentRay.wavelength)) {
+              n1 = surface.n1_wavelength_table.get(currentRay.wavelength)!;
+            } else {
+              try {
+                n1 = MaterialParser.parseN1(surface, currentRay.wavelength);
+              } catch (e) {
+                n1 = surface.n1 || 1.0;
+              }
+            }
+          }
+          
+          if (this.logConfig.intersection) {
+            this.log('intersection', `OPL Calculation (Hit): Segment distance ${distanceFromLast.toFixed(4)} * n1 ${n1.toFixed(4)} (λ=${currentRay.wavelength}nm)`);
+          }
+          
+          intersectionRay.opticalPathLength = currentRay.opticalPathLength + (distanceFromLast * n1);
+          
+          // Preserve refractive index for next segment (legacy, might not be needed anymore)
+          (intersectionRay as any)._currentRefractiveIndex = (result.transmitted as any)?._currentRefractiveIndex || n1;
+          
           rayPath.push(intersectionRay);
           if (!isFirstTrace) {
             this.log('ray', `Added intersection point to path:`, result.intersection.point);
@@ -839,7 +896,10 @@ export class RayTracer {
             result.transmitted!.intensity,
             result.transmitted!.startsAt
           );
-          transmittedRayForTracing.pathLength = currentRay.pathLength; // Continue path length
+          // Use the updated path lengths from the intersection point
+          const lastPathRay = rayPath.length > 0 ? rayPath[rayPath.length - 1] : currentRay;
+          transmittedRayForTracing.pathLength = lastPathRay.pathLength; // Continue path length
+          transmittedRayForTracing.opticalPathLength = lastPathRay.opticalPathLength; // Continue optical path length
           
           // Reflected ray gets fresh start with shadow LID
           reflectedRayForTracing = this.createFreshBranchedRay(
@@ -855,7 +915,10 @@ export class RayTracer {
             result.reflected!.intensity,
             result.reflected!.startsAt
           );
-          reflectedRayForTracing.pathLength = currentRay.pathLength; // Continue path length
+          // Use the updated path lengths from the intersection point
+          const lastPathRay = rayPath.length > 0 ? rayPath[rayPath.length - 1] : currentRay;
+          reflectedRayForTracing.pathLength = lastPathRay.pathLength; // Continue path length
+          reflectedRayForTracing.opticalPathLength = lastPathRay.opticalPathLength; // Continue optical path length
           
           // Transmitted ray gets fresh start with shadow LID
           transmittedRayForTracing = this.createFreshBranchedRay(
@@ -919,7 +982,16 @@ export class RayTracer {
 
       // Handle single ray continuation (transmitted or reflected)
       if (result.transmitted) {
+        const oldRefractiveIndex = (currentRay as any)._currentRefractiveIndex;
         currentRay = result.transmitted;
+        // Ensure path lengths are carried over
+        if (rayPath.length > 0) {
+          currentRay.pathLength = rayPath[rayPath.length - 1].pathLength;
+          currentRay.opticalPathLength = rayPath[rayPath.length - 1].opticalPathLength;
+        }
+        if ((currentRay as any)._currentRefractiveIndex === undefined) {
+          (currentRay as any)._currentRefractiveIndex = oldRefractiveIndex;
+        }
         lastSuccessfulRayDirection = result.transmitted.direction; // Update last successful outgoing direction
         if (!isFirstTrace) {
           this.log('ray', `Ray transmitted, new direction:`, currentRay.direction);
@@ -931,7 +1003,16 @@ export class RayTracer {
         }
         
       } else if (result.reflected) {
+        const oldRefractiveIndex = (currentRay as any)._currentRefractiveIndex;
         currentRay = result.reflected;
+        // Ensure path lengths are carried over
+        if (rayPath.length > 0) {
+          currentRay.pathLength = rayPath[rayPath.length - 1].pathLength;
+          currentRay.opticalPathLength = rayPath[rayPath.length - 1].opticalPathLength;
+        }
+        if ((currentRay as any)._currentRefractiveIndex === undefined) {
+          (currentRay as any)._currentRefractiveIndex = oldRefractiveIndex;
+        }
         lastSuccessfulRayDirection = result.reflected.direction; // Update last successful outgoing direction
         if (!isFirstTrace) {
           this.log('ray', `Ray reflected, new direction:`, currentRay.direction);
@@ -977,6 +1058,7 @@ export class RayTracer {
     );
     // Fresh ray: NO path length inheritance - starts at 0
     branchedRay.pathLength = 0;
+    branchedRay.opticalPathLength = 0;
     branchedRay.stopsAt = -1; // Ensure ray continues independently
     
     // Register branched ray for accountability
@@ -1012,9 +1094,13 @@ export class RayTracer {
         
         // Calculate accumulative distance travelled through all ray segments
         let accumulativeDistance = 0;
+        let accumulativeOpticalDistance = 0;
         for (let i = 1; i < rayPath.length; i++) {
           const segmentDistance = rayPath[i-1].position.distanceTo(rayPath[i].position);
           accumulativeDistance += segmentDistance;
+          // We don't have refractive index here easily, but this is just for the final extension
+          // The actual optical path length is tracked in the Ray object during propagation
+          accumulativeOpticalDistance += segmentDistance; 
         }
         
         // Use 10% of accumulative distance for extension, fallback to 50 if no valid distance
@@ -1054,6 +1140,30 @@ export class RayTracer {
                 lastRay.intensity,
                 lastRay.startsAt // Preserve original startsAt
               );
+              
+              const dist = worldHitPoint.subtract(lastRay.position).length();
+              apertureEndRay.pathLength = lastRay.pathLength + dist;
+              
+              // Calculate OPL using the n1 of the aperture surface
+              let n1 = (lastRay as any)._currentRefractiveIndex || 1.0;
+              if (aperture.n1_material !== undefined || aperture.n1 !== undefined) {
+                if (aperture.n1_wavelength_table && aperture.n1_wavelength_table.has(lastRay.wavelength)) {
+                  n1 = aperture.n1_wavelength_table.get(lastRay.wavelength)!;
+                } else {
+                  try {
+                    n1 = MaterialParser.parseN1(aperture, lastRay.wavelength);
+                  } catch (e) {
+                    n1 = aperture.n1 || 1.0;
+                  }
+                }
+              }
+              
+              if (this.logConfig.intersection) {
+                this.log('intersection', `OPL Calculation (Aperture YZ): Segment distance ${dist.toFixed(4)} * n1 ${n1.toFixed(4)} (λ=${lastRay.wavelength}nm)`);
+              }
+              
+              apertureEndRay.opticalPathLength = lastRay.opticalPathLength + dist * n1;
+              
               rayPath.push(apertureEndRay);
               
               // CRITICAL: Record this intersection in the collector for optimization
@@ -1087,6 +1197,29 @@ export class RayTracer {
                 lastRay.intensity,
                 lastRay.startsAt // Preserve original startsAt
               );
+              
+              finalRay.pathLength = lastRay.pathLength + extensionLength;
+              
+              // For extension away from aperture, use n2 of the aperture
+              let n2 = (lastRay as any)._currentRefractiveIndex || 1.0;
+              if (aperture.n2_material !== undefined || aperture.n2 !== undefined) {
+                if (aperture.n2_wavelength_table && aperture.n2_wavelength_table.has(lastRay.wavelength)) {
+                  n2 = aperture.n2_wavelength_table.get(lastRay.wavelength)!;
+                } else {
+                  try {
+                    n2 = MaterialParser.parseN2(aperture, lastRay.wavelength);
+                  } catch (e) {
+                    n2 = aperture.n2 || 1.0;
+                  }
+                }
+              }
+              
+              if (this.logConfig.intersection) {
+                this.log('intersection', `OPL Calculation (Aperture Away): Segment distance ${extensionLength.toFixed(4)} * n2 ${n2.toFixed(4)} (λ=${lastRay.wavelength}nm)`);
+              }
+              
+              finalRay.opticalPathLength = lastRay.opticalPathLength + extensionLength * n2;
+              
               rayPath.push(finalRay);
               if (!isFirstTrace) {
                 this.log('ray', `Ray moving away from aperture - extended ${extensionLength.toFixed(1)} units to:`, finalPosition);
@@ -1103,6 +1236,29 @@ export class RayTracer {
               lastRay.intensity,
               lastRay.startsAt // Preserve original startsAt
             );
+            
+            finalRay.pathLength = lastRay.pathLength + extensionLength;
+            
+            // For extension parallel to aperture, use n1 of the aperture
+            let n1 = (lastRay as any)._currentRefractiveIndex || 1.0;
+            if (lastSurface.n1_material !== undefined || lastSurface.n1 !== undefined) {
+              if (lastSurface.n1_wavelength_table && lastSurface.n1_wavelength_table.has(lastRay.wavelength)) {
+                n1 = lastSurface.n1_wavelength_table.get(lastRay.wavelength)!;
+              } else {
+                try {
+                  n1 = MaterialParser.parseN1(lastSurface, lastRay.wavelength);
+                } catch (e) {
+                  n1 = lastSurface.n1 || 1.0;
+                }
+              }
+            }
+            
+            if (this.logConfig.intersection) {
+              this.log('intersection', `OPL Calculation (Aperture Parallel): Segment distance ${extensionLength.toFixed(4)} * n1 ${n1.toFixed(4)} (λ=${lastRay.wavelength}nm)`);
+            }
+            
+            finalRay.opticalPathLength = lastRay.opticalPathLength + extensionLength * n1;
+            
             rayPath.push(finalRay);
             if (!isFirstTrace) {
               this.log('ray', `Ray parallel to aperture - extended ${extensionLength.toFixed(1)} units to:`, finalPosition);
@@ -1122,6 +1278,29 @@ export class RayTracer {
             lastRay.intensity,
             lastRay.startsAt // Preserve original startsAt
           );
+          
+          finalRay.pathLength = lastRay.pathLength + extensionLength;
+          
+          // For extension after the last processed surface, use its n2
+          let n2 = (lastRay as any)._currentRefractiveIndex || 1.0;
+          if (lastProcessedSurface && (lastProcessedSurface.n2_material !== undefined || lastProcessedSurface.n2 !== undefined)) {
+            if (lastProcessedSurface.n2_wavelength_table && lastProcessedSurface.n2_wavelength_table.has(lastRay.wavelength)) {
+              n2 = lastProcessedSurface.n2_wavelength_table.get(lastRay.wavelength)!;
+            } else {
+              try {
+                n2 = MaterialParser.parseN2(lastProcessedSurface, lastRay.wavelength);
+              } catch (e) {
+                n2 = lastProcessedSurface.n2 || 1.0;
+              }
+            }
+          }
+          
+          if (this.logConfig.intersection) {
+            this.log('intersection', `OPL Calculation (Final Extension): Segment distance ${extensionLength.toFixed(4)} * n2 ${n2.toFixed(4)} (λ=${lastRay.wavelength}nm)`);
+          }
+          
+          finalRay.opticalPathLength = lastRay.opticalPathLength + extensionLength * n2;
+          
           rayPath.push(finalRay);
           
           // CRITICAL: If ray was extended to reach the last surface, record intersection for optimization
@@ -1666,7 +1845,7 @@ export class RayTracer {
     const dotProduct = incident.dot(localNormal);
     const reflected = incident.subtract(localNormal.multiply(2 * dotProduct));
     
-    return new Ray(
+    const reflectedRay = new Ray(
       intersection.point,
       reflected.normalize(),
       ray.wavelength,
@@ -1674,6 +1853,13 @@ export class RayTracer {
       ray.intensity,
       ray.startsAt // Preserve original startsAt
     );
+    
+    // Reflection stays in the same medium, so keep the current refractive index
+    if ((ray as any)._currentRefractiveIndex) {
+      (reflectedRay as any)._currentRefractiveIndex = (ray as any)._currentRefractiveIndex;
+    }
+    
+    return reflectedRay;
   }
 
   /**
@@ -1754,7 +1940,7 @@ export class RayTracer {
     // Enhanced logging for wavelength-dependent ray tracing
     // RayTracer.log('intersection', `  🌈 Refraction [${surface.id || 'unknown'}(sid:${surface.numericalId})]: λ=${ray.wavelength}nm, n1=${n1.toFixed(6)}, n2=${n2.toFixed(6)}, ratio=${snellRatio.toFixed(6)}`);
     
-    return new Ray(
+    const refractedRay = new Ray(
       intersection.point,
       refracted.normalize(),
       ray.wavelength,
@@ -1762,6 +1948,12 @@ export class RayTracer {
       ray.intensity,
       ray.startsAt // Preserve original startsAt
     );
+    
+    // Store the refractive index of the medium the ray is entering
+    // This will be used to calculate optical path length during propagation
+    (refractedRay as any)._currentRefractiveIndex = n2;
+    
+    return refractedRay;
   }
 
   /**
