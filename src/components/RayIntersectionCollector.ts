@@ -185,8 +185,8 @@ export class RayIntersectionCollector {
       exitDirection: exitDirection?.clone(),
       
       hitDistance,
-      cumulativePhysicalDistance: ray.pathLength + hitDistance,
-      cumulativeOpticalDistance: ray.opticalPathLength + (hitDistance * ((ray as any)._currentRefractiveIndex || 1.0)),
+      cumulativePhysicalDistance: ray.pathLength, // Ray already contains cumulative distance
+      cumulativeOpticalDistance: ray.opticalPathLength, // Ray already contains cumulative optical distance
       isValid,
       wasBlocked,
       

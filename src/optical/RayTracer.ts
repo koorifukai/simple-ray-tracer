@@ -480,21 +480,9 @@ export class RayTracer {
     result.intersection.point = this.transformPointToGlobal(intersection.point, surface);
     result.intersection.normal = this.transformVectorToGlobal(intersection.normal, surface);
 
-    // Collect hit data for analysis (if collection is active)
+    // Store local hit point for later use by the collector
     if (intersection.isValid && rayHitsSurface) {
-      const collector = RayIntersectionCollector.getInstance();
-      collector.recordHit(
-        ray,
-        surface,
-        result.intersection.point,         // Global hit point
-        result.intersection.normal,       // Global normal
-        intersection.distance,
-        true, // isValid
-        result.isBlocked,
-        ray.direction,
-        result.transmitted?.direction || result.reflected?.direction,
-        localHitPoint                     // TRUE local coordinates (before transform)
-      );
+      (result as any).localIntersectionPoint = localHitPoint;
     }
 
     return result;
@@ -783,6 +771,24 @@ export class RayTracer {
           intersectionRay.opticalPathLength = currentRay.opticalPathLength + (distanceFromLast * n1);
           
           rayPath.push(intersectionRay);
+          
+          // Record hit using the intersection ray which has the correct cumulative path lengths
+          const collector = RayIntersectionCollector.getInstance();
+          if (collector.isCollectionActive()) {
+            collector.recordHit(
+              intersectionRay,
+              surface,
+              result.intersection.point,
+              result.intersection.normal,
+              distanceFromLast,
+              true,
+              true, // wasBlocked
+              currentRay.direction,
+              undefined,
+              (result as any).localIntersectionPoint
+            );
+          }
+          
           if (!isFirstTrace) {
             this.log('ray', `Ray terminated at intersection point:`, result.intersection.point);
           }
@@ -837,6 +843,24 @@ export class RayTracer {
           (intersectionRay as any)._currentRefractiveIndex = (result.transmitted as any)?._currentRefractiveIndex || n1;
           
           rayPath.push(intersectionRay);
+          
+          // Record hit using the intersection ray which has the correct cumulative path lengths
+          const collector = RayIntersectionCollector.getInstance();
+          if (collector.isCollectionActive()) {
+            collector.recordHit(
+              intersectionRay,
+              surface,
+              result.intersection.point,
+              result.intersection.normal,
+              distanceFromLast,
+              true,
+              false, // wasBlocked
+              currentRay.direction,
+              result.transmitted?.direction || result.reflected?.direction,
+              (result as any).localIntersectionPoint
+            );
+          }
+          
           if (!isFirstTrace) {
             this.log('ray', `Added intersection point to path:`, result.intersection.point);
           }
@@ -1170,7 +1194,7 @@ export class RayTracer {
               const collector = RayIntersectionCollector.getInstance();
               if (collector.isCollectionActive()) {
                 collector.recordHit(
-                  lastRay,           // Original ray
+                  apertureEndRay,    // Use the ray at the intersection point
                   aperture,          // Last surface (aperture)
                   worldHitPoint,     // Hit point
                   aperture.normal || new Vector3(-1, 0, 0),  // Normal
@@ -1309,7 +1333,7 @@ export class RayTracer {
             const lastSurface = surfaces[surfaces.length - 1];
             // Record intersection at the extended position as if ray hit the last surface
             collector.recordHit(
-              lastRay,           // Original ray
+              finalRay,          // Use the ray at the extended position
               lastSurface,       // Last surface
               finalPosition,     // Extended hit point
               lastSurface.normal || new Vector3(-1, 0, 0),  // Normal
