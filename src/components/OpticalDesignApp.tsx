@@ -3,7 +3,6 @@ import { YamlEditor } from './YamlEditor';
 import { EmptyPlot3D } from '../visualization/EmptyPlot3D';
 import { IntersectionPlot } from './IntersectionPlot';
 import { RayIntersectionCollector } from './RayIntersectionCollector';
-import type { RayIntersectionPoint } from './RayIntersectionCollector';
 import { OpticalSystemParser } from '../optical/OpticalSystem';
 import { ConvergenceHistory } from './ConvergenceHistory';
 import { Zemax2YamlPanel } from './Zemax2YamlPanel';
@@ -876,50 +875,119 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
     return lightSources;
   }, [parsedData, analysisType, intersectionDataTrigger]);
 
+  // Auto-select the last entry in the surface / light list when data becomes available
+  useEffect(() => {
+    if (analysisType === 'Ray Hit Map' && !selectedSurface) {
+      const surfaces = getAvailableSurfaces();
+      if (surfaces.length > 0) {
+        setSelectedSurface(surfaces[surfaces.length - 1].id);
+      }
+    }
+  }, [analysisType, selectedSurface, getAvailableSurfaces, intersectionDataTrigger]);
+
+  useEffect(() => {
+    if (analysisType === 'Spot Diagram' && !selectedLight) {
+      const lights = getAvailableLightSources();
+      if (lights.length > 0) {
+        setSelectedLight(lights[lights.length - 1].id);
+      }
+    }
+  }, [analysisType, selectedLight, getAvailableLightSources, intersectionDataTrigger]);
+
   // Export intersection data as CSV
   const handleExportCSV = useCallback((mode: 'hitmap' | 'spotdiagram') => {
     const collector = RayIntersectionCollector.getInstance();
     const data = collector.getIntersectionData();
     if (data.surfaces.size === 0) return;
 
+    // Boundary helper – mirrors logic in IntersectionPlot
+    const isWithinBoundary = (y: number, z: number, surface: any): boolean => {
+      if (surface.height && surface.width) {
+        return Math.abs(y) <= surface.width / 2 && Math.abs(z) <= surface.height / 2;
+      }
+      const shape = surface.shape || 'plano';
+      if (shape === 'cylindrical') {
+        const hw = surface.width  ? surface.width  / 2 : (surface.semidia || 25);
+        const hh = surface.height ? surface.height / 2 : (surface.semidia || 25);
+        return Math.abs(y) <= hw && Math.abs(z) <= hh;
+      }
+      if (surface.semidia) {
+        return y * y + z * z <= surface.semidia * surface.semidia;
+      }
+      return true;
+    };
+
     const lines: string[] = [];
 
     if (mode === 'hitmap') {
-      // Group by surface
+      // Export selected surface, intersections grouped by LID
+      const surfaceId = selectedSurface;
+      if (!surfaceId) return;
+      const surfaceData = collector.getSurfaceIntersectionData(surfaceId);
+      if (!surfaceData) return;
+
+      const numId = surfaceData.surface.numericalId;
+      const assem = surfaceData.assemblyName ? `, Assembly: ${surfaceData.assemblyName}` : '';
+
+      // Group intersections by LID
+      const byLid = new Map<number, typeof surfaceData.intersectionPoints>();
+      for (const pt of surfaceData.intersectionPoints) {
+        if (!isWithinBoundary(pt.crossSectionY, pt.crossSectionZ, surfaceData.surface)) continue;
+        if (!byLid.has(pt.lightId)) byLid.set(pt.lightId, []);
+        byLid.get(pt.lightId)!.push(pt);
+      }
+
       const header = 'LightID,X,Y,Z,LocalY,LocalZ,DistTravelled,OptDist';
-      for (const [surfaceKey, surfaceData] of data.surfaces) {
-        const numId = surfaceData.surface.numericalId;
-        const assem = surfaceData.assemblyName ? `, Assembly: ${surfaceData.assemblyName}` : '';
-        lines.push(`# Surface: ${surfaceData.surfaceName} (Numerical ID: ${numId ?? surfaceKey}${assem})`);
+      const sortedLids = Array.from(byLid.keys()).sort((a, b) => a - b);
+      for (const lid of sortedLids) {
+        lines.push(`# Surface: ${surfaceData.surfaceName} (Numerical ID: ${numId ?? surfaceId}${assem}), Light ID: ${lid}`);
         lines.push(header);
-        for (const pt of surfaceData.intersectionPoints) {
+        for (const pt of byLid.get(lid)!) {
           lines.push(
             `${pt.lightId},${pt.hitPoint.x},${pt.hitPoint.y},${pt.hitPoint.z},${pt.crossSectionY},${pt.crossSectionZ},${pt.cumulativePhysicalDistance},${pt.cumulativeOpticalDistance}`
           );
         }
       }
     } else {
-      // Group by LID
-      const byLid = new Map<number, Array<{surfaceKey: string; surfaceName: string; pt: RayIntersectionPoint}>>();
-      for (const [surfaceKey, surfaceData] of data.surfaces) {
-        for (const pt of surfaceData.intersectionPoints) {
-          if (!byLid.has(pt.lightId)) byLid.set(pt.lightId, []);
-          byLid.get(pt.lightId)!.push({ surfaceKey, surfaceName: surfaceData.surfaceName, pt });
+      // Export only the selected LID, at the last active surface
+      const lid = selectedLight ? parseFloat(selectedLight) : NaN;
+      if (isNaN(lid)) return;
+
+      // Find the last active surface (same logic as getAvailableLightSources)
+      const availableSurfaces = collector.getAvailableSurfaces();
+      let lastSurfaceId = '';
+      let maxNumericalId = -1;
+      availableSurfaces.forEach(surface => {
+        const sd = collector.getSurfaceIntersectionData(surface.id);
+        if (sd && sd.surface && sd.surface.mode !== 'inactive') {
+          if (surface.numericalId !== undefined && surface.numericalId > maxNumericalId) {
+            maxNumericalId = surface.numericalId;
+            lastSurfaceId = surface.id;
+          }
         }
-      }
+      });
+      if (!lastSurfaceId) return;
+
+      const surfaceData = collector.getSurfaceIntersectionData(lastSurfaceId);
+      if (!surfaceData) return;
+
+      const numId = surfaceData.surface.numericalId;
+      const assem = surfaceData.assemblyName ? `, Assembly: ${surfaceData.assemblyName}` : '';
+      lines.push(`# Light ID: ${lid}, Surface: ${surfaceData.surfaceName} (Numerical ID: ${numId ?? lastSurfaceId}${assem})`);
       const header = 'SurfaceID,SurfaceName,X,Y,Z,LocalY,LocalZ,DistTravelled,OptDist';
-      const sortedLids = Array.from(byLid.keys()).sort((a, b) => a - b);
-      for (const lid of sortedLids) {
-        lines.push(`# Light ID: ${lid}`);
-        lines.push(header);
-        for (const row of byLid.get(lid)!) {
-          const pt = row.pt;
+      lines.push(header);
+      const tolerance = 0.05;
+      for (const pt of surfaceData.intersectionPoints) {
+        if (Math.abs(pt.lightId - lid) < tolerance
+            && isWithinBoundary(pt.crossSectionY, pt.crossSectionZ, surfaceData.surface)) {
           lines.push(
-            `${row.surfaceKey},${row.surfaceName},${pt.hitPoint.x},${pt.hitPoint.y},${pt.hitPoint.z},${pt.crossSectionY},${pt.crossSectionZ},${pt.cumulativePhysicalDistance},${pt.cumulativeOpticalDistance}`
+            `${lastSurfaceId},${surfaceData.surfaceName},${pt.hitPoint.x},${pt.hitPoint.y},${pt.hitPoint.z},${pt.crossSectionY},${pt.crossSectionZ},${pt.cumulativePhysicalDistance},${pt.cumulativeOpticalDistance}`
           );
         }
       }
     }
+
+    if (lines.length <= 2) return; // Only comment + header, no data rows
 
     const filename = mode === 'hitmap' ? 'ray_hit_map_export.csv' : 'spot_diagram_export.csv';
     const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
@@ -931,7 +999,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, []);
+  }, [selectedSurface, selectedLight]);
 
   return (
     <div className="app-container">

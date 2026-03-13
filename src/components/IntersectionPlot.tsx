@@ -21,6 +21,35 @@ interface IntersectionPlotProps {
   systemData?: any; // Parsed YAML system data
 }
 
+/**
+ * Check whether a local cross-section point (y, z) falls within the
+ * boundary of the given surface.  Returns true when there is no
+ * boundary information (i.e. no semidia / height / width).
+ */
+const isWithinBoundary = (y: number, z: number, surface: any): boolean => {
+  // Priority 1: explicit height + width → rectangular
+  if (surface.height && surface.width) {
+    return Math.abs(y) <= surface.width / 2 && Math.abs(z) <= surface.height / 2;
+  }
+
+  const shape = surface.shape || 'plano';
+
+  // Cylindrical → rectangular with available dims
+  if (shape === 'cylindrical') {
+    const halfWidth  = (surface.width  ? surface.width  / 2 : (surface.semidia || 25));
+    const halfHeight = (surface.height ? surface.height / 2 : (surface.semidia || 25));
+    return Math.abs(y) <= halfWidth && Math.abs(z) <= halfHeight;
+  }
+
+  // Spherical / plano / flat → circular using semidia
+  if (surface.semidia) {
+    return y * y + z * z <= surface.semidia * surface.semidia;
+  }
+
+  // No boundary info – accept the point
+  return true;
+};
+
 export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({ 
   surfaceId, 
   analysisType, 
@@ -69,8 +98,14 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
       }
       
       const lastSurface = surfacesWithLight[surfacesWithLight.length - 1];
-      
-      const spotData = lastSurface.points.map(hit => ({
+
+      // Boundary filter – get the surface object for the last surface
+      const lastSurfObj = collector.getSurfaceIntersectionData(lastSurface.surfaceId)?.surface;
+      const boundaryFiltered = lastSurfObj
+        ? lastSurface.points.filter(hit => isWithinBoundary(hit.crossSectionY, hit.crossSectionZ, lastSurfObj))
+        : lastSurface.points;
+
+      const spotData = boundaryFiltered.map(hit => ({
         y: hit.crossSectionY,
         z: hit.crossSectionZ,
         wavelength: hit.wavelength,
@@ -92,9 +127,13 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
         return [];
       }
       
-      // Found intersection points for surface
+      // Boundary filter – only keep points that land within the surface aperture
+      const surface = surfaceData.surface;
+      const filtered = surface
+        ? surfaceData.intersectionPoints.filter(hit => isWithinBoundary(hit.crossSectionY, hit.crossSectionZ, surface))
+        : surfaceData.intersectionPoints;
       
-      return surfaceData.intersectionPoints.map(hit => ({
+      return filtered.map(hit => ({
         y: hit.crossSectionY,
         z: hit.crossSectionZ,
         wavelength: hit.wavelength,
@@ -398,7 +437,7 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
       lidGroups.get(point.lightId)!.push(point);
     });
 
-    const traces = Array.from(lidGroups.entries()).map(([lid, points]) => {
+    const traces: any[] = Array.from(lidGroups.entries()).map(([lid, points]) => {
       // Creating trace for LID
       return {
         x: points.map(p => -p.y), // COORDINATE FIX: Mirror horizontal coordinates to match optical convention
@@ -416,7 +455,27 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
       };
     });
 
-    // Traces created for plotting
+    // Add centroid marker (×) per LID in the same color
+    lidGroups.forEach((points, lid) => {
+      if (points.length === 0) return;
+      const meanY = points.reduce((s, p) => s + (-p.y), 0) / points.length;
+      const meanZ = points.reduce((s, p) => s + p.z, 0) / points.length;
+      traces.push({
+        x: [meanY],
+        y: [meanZ],
+        type: 'scatter' as const,
+        mode: 'markers' as const,
+        marker: {
+          color: getWavelengthColor(points[0].wavelength),
+          size: 8,
+          symbol: 'x',
+          line: { width: 1, color: getWavelengthColor(points[0].wavelength) }
+        },
+        name: `Centroid LID ${lid}`,
+        hovertemplate: `Centroid LID ${lid}<br>Y: %{x:.4f}mm<br>Z: %{y:.4f}mm<extra></extra>`,
+        showlegend: false
+      });
+    });
     
     // Get surface shapes for background
     const surfaceShapes = getSurfaceShape();
