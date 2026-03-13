@@ -37,6 +37,15 @@ const saveCameraState = (cameraState: any) => {
 
 const getCameraState = () => globalCameraState;
 
+// Cache the Plotly module at module level to avoid repeated dynamic imports
+let cachedPlotlyLib: any = null;
+const getPlotlyLib = async () => {
+  if (cachedPlotlyLib) return cachedPlotlyLib;
+  const PlotlyModule = await import('plotly.js-dist-min');
+  cachedPlotlyLib = PlotlyModule.default || PlotlyModule;
+  return cachedPlotlyLib;
+};
+
 interface EmptyPlot3DProps {
   title?: string;
   yamlContent?: string;
@@ -53,15 +62,15 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
   rayTracingTrigger
 }) => {
   const plotRef = useRef<HTMLDivElement>(null);
+  const plotlyInstanceRef = useRef<any>(null);
 
   useEffect(() => {
     if (!plotRef.current) return;
 
-    // Load Plotly dynamically only when ray tracing is active
+    // Load Plotly (cached after first call) and render
     const loadPlotly = async () => {
       try {
-        const PlotlyModule = await import('plotly.js-dist-min');
-        const PlotlyLib = PlotlyModule.default || PlotlyModule;
+        const PlotlyLib = await getPlotlyLib();
 
         // Create optical system visualization
         const plotData: any[] = [];
@@ -278,6 +287,7 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
             // Clear ray tracing data at the beginning of each new session to prevent mixing data from different systems
             RayTracer.resetFirstRayTracking();
             RayTracer.clearWarnings();
+            RayTracer.clearRayAccountability();
             console.log('🧹 Cleared ray tracer state for new tracing session');
             
             // CRITICAL FIX: Clear light source rays BEFORE ray tracing to prevent dual-session contamination
@@ -661,7 +671,13 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
           hovermode: 'closest'
         };
 
-        await PlotlyLib.newPlot(plotRef.current, plotData, layout, config);
+        // Use Plotly.react for efficient updates; fall back to newPlot on first render
+        if (plotlyInstanceRef.current && plotRef.current) {
+          await PlotlyLib.react(plotRef.current, plotData, layout, config);
+        } else {
+          await PlotlyLib.newPlot(plotRef.current, plotData, layout, config);
+          plotlyInstanceRef.current = plotRef.current;
+        }
 
         // Set up camera state persistence - capture camera changes
         if (plotRef.current) {
@@ -730,9 +746,10 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
     return () => {
       if (plotRef.current && typeof Plotly !== 'undefined') {
         Plotly.purge(plotRef.current);
+        plotlyInstanceRef.current = null;
       }
     };
-  }, [title, yamlContent, parsedSystem, isRayTracingActive, rayTracingTrigger]);
+  }, [title, parsedSystem, isRayTracingActive, rayTracingTrigger]);
 
   return (
     <div 

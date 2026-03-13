@@ -3,6 +3,7 @@ import { YamlEditor } from './YamlEditor';
 import { EmptyPlot3D } from '../visualization/EmptyPlot3D';
 import { IntersectionPlot } from './IntersectionPlot';
 import { RayIntersectionCollector } from './RayIntersectionCollector';
+import type { RayIntersectionPoint } from './RayIntersectionCollector';
 import { OpticalSystemParser } from '../optical/OpticalSystem';
 import { ConvergenceHistory } from './ConvergenceHistory';
 import { Zemax2YamlPanel } from './Zemax2YamlPanel';
@@ -118,6 +119,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
   const [autoUpdate, setAutoUpdate] = useState(true);
   const [privacyMode, setPrivacyMode] = useState(false);
   const [lastRayTracedYaml, setLastRayTracedYaml] = useState(initialProcessedResult.processedYaml);
+  const lastRayTracedYamlRef = useRef(initialProcessedResult.processedYaml);
   const [analysisType, setAnalysisType] = useState<'None' | 'System Overview' | 'Spot Diagram' | 'Ray Hit Map' | 'zemax2yaml' | 'Convergence History'>('None');
   const [refreshTrigger, setRefreshTrigger] = useState(0); // Used to trigger secondary panel refresh
   const [selectedSurface, setSelectedSurface] = useState<string>('');
@@ -151,6 +153,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
   } | null>(null);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const rayTraceDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Clear intersection data on component mount for clean initialization
   useEffect(() => {
@@ -280,6 +283,60 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
     setYamlContent(newYaml);
   }, []);
 
+  // Core ray-tracing update logic, extracted so it can be called directly or debounced
+  const executeRayTraceUpdate = useCallback((yamlToProcess: string) => {
+    try {
+      // SINGLE PROCESSING: Get everything needed in one shot
+      const result = processYamlForVisualization(yamlToProcess);
+      
+      // Only update if the processed YAML has actually changed
+      if (result.processedYaml !== lastRayTracedYamlRef.current) {
+        console.log('🔄 YAML content changed - updating visualization');
+        
+        // Parse the system once here and pass it down
+        OpticalSystemParser.parseYAML(result.processedYaml).then(system => {
+          setParsedSystem(system);
+        }).catch(err => {
+          console.error('Failed to parse optical system:', err);
+          setParsedSystem(null);
+        });
+        
+        // Update all state with results from single processing
+        setParsedData(result.parsedData);
+        setLastRayTracedYaml(result.processedYaml);
+        lastRayTracedYamlRef.current = result.processedYaml;
+        setHasOptimizationSettings(result.hasOptimization);
+        
+        // Validate glass materials (status will be updated by useEffect)
+        validateMaterials(result.parsedData);
+        
+        // Clear intersection data when YAML changes
+        const collector = RayIntersectionCollector.getInstance();
+        collector.clearData();
+        
+        // Restart collection if we're in analysis mode
+        if (analysisType === 'Ray Hit Map' || analysisType === 'Spot Diagram') {
+          collector.startCollection(true); // Clear data for new system
+        }
+        
+        // Reset selected surface to prevent stale selections
+        setSelectedSurface('');
+        
+        // Reset intersection data trigger to unlock UI from old state
+        setIntersectionDataTrigger(0);
+        
+        // Single trigger for all updates - no conditional logic for analysis type
+        setRefreshTrigger(prev => prev + 1);
+        
+        // Update ray statistics after processing
+        setTimeout(updateRayStats, 100); // Small delay to ensure ray tracing completes
+      }
+      
+    } catch (err) {
+      setParsedData(null);
+    }
+  }, [analysisType, processYamlForVisualization, updateRayStats, validateMaterials]);
+
   const handleYamlValidation = useCallback((isValid: boolean, error?: string, _errors?: any, currentYaml?: string) => {
     setIsYamlValid(isValid);
     
@@ -296,55 +353,14 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
     const yamlToProcess = currentYaml || yamlContent;
     
     if (isValid && autoUpdate) {
-      try {
-        // SINGLE PROCESSING: Get everything needed in one shot
-        const result = processYamlForVisualization(yamlToProcess);
-        
-        // Only update if the processed YAML has actually changed
-        if (result.processedYaml !== lastRayTracedYaml) {
-          console.log('🔄 YAML content changed - updating visualization');
-          
-          // Parse the system once here and pass it down
-          OpticalSystemParser.parseYAML(result.processedYaml).then(system => {
-            setParsedSystem(system);
-          }).catch(err => {
-            console.error('Failed to parse optical system:', err);
-            setParsedSystem(null);
-          });
-          
-          // Update all state with results from single processing
-          setParsedData(result.parsedData);
-          setLastRayTracedYaml(result.processedYaml);
-          setHasOptimizationSettings(result.hasOptimization);
-          
-          // Validate glass materials (status will be updated by useEffect)
-          validateMaterials(result.parsedData);
-          
-          // Clear intersection data when YAML changes
-          const collector = RayIntersectionCollector.getInstance();
-          collector.clearData();
-          
-          // Restart collection if we're in analysis mode
-          if (analysisType === 'Ray Hit Map' || analysisType === 'Spot Diagram') {
-            collector.startCollection(true); // Clear data for new system
-          }
-          
-          // Reset selected surface to prevent stale selections
-          setSelectedSurface('');
-          
-          // Reset intersection data trigger to unlock UI from old state
-          setIntersectionDataTrigger(0);
-          
-          // Single trigger for all updates - no conditional logic for analysis type
-          setRefreshTrigger(prev => prev + 1);
-          
-          // Update ray statistics after processing
-          setTimeout(updateRayStats, 100); // Small delay to ensure ray tracing completes
-        }
-        
-      } catch (err) {
-        setParsedData(null);
+      // Debounce: delay ray tracing to at most once per second during typing
+      if (rayTraceDebounceRef.current) {
+        clearTimeout(rayTraceDebounceRef.current);
       }
+      rayTraceDebounceRef.current = setTimeout(() => {
+        rayTraceDebounceRef.current = null;
+        executeRayTraceUpdate(yamlToProcess);
+      }, 1000);
     } else if (isValid && !autoUpdate) {
       // When auto-update is off, still check optimization settings
       const result = processYamlForVisualization(yamlToProcess);
@@ -354,7 +370,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
       setHasOptimizationSettings(false);
       setParsedData(null);
     }
-  }, [yamlContent, autoUpdate, analysisType, processYamlForVisualization, updateRayStats]); // Removed lastRayTracedYaml to prevent circular dependency // Removed lastRayTracedYaml to prevent circular dependency
+  }, [yamlContent, autoUpdate, processYamlForVisualization, executeRayTraceUpdate]);
 
   const handleImport = useCallback(() => {
     fileInputRef.current?.click();
@@ -375,9 +391,9 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
         // Reset intersection data trigger to unlock UI from old state
         setIntersectionDataTrigger(0);
         
-        // CRITICAL: Force scene update after YAML import
+        // CRITICAL: Force scene update after YAML import (immediate, no debounce)
         setTimeout(() => {
-          handleYamlValidation(true, undefined, undefined, content);
+          executeRayTraceUpdate(content);
         }, 100);
       };
       reader.readAsText(file);
@@ -406,6 +422,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
     const result = processYamlForVisualization(defaultYaml);
     setParsedData(result.parsedData);
     setLastRayTracedYaml(result.processedYaml);
+    lastRayTracedYamlRef.current = result.processedYaml;
     setHasOptimizationSettings(result.hasOptimization);
     
     OpticalSystemParser.parseYAML(result.processedYaml).then(system => {
@@ -444,6 +461,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
         
         setParsedData(result.parsedData);
         setLastRayTracedYaml(result.processedYaml);
+        lastRayTracedYamlRef.current = result.processedYaml;
         setHasOptimizationSettings(result.hasOptimization);
         
         // Reset selected surface when toggling auto-update
@@ -481,6 +499,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
         // Update all state with single processing result
         setParsedData(result.parsedData);
         setLastRayTracedYaml(result.processedYaml);
+        lastRayTracedYamlRef.current = result.processedYaml;
         setHasOptimizationSettings(result.hasOptimization);
         
         // Validate glass materials
@@ -569,9 +588,9 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
           // Update the YAML editor with optimized values
           setYamlContent(optimizedYaml);
           
-          // CRITICAL: Force scene update after optimization
+          // CRITICAL: Force scene update after optimization (immediate, no debounce)
           setTimeout(() => {
-            handleYamlValidation(true, undefined, undefined, optimizedYaml);
+            executeRayTraceUpdate(optimizedYaml);
           }, 100);
           
           if (result.success) {
@@ -658,8 +677,21 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
       
       let lastCount = 0;
       let checkCount = 0;
+      let activeIntervalId: ReturnType<typeof setInterval> | null = null;
+      let disposed = false;
       
-      const checkInterval = setInterval(() => {
+      const startSlowMonitoring = () => {
+        if (disposed) return;
+        activeIntervalId = setInterval(() => {
+          const currentSurfaces = collector.getAvailableSurfaces();
+          if (currentSurfaces.length !== lastCount) {
+            lastCount = currentSurfaces.length;
+            setIntersectionDataTrigger(prev => prev + 1);
+          }
+        }, 2000); // Check every 2 seconds instead of 500ms
+      };
+      
+      activeIntervalId = setInterval(() => {
         const availableSurfaces = collector.getAvailableSurfaces();
         checkCount++;
         
@@ -671,26 +703,22 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
         
         // Stop checking after 20 attempts (10 seconds) if no data appears
         if (checkCount > 20 && availableSurfaces.length === 0) {
-          clearInterval(checkInterval);
+          if (activeIntervalId) clearInterval(activeIntervalId);
+          activeIntervalId = null;
         }
         
         // If we have data and it's stable for 3 checks, reduce frequency
         if (availableSurfaces.length > 0 && checkCount > 3) {
-          clearInterval(checkInterval);
-          // Switch to less frequent monitoring for updates
-          const slowInterval = setInterval(() => {
-            const currentSurfaces = collector.getAvailableSurfaces();
-            if (currentSurfaces.length !== lastCount) {
-              lastCount = currentSurfaces.length;
-              setIntersectionDataTrigger(prev => prev + 1);
-            }
-          }, 2000); // Check every 2 seconds instead of 500ms
-          
-          return () => clearInterval(slowInterval);
+          if (activeIntervalId) clearInterval(activeIntervalId);
+          activeIntervalId = null;
+          startSlowMonitoring();
         }
       }, 500); // Initial fast checking for first 10 seconds
       
-      return () => clearInterval(checkInterval);
+      return () => {
+        disposed = true;
+        if (activeIntervalId) clearInterval(activeIntervalId);
+      };
     }
   }, [analysisType, refreshTrigger]); // Add refreshTrigger dependency to reset monitoring on YAML changes
 
@@ -847,6 +875,63 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
     
     return lightSources;
   }, [parsedData, analysisType, intersectionDataTrigger]);
+
+  // Export intersection data as CSV
+  const handleExportCSV = useCallback((mode: 'hitmap' | 'spotdiagram') => {
+    const collector = RayIntersectionCollector.getInstance();
+    const data = collector.getIntersectionData();
+    if (data.surfaces.size === 0) return;
+
+    const lines: string[] = [];
+
+    if (mode === 'hitmap') {
+      // Group by surface
+      const header = 'LightID,X,Y,Z,LocalY,LocalZ,DistTravelled,OptDist';
+      for (const [surfaceKey, surfaceData] of data.surfaces) {
+        const numId = surfaceData.surface.numericalId;
+        const assem = surfaceData.assemblyName ? `, Assembly: ${surfaceData.assemblyName}` : '';
+        lines.push(`# Surface: ${surfaceData.surfaceName} (Numerical ID: ${numId ?? surfaceKey}${assem})`);
+        lines.push(header);
+        for (const pt of surfaceData.intersectionPoints) {
+          lines.push(
+            `${pt.lightId},${pt.hitPoint.x},${pt.hitPoint.y},${pt.hitPoint.z},${pt.crossSectionY},${pt.crossSectionZ},${pt.cumulativePhysicalDistance},${pt.cumulativeOpticalDistance}`
+          );
+        }
+      }
+    } else {
+      // Group by LID
+      const byLid = new Map<number, Array<{surfaceKey: string; surfaceName: string; pt: RayIntersectionPoint}>>();
+      for (const [surfaceKey, surfaceData] of data.surfaces) {
+        for (const pt of surfaceData.intersectionPoints) {
+          if (!byLid.has(pt.lightId)) byLid.set(pt.lightId, []);
+          byLid.get(pt.lightId)!.push({ surfaceKey, surfaceName: surfaceData.surfaceName, pt });
+        }
+      }
+      const header = 'SurfaceID,SurfaceName,X,Y,Z,LocalY,LocalZ,DistTravelled,OptDist';
+      const sortedLids = Array.from(byLid.keys()).sort((a, b) => a - b);
+      for (const lid of sortedLids) {
+        lines.push(`# Light ID: ${lid}`);
+        lines.push(header);
+        for (const row of byLid.get(lid)!) {
+          const pt = row.pt;
+          lines.push(
+            `${row.surfaceKey},${row.surfaceName},${pt.hitPoint.x},${pt.hitPoint.y},${pt.hitPoint.z},${pt.crossSectionY},${pt.crossSectionZ},${pt.cumulativePhysicalDistance},${pt.cumulativeOpticalDistance}`
+          );
+        }
+      }
+    }
+
+    const filename = mode === 'hitmap' ? 'ray_hit_map_export.csv' : 'spot_diagram_export.csv';
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, []);
 
   return (
     <div className="app-container">
@@ -1055,6 +1140,14 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
                             <p>Ray trace must complete first</p>
                           </div>
                         )}
+                        {getAvailableSurfaces().length > 0 && (
+                          <button
+                            className="menu-button export-csv-button"
+                            onClick={() => handleExportCSV('hitmap')}
+                          >
+                            Export CSV
+                          </button>
+                        )}
                       </div>
                     </div>
                     
@@ -1094,6 +1187,14 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
                             <p>No light sources with ray hits available</p>
                             <p>Ray trace must complete first</p>
                           </div>
+                        )}
+                        {getAvailableLightSources().length > 0 && (
+                          <button
+                            className="menu-button export-csv-button"
+                            onClick={() => handleExportCSV('spotdiagram')}
+                          >
+                            Export CSV
+                          </button>
                         )}
                       </div>
                     </div>

@@ -458,6 +458,15 @@ input:checked + .toggle-slider:before {
   font-style: italic;
 }
 
+.export-csv-button {
+  width: calc(100% - 12px);
+  margin: 6px;
+  padding: 5px 0;
+  font-size: 11px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
 .no-surfaces p {
   margin: 4px 0;
   font-size: 11px;
