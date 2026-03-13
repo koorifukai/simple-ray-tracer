@@ -1094,18 +1094,7 @@ input:checked + .toggle-slider:before {
   color: white;
 }
 
-.privacy-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: var(--bg-secondary);
-  border-radius: 8px;
-  z-index: 1000;
-}
-
-/* Make left-column relative so privacy overlay can be positioned absolutely */
-.left-column {
-  position: relative;
+/* When collapsed, hide the left column entirely so visualization fills the width */
+.left-column.collapsed {
+  display: none;
 }

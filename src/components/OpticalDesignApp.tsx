@@ -459,6 +459,10 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
 
   const handleTogglePrivacy = useCallback(() => {
     setPrivacyMode(!privacyMode);
+    // After the DOM updates, fire a window resize so Plotly re-measures its container
+    requestAnimationFrame(() => {
+      window.dispatchEvent(new Event('resize'));
+    });
   }, [privacyMode]);
 
   const handleManualUpdate = useCallback(() => {
@@ -938,12 +942,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
       {/* Main Content */}
       <div className="main-content">
         {/* Left Column */}
-        <div className="left-column">
-          {/* Privacy Overlay */}
-          {privacyMode && (
-            <div className="privacy-overlay"></div>
-          )}
-          
+        <div className={`left-column ${privacyMode ? 'collapsed' : ''}`}>
           {/* YAML Editor Panel */}
           <div className={`yaml-panel ${analysisType !== 'None' ? 'with-analysis' : ''}`}>
             <div className="yaml-editor-container">
