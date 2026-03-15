@@ -6,6 +6,7 @@ import { RayIntersectionCollector } from './RayIntersectionCollector';
 import { OpticalSystemParser } from '../optical/OpticalSystem';
 import { ConvergenceHistory } from './ConvergenceHistory';
 import { Zemax2YamlPanel } from './Zemax2YamlPanel';
+import { RecentrePanel } from './RecentrePanel';
 import { OptimizationEngine, VariableParser } from '../optimization';
 import { GlassCatalog } from '../optical/materials/GlassCatalog';
 import type { OptimizationResult } from '../optimization';
@@ -119,7 +120,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
   const [privacyMode, setPrivacyMode] = useState(false);
   const [lastRayTracedYaml, setLastRayTracedYaml] = useState(initialProcessedResult.processedYaml);
   const lastRayTracedYamlRef = useRef(initialProcessedResult.processedYaml);
-  const [analysisType, setAnalysisType] = useState<'None' | 'System Overview' | 'Spot Diagram' | 'Ray Hit Map' | 'zemax2yaml' | 'Convergence History'>('None');
+  const [analysisType, setAnalysisType] = useState<'None' | 'System Overview' | 'Spot Diagram' | 'Ray Hit Map' | 'zemax2yaml' | 'Convergence History' | 'Recentre At'>('None');
   const [refreshTrigger, setRefreshTrigger] = useState(0); // Used to trigger secondary panel refresh
   const [selectedSurface, setSelectedSurface] = useState<string>('');
   const [selectedLight, setSelectedLight] = useState<string>(''); // For spot diagram light source selection
@@ -626,7 +627,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
   }, [yamlContent, isYamlValid, isOptimizing]);
 
   const handleAnalysisChange = useCallback((event: React.ChangeEvent<HTMLSelectElement>) => {
-    const newAnalysisType = event.target.value as 'None' | 'System Overview' | 'Spot Diagram' | 'Ray Hit Map' | 'zemax2yaml' | 'Convergence History';
+    const newAnalysisType = event.target.value as 'None' | 'System Overview' | 'Spot Diagram' | 'Ray Hit Map' | 'zemax2yaml' | 'Convergence History' | 'Recentre At';
     
     // Check if we have existing data before switching
     const collector = RayIntersectionCollector.getInstance();
@@ -1036,6 +1037,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
                 <option value="Ray Hit Map">Ray Hit Map</option>
                 <option value="zemax2yaml">Zemax2YAML</option>
                 <option value="Convergence History">Convergence History</option>
+                <option value="Recentre At">Recentre At</option>
               </select>
             </div>
             
@@ -1296,6 +1298,10 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
                 ) : analysisType === 'zemax2yaml' ? (
                   <div className="zemax2yaml-analysis-panel">
                     <Zemax2YamlPanel />
+                  </div>
+                ) : analysisType === 'Recentre At' ? (
+                  <div className="recentre-analysis-panel" style={{ height: '100%' }}>
+                    <RecentrePanel parsedData={parsedData} parsedSystem={parsedSystem} />
                   </div>
                 ) : (
                   <div className="placeholder-content">
