@@ -19,6 +19,7 @@ interface IntersectionPlotProps {
   analysisType: 'Hit Map' | 'Spot Diagram';
   yamlContent?: string;
   systemData?: any; // Parsed YAML system data
+  showCentroidsOnly?: boolean;
 }
 
 /**
@@ -54,7 +55,8 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
   surfaceId, 
   analysisType, 
   yamlContent,
-  systemData 
+  systemData,
+  showCentroidsOnly = false
 }) => {
   const plotRef = useRef<HTMLDivElement>(null);
   const plotlyInstanceRef = useRef<any>(null);
@@ -437,45 +439,49 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
       lidGroups.get(point.lightId)!.push(point);
     });
 
-    const traces: any[] = Array.from(lidGroups.entries()).map(([lid, points]) => {
-      // Creating trace for LID
-      return {
-        x: points.map(p => -p.y), // COORDINATE FIX: Mirror horizontal coordinates to match optical convention
-        y: points.map(p => p.z),
-        text: points.map(p => `Physical Dist: ${p.cumulativePhysicalDistance.toFixed(3)} mm<br>Optical Dist: ${p.cumulativeOpticalDistance.toFixed(3)} mm`),
-        type: 'scatter' as const,
-        mode: 'markers' as const,
-        marker: {
-          color: getWavelengthColor(points[0].wavelength), // Use wavelength color of first point
-          size: 6,
-          opacity: 0.8
-        },
-        name: `LID ${lid} (${points.length} pts)`,
-        hovertemplate: `Y: %{x:.3f}mm<br>Z: %{y:.3f}mm<br>LID: ${lid}<br>%{text}<extra></extra>`
-      };
-    });
+    const traces: any[] = [];
 
-    // Add centroid marker (×) per LID in the same color
-    lidGroups.forEach((points, lid) => {
-      if (points.length === 0) return;
-      const meanY = points.reduce((s, p) => s + (-p.y), 0) / points.length;
-      const meanZ = points.reduce((s, p) => s + p.z, 0) / points.length;
-      traces.push({
-        x: [meanY],
-        y: [meanZ],
-        type: 'scatter' as const,
-        mode: 'markers' as const,
-        marker: {
-          color: getWavelengthColor(points[0].wavelength),
-          size: 8,
-          symbol: 'x',
-          line: { width: 1, color: getWavelengthColor(points[0].wavelength) }
-        },
-        name: `Centroid LID ${lid}`,
-        hovertemplate: `Centroid LID ${lid}<br>Y: %{x:.4f}mm<br>Z: %{y:.4f}mm<extra></extra>`,
-        showlegend: false
+    if (!showCentroidsOnly) {
+      // Show individual ray intersection scatter points
+      Array.from(lidGroups.entries()).forEach(([lid, points]) => {
+        traces.push({
+          x: points.map(p => -p.y),
+          y: points.map(p => p.z),
+          text: points.map(p => `Physical Dist: ${p.cumulativePhysicalDistance.toFixed(3)} mm<br>Optical Dist: ${p.cumulativeOpticalDistance.toFixed(3)} mm`),
+          type: 'scatter' as const,
+          mode: 'markers' as const,
+          marker: {
+            color: getWavelengthColor(points[0].wavelength),
+            size: 6,
+            opacity: 0.8
+          },
+          name: `LID ${lid} (${points.length} pts)`,
+          hovertemplate: `Y: %{x:.3f}mm<br>Z: %{y:.3f}mm<br>LID: ${lid}<br>%{text}<extra></extra>`
+        });
       });
-    });
+    } else {
+      // Show centroid markers only
+      lidGroups.forEach((points, lid) => {
+        if (points.length === 0) return;
+        const meanY = points.reduce((s, p) => s + (-p.y), 0) / points.length;
+        const meanZ = points.reduce((s, p) => s + p.z, 0) / points.length;
+        traces.push({
+          x: [meanY],
+          y: [meanZ],
+          type: 'scatter' as const,
+          mode: 'markers' as const,
+          marker: {
+            color: getWavelengthColor(points[0].wavelength),
+            size: 10,
+            symbol: 'x',
+            line: { width: 2, color: getWavelengthColor(points[0].wavelength) }
+          },
+          name: `Centroid LID ${lid}`,
+          hovertemplate: `Centroid LID ${lid}<br>Y: %{x:.4f}mm<br>Z: %{y:.4f}mm<extra></extra>`,
+          showlegend: false
+        });
+      });
+    }
     
     // Get surface shapes for background
     const surfaceShapes = getSurfaceShape();
@@ -894,7 +900,7 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
 
   useEffect(() => {
     updatePlot();
-  }, [surfaceId, analysisType, yamlContent, systemData]);
+  }, [surfaceId, analysisType, yamlContent, systemData, showCentroidsOnly]);
 
   useEffect(() => {
     const handleRayTraceComplete = () => {
@@ -907,7 +913,7 @@ export const IntersectionPlot: React.FC<IntersectionPlotProps> = ({
     return () => {
       window.removeEventListener('rayTraceComplete', handleRayTraceComplete);
     };
-  }, []);
+  }, [surfaceId, analysisType, showCentroidsOnly]);
 
   return (
     <div 

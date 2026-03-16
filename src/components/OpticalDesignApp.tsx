@@ -121,9 +121,14 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
   const [lastRayTracedYaml, setLastRayTracedYaml] = useState(initialProcessedResult.processedYaml);
   const lastRayTracedYamlRef = useRef(initialProcessedResult.processedYaml);
   const [analysisType, setAnalysisType] = useState<'None' | 'System Overview' | 'Spot Diagram' | 'Ray Hit Map' | 'zemax2yaml' | 'Convergence History' | 'Recentre At'>('None');
-  const [refreshTrigger, setRefreshTrigger] = useState(0); // Used to trigger secondary panel refresh
+  const [, setRefreshTrigger] = useState(0); // Incremented to signal updates; the value itself is unused
   const [selectedSurface, setSelectedSurface] = useState<string>('');
   const [selectedLight, setSelectedLight] = useState<string>(''); // For spot diagram light source selection
+  const [showCentroidsOnly, setShowCentroidsOnly] = useState(false);
+
+  // Track manually selected indices (undefined = user hasn't picked yet, use last)
+  const selectedSurfaceIndexRef = useRef<number | undefined>(undefined);
+  const selectedLightIndexRef = useRef<number | undefined>(undefined);
   const [materialErrors, setMaterialErrors] = useState<string[]>([]); // Track material validation errors
   
   // Status tracking for chronological display
@@ -310,17 +315,16 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
         // Validate glass materials (status will be updated by useEffect)
         validateMaterials(result.parsedData);
         
-        // Clear intersection data when YAML changes
+        // EmptyPlot3D clears collector and restarts collection before each trace,
+        // so we only need to ensure collection is active for the analysis panels.
         const collector = RayIntersectionCollector.getInstance();
-        collector.clearData();
-        
-        // Restart collection if we're in analysis mode
         if (analysisType === 'Ray Hit Map' || analysisType === 'Spot Diagram') {
-          collector.startCollection(true); // Clear data for new system
+          if (!collector.isCollectionActive()) {
+            collector.startCollection(false);
+          }
         }
         
-        // Reset selected surface to prevent stale selections
-        setSelectedSurface('');
+        // Don't reset selectedSurface/selectedLight — index-based restore will handle it
         
         // Reset intersection data trigger to unlock UI from old state
         setIntersectionDataTrigger(0);
@@ -464,8 +468,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
         lastRayTracedYamlRef.current = result.processedYaml;
         setHasOptimizationSettings(result.hasOptimization);
         
-        // Reset selected surface when toggling auto-update
-        setSelectedSurface('');
+        // Don't reset selected surface — index-based restore handles stale selections
         
         // Single trigger for all updates - no conditional logic for analysis type
         setRefreshTrigger(prev => prev + 1);
@@ -509,8 +512,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
         const collector = RayIntersectionCollector.getInstance();
         collector.clearData();
         
-        // Reset selected surface to prevent stale selections
-        setSelectedSurface('');
+        // Don't reset selected surface — index-based restore handles stale selections
         
         // Reset intersection data trigger to unlock UI from old state
         setIntersectionDataTrigger(0);
@@ -635,92 +637,32 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
     console.log(`🔄 Analysis type change: ${analysisType} → ${newAnalysisType}, existing data: ${existingData.length} surfaces`);
     
     setAnalysisType(newAnalysisType);
-    
-    // Reset selected surface/light when analysis type changes
-    setSelectedSurface('');
-    setSelectedLight('');
-    console.log('🔄 Reset selected surface/light due to analysis type change');
+    // Don't reset selectedSurface/selectedLight — retain index across panel switches
   }, [analysisType]);
 
-  // Control ray intersection data collection based on analysis type
+  // Listen for ray trace completion to update intersection data UI
+  // (replaces interval-based polling — EmptyPlot3D dispatches 'rayTraceComplete' after rendering)
+  useEffect(() => {
+    const handler = () => {
+      setIntersectionDataTrigger(prev => prev + 1);
+    };
+    window.addEventListener('rayTraceComplete', handler);
+    return () => window.removeEventListener('rayTraceComplete', handler);
+  }, []);
+
+  // Start/stop collection based on analysis type
   useEffect(() => {
     const collector = RayIntersectionCollector.getInstance();
-    
     if (analysisType === 'Ray Hit Map' || analysisType === 'Spot Diagram') {
-      // Only start collection if not already collecting to avoid duplicates
       if (!collector.isCollectionActive()) {
-        // Don't clear data when switching analysis types - preserve existing data
         collector.startCollection(false);
       }
     } else {
-      // Only stop collection when explicitly switching to 'None' or other non-analysis types
       if (collector.isCollectionActive()) {
         collector.stopCollection();
       }
     }
-    
-    // NO cleanup function - let data persist across analysis type switches
-    // Data will only be cleared when explicitly switching to 'None' or component unmounts
   }, [analysisType]);
-
-  // Monitor intersection data availability and trigger re-renders
-  useEffect(() => {
-    if (analysisType === 'Ray Hit Map' || analysisType === 'Spot Diagram') {
-      const collector = RayIntersectionCollector.getInstance();
-      
-      // Check if we already have data immediately
-      const existingData = collector.getAvailableSurfaces();
-      if (existingData.length > 0) {
-        setIntersectionDataTrigger(prev => prev + 1);
-        return; // No need to monitor if we already have data
-      }
-      
-      let lastCount = 0;
-      let checkCount = 0;
-      let activeIntervalId: ReturnType<typeof setInterval> | null = null;
-      let disposed = false;
-      
-      const startSlowMonitoring = () => {
-        if (disposed) return;
-        activeIntervalId = setInterval(() => {
-          const currentSurfaces = collector.getAvailableSurfaces();
-          if (currentSurfaces.length !== lastCount) {
-            lastCount = currentSurfaces.length;
-            setIntersectionDataTrigger(prev => prev + 1);
-          }
-        }, 2000); // Check every 2 seconds instead of 500ms
-      };
-      
-      activeIntervalId = setInterval(() => {
-        const availableSurfaces = collector.getAvailableSurfaces();
-        checkCount++;
-        
-        // Only trigger update if surface count actually changed
-        if (availableSurfaces.length !== lastCount && availableSurfaces.length > 0) {
-          lastCount = availableSurfaces.length;
-          setIntersectionDataTrigger(prev => prev + 1);
-        }
-        
-        // Stop checking after 20 attempts (10 seconds) if no data appears
-        if (checkCount > 20 && availableSurfaces.length === 0) {
-          if (activeIntervalId) clearInterval(activeIntervalId);
-          activeIntervalId = null;
-        }
-        
-        // If we have data and it's stable for 3 checks, reduce frequency
-        if (availableSurfaces.length > 0 && checkCount > 3) {
-          if (activeIntervalId) clearInterval(activeIntervalId);
-          activeIntervalId = null;
-          startSlowMonitoring();
-        }
-      }, 500); // Initial fast checking for first 10 seconds
-      
-      return () => {
-        disposed = true;
-        if (activeIntervalId) clearInterval(activeIntervalId);
-      };
-    }
-  }, [analysisType, refreshTrigger]); // Add refreshTrigger dependency to reset monitoring on YAML changes
 
   // Extract available surfaces from parsed YAML data and hit data
   const getAvailableSurfaces = useCallback(() => {
@@ -876,24 +818,42 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
     return lightSources;
   }, [parsedData, analysisType, intersectionDataTrigger]);
 
-  // Auto-select the last entry in the surface / light list when data becomes available
+  // Index-based selection restore: default to last entry, but retain manual index
   useEffect(() => {
-    if (analysisType === 'Ray Hit Map' && !selectedSurface) {
-      const surfaces = getAvailableSurfaces();
-      if (surfaces.length > 0) {
-        setSelectedSurface(surfaces[surfaces.length - 1].id);
+    if (analysisType !== 'Ray Hit Map') return;
+    const surfaces = getAvailableSurfaces();
+    if (surfaces.length === 0) return;
+
+    const idx = selectedSurfaceIndexRef.current;
+    if (idx !== undefined && idx < surfaces.length) {
+      // Restore by previously selected index
+      if (selectedSurface !== surfaces[idx].id) setSelectedSurface(surfaces[idx].id);
+    } else {
+      // Default or out-of-range: pick the last entry
+      const lastId = surfaces[surfaces.length - 1].id;
+      if (selectedSurface !== lastId) {
+        selectedSurfaceIndexRef.current = surfaces.length - 1;
+        setSelectedSurface(lastId);
       }
     }
-  }, [analysisType, selectedSurface, getAvailableSurfaces, intersectionDataTrigger]);
+  }, [analysisType, getAvailableSurfaces, intersectionDataTrigger]);
 
   useEffect(() => {
-    if (analysisType === 'Spot Diagram' && !selectedLight) {
-      const lights = getAvailableLightSources();
-      if (lights.length > 0) {
-        setSelectedLight(lights[lights.length - 1].id);
+    if (analysisType !== 'Spot Diagram') return;
+    const lights = getAvailableLightSources();
+    if (lights.length === 0) return;
+
+    const idx = selectedLightIndexRef.current;
+    if (idx !== undefined && idx < lights.length) {
+      if (selectedLight !== lights[idx].id) setSelectedLight(lights[idx].id);
+    } else {
+      const lastId = lights[lights.length - 1].id;
+      if (selectedLight !== lastId) {
+        selectedLightIndexRef.current = lights.length - 1;
+        setSelectedLight(lastId);
       }
     }
-  }, [analysisType, selectedLight, getAvailableLightSources, intersectionDataTrigger]);
+  }, [analysisType, getAvailableLightSources, intersectionDataTrigger]);
 
   // Export intersection data as CSV
   const handleExportCSV = useCallback((mode: 'hitmap' | 'spotdiagram') => {
@@ -1194,12 +1154,22 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
                     {/* Left side - Compact surface list */}
                     <div className="surface-list-container">
                       <div className="surface-list">
-                        <h3>Surfaces</h3>
-                        {getAvailableSurfaces().map(surface => (
+                        <h3 className="surface-list-header">
+                          Surfaces
+                          <label className="centroid-toggle" title="Toggle spots / centroids">
+                            <span className="centroid-toggle-label">{showCentroidsOnly ? 'C' : 'S'}</span>
+                            <input
+                              type="checkbox"
+                              checked={showCentroidsOnly}
+                              onChange={() => setShowCentroidsOnly(v => !v)}
+                            />
+                          </label>
+                        </h3>
+                        {getAvailableSurfaces().map((surface, index) => (
                           <div 
                             key={surface.id}
                             className={`surface-item ${selectedSurface === surface.id ? 'selected' : ''}`}
-                            onClick={() => setSelectedSurface(surface.id)}
+                            onClick={() => { selectedSurfaceIndexRef.current = index; setSelectedSurface(surface.id); }}
                           >
                             {surface.label}
                           </div>
@@ -1229,6 +1199,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
                           analysisType={'Hit Map' as 'Hit Map' | 'Spot Diagram'}
                           yamlContent={yamlContent}
                           systemData={parsedData}
+                          showCentroidsOnly={showCentroidsOnly}
                         />
                       ) : (
                         <div className="hit-map-empty">
@@ -1243,11 +1214,11 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
                     <div className="surface-list-container">
                       <div className="surface-list">
                         <h3>Light Sources</h3>
-                        {getAvailableLightSources().map(lightSource => (
+                        {getAvailableLightSources().map((lightSource, index) => (
                           <div 
                             key={lightSource.id}
                             className={`surface-item ${selectedLight === lightSource.id ? 'selected' : ''}`}
-                            onClick={() => setSelectedLight(lightSource.id)}
+                            onClick={() => { selectedLightIndexRef.current = index; setSelectedLight(lightSource.id); }}
                           >
                             {lightSource.label}
                           </div>

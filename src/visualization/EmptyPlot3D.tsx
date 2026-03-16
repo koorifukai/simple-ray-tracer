@@ -679,6 +679,9 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
           plotlyInstanceRef.current = plotRef.current;
         }
 
+        // Notify intersection plots that ray tracing has completed
+        window.dispatchEvent(new Event('rayTraceComplete'));
+
         // Set up camera state persistence - capture camera changes
         if (plotRef.current) {
           const plotElement = plotRef.current as any; // Cast to access PlotlyLib methods

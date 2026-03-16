@@ -426,6 +426,54 @@ input:checked + .toggle-slider:before {
   text-align: center;
 }
 
+/* Header row containing title + centroid toggle */
+.surface-list-header {
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  background-color: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.centroid-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-secondary);
+  user-select: none;
+  padding: 2px 4px;
+  border-radius: 3px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+}
+
+.centroid-toggle:hover {
+  background: var(--bg-primary);
+}
+
+.centroid-toggle input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.centroid-toggle-label {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  min-width: 8px;
+  text-align: center;
+}
+
 .surface-item {
   padding: 8px 10px; /* Slightly more padding */
   font-size: 12px; /* Slightly larger font */
