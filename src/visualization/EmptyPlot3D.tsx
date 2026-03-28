@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import { useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { wavelengthToRGB, rgbToCSSColor } from '../optical/wavelength';
 import { OpticalSystemParser } from '../optical/OpticalSystem';
 import { SurfaceRenderer } from '../optical/surfaces';
@@ -54,15 +54,35 @@ interface EmptyPlot3DProps {
   rayTracingTrigger?: number;
 }
 
-export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({ 
+export interface EmptyPlot3DHandle {
+  toImage: (opts?: { width?: number; height?: number }) => Promise<string>;
+  getCamera: () => any;
+}
+
+export const EmptyPlot3D = forwardRef<EmptyPlot3DHandle, EmptyPlot3DProps>(({ 
   title = "Optical System Visualization",
   yamlContent,
   parsedSystem,
   isRayTracingActive = false,
   rayTracingTrigger
-}) => {
+}, ref) => {
   const plotRef = useRef<HTMLDivElement>(null);
   const plotlyInstanceRef = useRef<any>(null);
+
+  useImperativeHandle(ref, () => ({
+    async toImage(opts?: { width?: number; height?: number }) {
+      const PlotlyLib = await getPlotlyLib();
+      if (!plotRef.current) return '';
+      return PlotlyLib.toImage(plotRef.current, {
+        format: 'png',
+        width: opts?.width ?? 1280,
+        height: opts?.height ?? 720
+      });
+    },
+    getCamera() {
+      return getCameraState();
+    }
+  }), []);
 
   useEffect(() => {
     if (!plotRef.current) return;
@@ -765,4 +785,6 @@ export const EmptyPlot3D: React.FC<EmptyPlot3DProps> = ({
       }} 
     />
   );
-};
+});
+
+EmptyPlot3D.displayName = 'EmptyPlot3D';

@@ -1,12 +1,14 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { YamlEditor } from './YamlEditor';
 import { EmptyPlot3D } from '../visualization/EmptyPlot3D';
+import type { EmptyPlot3DHandle } from '../visualization/EmptyPlot3D';
 import { IntersectionPlot } from './IntersectionPlot';
 import { RayIntersectionCollector } from './RayIntersectionCollector';
 import { OpticalSystemParser } from '../optical/OpticalSystem';
 import { ConvergenceHistory } from './ConvergenceHistory';
 import { Zemax2YamlPanel } from './Zemax2YamlPanel';
 import { RecentrePanel } from './RecentrePanel';
+import { AnimatePanel } from './AnimatePanel';
 import { OptimizationEngine, VariableParser } from '../optimization';
 import { GlassCatalog } from '../optical/materials/GlassCatalog';
 import type { OptimizationResult } from '../optimization';
@@ -120,7 +122,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
   const [privacyMode, setPrivacyMode] = useState(false);
   const [lastRayTracedYaml, setLastRayTracedYaml] = useState(initialProcessedResult.processedYaml);
   const lastRayTracedYamlRef = useRef(initialProcessedResult.processedYaml);
-  const [analysisType, setAnalysisType] = useState<'None' | 'System Overview' | 'Spot Diagram' | 'Ray Hit Map' | 'zemax2yaml' | 'Convergence History' | 'Recentre At'>('None');
+  const [analysisType, setAnalysisType] = useState<'None' | 'System Overview' | 'Spot Diagram' | 'Ray Hit Map' | 'zemax2yaml' | 'Convergence History' | 'Recentre At' | 'Animate It'>('None');
   const [, setRefreshTrigger] = useState(0); // Incremented to signal updates; the value itself is unused
   const [selectedSurface, setSelectedSurface] = useState<string>('');
   const [selectedLight, setSelectedLight] = useState<string>(''); // For spot diagram light source selection
@@ -158,6 +160,8 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
   } | null>(null);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const plotRef = useRef<EmptyPlot3DHandle>(null);
+  const [animationSystemOverride, setAnimationSystemOverride] = useState<any>(null);
   const rayTraceDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Clear intersection data on component mount for clean initialization
@@ -629,7 +633,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
   }, [yamlContent, isYamlValid, isOptimizing]);
 
   const handleAnalysisChange = useCallback((event: React.ChangeEvent<HTMLSelectElement>) => {
-    const newAnalysisType = event.target.value as 'None' | 'System Overview' | 'Spot Diagram' | 'Ray Hit Map' | 'zemax2yaml' | 'Convergence History' | 'Recentre At';
+    const newAnalysisType = event.target.value as 'None' | 'System Overview' | 'Spot Diagram' | 'Ray Hit Map' | 'zemax2yaml' | 'Convergence History' | 'Recentre At' | 'Animate It';
     
     // Check if we have existing data before switching
     const collector = RayIntersectionCollector.getInstance();
@@ -998,6 +1002,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
                 <option value="zemax2yaml">Zemax2YAML</option>
                 <option value="Convergence History">Convergence History</option>
                 <option value="Recentre At">Recentre At</option>
+                <option value="Animate It">Animate It</option>
               </select>
             </div>
             
@@ -1274,6 +1279,16 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
                   <div className="recentre-analysis-panel" style={{ height: '100%' }}>
                     <RecentrePanel parsedData={parsedData} parsedSystem={parsedSystem} />
                   </div>
+                ) : analysisType === 'Animate It' ? (
+                  <div className="animate-analysis-panel" style={{ height: '100%' }}>
+                    <AnimatePanel
+                      yamlContent={yamlContent}
+                      parsedData={parsedData}
+                      plotRef={plotRef}
+                      onSystemOverride={(sys) => setAnimationSystemOverride(sys)}
+                      onAnimationDone={() => setAnimationSystemOverride(null)}
+                    />
+                  </div>
                 ) : (
                   <div className="placeholder-content">
                     <p>{analysisType} functionality will be implemented here</p>
@@ -1288,9 +1303,10 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
         <div className="visualization-panel">
           <div className="visualization-container">
             <EmptyPlot3D 
+              ref={plotRef}
               title="Ray Tracer Visualization"
-              yamlContent={autoUpdate ? (isYamlValid ? lastRayTracedYaml : undefined) : lastRayTracedYaml}
-              parsedSystem={parsedSystem}
+              yamlContent={animationSystemOverride ? undefined : (autoUpdate ? (isYamlValid ? lastRayTracedYaml : undefined) : lastRayTracedYaml)}
+              parsedSystem={animationSystemOverride || parsedSystem}
             />
           </div>
         </div>
