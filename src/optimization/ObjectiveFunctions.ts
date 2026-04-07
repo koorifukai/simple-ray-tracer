@@ -42,7 +42,7 @@ export class ObjectiveFunctions {
       
       // Debug: Log target surface details
       // Target surface details
-      console.log(`📋 Total surfaces in system: ${system.surfaces.length}`);
+      // console.log(`📋 Total surfaces in system: ${system.surfaces.length}`);
 
       // Generate and trace rays through the system
       const rayResults = ObjectiveFunctions.traceSystemRays(system, targetSurface);
@@ -104,7 +104,7 @@ export class ObjectiveFunctions {
     
     // Track evaluation calls for debugging duplication
     ObjectiveFunctions.evaluationCounter++;
-    console.log(`🔄 Evaluation #${ObjectiveFunctions.evaluationCounter} starting`);
+    // console.log(`🔄 Evaluation #${ObjectiveFunctions.evaluationCounter} starting`);
 
     const results: Array<{
       sourceRays: Ray[];
@@ -220,7 +220,7 @@ export class ObjectiveFunctions {
       const centroidY = sumY / validHits.length;
       const centroidZ = sumZ / validHits.length;
       
-      console.log(`Light source ${sourceIndex}: Centroid Y=${centroidY.toFixed(6)}, Z=${centroidZ.toFixed(6)}`);
+      // console.log(`Light source ${sourceIndex}: Centroid Y=${centroidY.toFixed(6)}, Z=${centroidZ.toFixed(6)}`);
       
       // Calculate RMS spot size for this light source (transverse coordinates only)
       let sumSquaredDistances = 0;
@@ -243,7 +243,7 @@ export class ObjectiveFunctions {
         return; // Skip this source
       }
       
-      console.log(`Light source ${sourceIndex}: RMS = ${rmsSpotSize.toFixed(6)}, hits = ${validHits.length}`);
+      // console.log(`Light source ${sourceIndex}: RMS = ${rmsSpotSize.toFixed(6)}, hits = ${validHits.length}`);
       
       // Add this source's contribution to total RMS (sum of squares for proper combining)
       totalRmsSquared += rmsSpotSize * rmsSpotSize;
@@ -269,7 +269,7 @@ export class ObjectiveFunctions {
       const MISSED_RAY_PENALTY = 1.0; // Penalty per missed ray fraction (in RMS units)
       const missedRayPenalty = missedRayFraction * MISSED_RAY_PENALTY;
       combinedRms += missedRayPenalty;
-      console.log(`⚠️  ${totalValidHits}/${totalRays} rays hit target (${(missedRayFraction*100).toFixed(1)}% missed), adding penalty: ${missedRayPenalty.toFixed(6)}`);
+      // console.log(`⚠️  ${totalValidHits}/${totalRays} rays hit target (${(missedRayFraction*100).toFixed(1)}% missed), adding penalty: ${missedRayPenalty.toFixed(6)}`);
     }
     
     // Final sanity check
@@ -285,7 +285,7 @@ export class ObjectiveFunctions {
       };
     }
     
-    console.log(`Combined RMS: ${combinedRms.toFixed(6)} from ${totalValidSources} sources`);
+    // console.log(`Combined RMS: ${combinedRms.toFixed(6)} from ${totalValidSources} sources`);
     
     return {
       value: combinedRms,
@@ -328,7 +328,7 @@ export class ObjectiveFunctions {
     });
     
     if (validIntersections.length === 0) {
-      console.log(`❌ Angle mode: No rays reaching target surface`);
+      // console.log(`❌ Angle mode: No rays reaching target surface`);
       return {
         value: 10000.0, // MUCH STRONGER penalty for missing rays
         valid: false,
@@ -337,10 +337,10 @@ export class ObjectiveFunctions {
       };
     }
     
-    console.log(`🎯 Angle mode: Target angle = ${targetAngleDegrees.toFixed(1)}° from normal, ${validIntersections.length}/${totalRays} rays hit target`);
+    // console.log(`🎯 Angle mode: Target angle = ${targetAngleDegrees.toFixed(1)}° from normal, ${validIntersections.length}/${totalRays} rays hit target`);
     
     const targetCos = Math.cos(targetAngleDegrees * Math.PI / 180);
-    console.log(`🎯 Target cos(angle) = ${targetCos.toFixed(4)}`);
+    // console.log(`🎯 Target cos(angle) = ${targetCos.toFixed(4)}`);
     
     // Calculate angles for each ray using surface normals directly (both in global coordinates)
     const angles = validIntersections.map((intersection) => {
@@ -387,7 +387,7 @@ export class ObjectiveFunctions {
       const MISSED_RAY_PENALTY = 90.0; // Heavy penalty in degrees for missed rays
       const missedRayPenalty = missedRayFraction * MISSED_RAY_PENALTY;
       objective += missedRayPenalty;
-      console.log(`⚠️  ${validIntersections.length}/${totalRays} rays hit target (${(missedRayFraction*100).toFixed(1)}% missed), adding penalty: ${missedRayPenalty.toFixed(3)}°`);
+      // console.log(`⚠️  ${validIntersections.length}/${totalRays} rays hit target (${(missedRayFraction*100).toFixed(1)}% missed), adding penalty: ${missedRayPenalty.toFixed(3)}°`);
     }
     
     const actualAngles = angles.map(item => item.actualAngleDeg);
@@ -399,10 +399,10 @@ export class ObjectiveFunctions {
     const avgAngularDeviation = angularDeviations.reduce((sum: number, dev: number) => sum + dev, 0) / angularDeviations.length;
     const maxAngularDeviation = Math.max(...angularDeviations);
     
-    console.log(`📐 Angle analysis: Avg=${avgActualAngle.toFixed(1)}° (target=${targetAngleDegrees.toFixed(1)}°), Avg angular dev=${avgAngularDeviation.toFixed(2)}°`);
-    console.log(`📐 Angular deviation: RMS=${rmsAngularDeviation.toFixed(3)}°, Max=${maxAngularDeviation.toFixed(3)}°`);
-    console.log(`📐 Cosine analysis: Avg cos=${avgActualCos.toFixed(4)} (target=${targetCos.toFixed(4)}), Avg cos dev=${avgCosDeviation.toFixed(4)}`);
-    console.log(`📐 Final objective: ${objective.toFixed(3)}° (RMS angular deviation + missed ray penalty)`);
+    // console.log(`📐 Angle analysis: Avg=${avgActualAngle.toFixed(1)}° ...`);
+    // console.log(`📐 Angular deviation: RMS=${rmsAngularDeviation.toFixed(3)}° ...`);
+    // console.log(`📐 Cosine analysis: ...`);
+    // console.log(`📐 Final objective: ${objective.toFixed(3)}° ...`);
     
     return {
       value: objective, // Use RMS angular deviation as objective

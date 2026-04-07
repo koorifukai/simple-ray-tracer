@@ -551,8 +551,8 @@ export class RayTracer {
       return;
     }
 
-    console.log('\n📏 RAY PATH ANALYSIS BY LIGHT ID:');
-    console.log('=' .repeat(60));
+    // console.log('\n📏 RAY PATH ANALYSIS BY LIGHT ID:');
+    // console.log('=' .repeat(60));
 
     // Group rays by their actual light ID (treats all rays equally)
     const raysByLight = new Map<number, Ray[]>();
@@ -571,8 +571,8 @@ export class RayTracer {
       this.analyzeSingleRayPath(raysByLight.get(lightId)!);
     });
 
-    console.log('\n' + '='.repeat(60));
-    console.log(`📈 Summary: Analyzed ${raysByLight.size} independent light path(s) with ${rays.length} total ray points`);
+    // console.log('\n' + '='.repeat(60));
+    // console.log(`📈 Summary: Analyzed ${raysByLight.size} independent light path(s) with ${rays.length} total ray points`);
   }
 
   /**
@@ -639,32 +639,17 @@ export class RayTracer {
   /**
    * Display path segments - same format for all rays
    */
-  private static displayPathSegments(sortedRays: Ray[], pathAnalysis: { segments: Array<{ length: number; isValid: boolean }> }): void {
-    for (let i = 0; i < sortedRays.length; i++) {
-      const ray = sortedRays[i];
-      const isLastRay = i === sortedRays.length - 1;
-      
-      if (!isLastRay) {
-        const nextRay = sortedRays[i + 1];
-        const segment = pathAnalysis.segments[i];
-        
-        if (segment.isValid) {
-          console.log(`  Path ${i + 1}→${i + 2}: ${segment.length.toFixed(3)} units [${ray.position.x.toFixed(2)},${ray.position.y.toFixed(2)},${ray.position.z.toFixed(2)}] → [${nextRay.position.x.toFixed(2)},${nextRay.position.y.toFixed(2)},${nextRay.position.z.toFixed(2)}]`);
-        } else {
-          console.log(`  Path ${i + 1}→${i + 2}: ${segment.length.toFixed(6)} units (too small) [${ray.position.x.toFixed(2)},${ray.position.y.toFixed(2)},${ray.position.z.toFixed(2)}] → [${nextRay.position.x.toFixed(2)},${nextRay.position.y.toFixed(2)},${nextRay.position.z.toFixed(2)}]`);
-        }
-      } else {
-        console.log(`  Final point: [${ray.position.x.toFixed(2)},${ray.position.y.toFixed(2)},${ray.position.z.toFixed(2)}] (Path length: ${ray.pathLength?.toFixed(3) || 'N/A'})`);
-      }
-    }
+  private static displayPathSegments(_sortedRays: Ray[], _pathAnalysis: { segments: Array<{ length: number; isValid: boolean }> }): void {
+    // Per-segment logging removed for performance
+    // Uncomment for debugging:
+    // for (let i = 0; i < sortedRays.length; i++) { ... }
   }
 
   /**
    * Display path summary - same statistics for all rays
    */
-  private static displayPathSummary(pathAnalysis: { totalLength: number; validSegments: number; segments: Array<{ length: number; isValid: boolean }> }, totalPoints: number): void {
-    console.log(`  Total optical path length: ${pathAnalysis.totalLength.toFixed(3)} units`);
-    console.log(`  Valid segments: ${pathAnalysis.validSegments} (${totalPoints - 1} expected)`);
+  private static displayPathSummary(_pathAnalysis: { totalLength: number; validSegments: number; segments: Array<{ length: number; isValid: boolean }> }, _totalPoints: number): void {
+    // Summary logging removed for performance
   }
 
   /**
@@ -901,7 +886,7 @@ export class RayTracer {
         const shadowLightId = nextGeneration * 1000 + surfaceOrder + (ancestralLID / 10);
         
         // Always show LID SPLIT for partial surfaces, regardless of first trace status
-        console.log(`🔍 LID SPLIT [${surface.id}]: ${originalLightId} → ${originalLightId} (${transmissionCoeff > 0.5 ? 'transmitted' : 'reflected'}) & ${shadowLightId} (${transmissionCoeff > 0.5 ? 'reflected' : 'transmitted'})`);        
+        // console.log(`🔍 LID SPLIT [${surface.id}]: ${originalLightId} → ${originalLightId} & ${shadowLightId}`);        
         
         // Determine which ray keeps original LID and which gets shadow LID
         const keepOriginalLID = transmissionCoeff > 0.5 ? 'transmitted' : 'reflected';

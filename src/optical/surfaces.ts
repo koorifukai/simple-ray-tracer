@@ -349,7 +349,7 @@ export class OpticalSurfaceFactory {
         const dialAngleRad = surfaceData.dial * Math.PI / 180;
         const dialRotation = this.createRotationMatrix(relativeNormal, dialAngleRad);
         rotationMatrix = dialRotation.multiply(rotationMatrix);
-        console.log(`Surface ${key} dial rotation: ${surfaceData.dial}° around normal:`, relativeNormal);
+        // console.log(`Surface ${key} dial rotation: ${surfaceData.dial}° around normal:`, relativeNormal);
       }
       
       // Step 4: Calculate translation (EUREKA: t = vertex - normal * radius)

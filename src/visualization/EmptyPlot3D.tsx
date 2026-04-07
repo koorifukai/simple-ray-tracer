@@ -308,7 +308,7 @@ export const EmptyPlot3D = forwardRef<EmptyPlot3DHandle, EmptyPlot3DProps>(({
             RayTracer.resetFirstRayTracking();
             RayTracer.clearWarnings();
             RayTracer.clearRayAccountability();
-            console.log('🧹 Cleared ray tracer state for new tracing session');
+            // console.log('🧹 Cleared ray tracer state for new tracing session');
             
             // CRITICAL FIX: Clear light source rays BEFORE ray tracing to prevent dual-session contamination
             // This prevents head-to-tail connections between visualization and analysis sessions
@@ -317,7 +317,7 @@ export const EmptyPlot3D = forwardRef<EmptyPlot3DHandle, EmptyPlot3DProps>(({
                 source.clearAllRays();
               }
             });
-            console.log('🧹 VISUALIZATION: Cleared light source rays for session isolation');
+            // console.log('🧹 VISUALIZATION: Cleared light source rays for session isolation');
             
             // CRITICAL FIX: Clear and start intersection data collection BEFORE ray tracing
             // This ensures clean data for each ray tracing session
@@ -325,7 +325,7 @@ export const EmptyPlot3D = forwardRef<EmptyPlot3DHandle, EmptyPlot3DProps>(({
             
             // Always clear data before starting new ray tracing to prevent mixing
             collector.clearData();
-            console.log('🧹 VISUALIZATION: Cleared intersection data for new ray tracing session');
+            // console.log('🧹 VISUALIZATION: Cleared intersection data for new ray tracing session');
             
             if (!collector.isCollectionActive()) {
               collector.startCollection();
@@ -459,8 +459,8 @@ export const EmptyPlot3D = forwardRef<EmptyPlot3DHandle, EmptyPlot3DProps>(({
             ).length;
             
             if (totalVisualSegments > 0) {
-              console.log(`\n📈 VISUALIZATION SUMMARY: ${totalVisualSegments} total ray segments plotted to Plotly`);
-              console.log(`   Compare this with ray segment analysis above to verify consistency`);
+              // console.log(`\n📈 VISUALIZATION SUMMARY: ${totalVisualSegments} total ray segments plotted to Plotly`);
+              // console.log(`   Compare this with ray segment analysis above to verify consistency`);
             }
             
             // SESSION SUMMARY: Count total segments plotted per light ID
@@ -478,19 +478,7 @@ export const EmptyPlot3D = forwardRef<EmptyPlot3DHandle, EmptyPlot3DProps>(({
               }
             });
             
-            if (segmentsByLightId.size > 0) {
-              console.log(`\n📈 SESSION SUMMARY: Plotted segments by Light ID`);
-              console.log('=' .repeat(50));
-              const sortedLightIds = Array.from(segmentsByLightId.keys()).sort((a, b) => a - b);
-              let totalSegments = 0;
-              sortedLightIds.forEach(lightId => {
-                const count = segmentsByLightId.get(lightId)!;
-                totalSegments += count;
-                console.log(`  Light ${lightId}: ${count} segments plotted`);
-              });
-              console.log(`  📊 Total: ${totalSegments} segments across ${segmentsByLightId.size} light ID(s)`);
-              console.log('=' .repeat(50));
-            }
+            // Session summary logging removed — see browser devtools Network tab for stats
             
           } catch (error) {
             console.error('Error during light source visualization:', error);
@@ -588,11 +576,7 @@ export const EmptyPlot3D = forwardRef<EmptyPlot3DHandle, EmptyPlot3DProps>(({
         // console.log(`Z: ${unifiedMinZ.toFixed(1)} to ${unifiedMaxZ.toFixed(1)}`);
 
         // Log camera state usage
-        if (getCameraState()) {
-          console.log('📷 Using saved camera state for plot refresh:', getCameraState());
-        } else {
-          console.log('📷 Using default camera state (first render or no saved state)');
-        }
+        // Camera state logging removed
 
         // Add empty point for axis setup
         plotData.push({
@@ -710,7 +694,6 @@ export const EmptyPlot3D = forwardRef<EmptyPlot3DHandle, EmptyPlot3DProps>(({
             // Capture camera state when user interacts with the plot
             if (eventData['scene.camera']) {
               saveCameraState(eventData['scene.camera']);
-              console.log('📷 Camera state saved:', eventData['scene.camera']);
             }
           });
 
@@ -721,7 +704,7 @@ export const EmptyPlot3D = forwardRef<EmptyPlot3DHandle, EmptyPlot3DProps>(({
               PlotlyLib.relayout(plotElement, {
                 'scene.camera': getCameraState()
               });
-              console.log('📷 Camera state restored after scene update:', getCameraState());
+              // console.log('📷 Camera state restored after scene update:', getCameraState());
             }, 150);
           } else {
             // No saved camera state - capture initial state after first render
@@ -735,7 +718,6 @@ export const EmptyPlot3D = forwardRef<EmptyPlot3DHandle, EmptyPlot3DProps>(({
                     up: { ...currentCamera.up }
                   };
                   saveCameraState(cameraState);
-                  console.log('📷 Initial camera state captured:', cameraState);
                 }
               }
             }, 150);

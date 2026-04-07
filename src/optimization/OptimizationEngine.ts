@@ -88,10 +88,10 @@ export class OptimizationEngine {
       return range > 0 ? range : 1; // Avoid division by zero
     });
     
-    console.log(`📏 Variable normalization factors:`);
-    variables.forEach((variable, i) => {
-      console.log(`   ${variable.name}: range=[${variable.min}, ${variable.max}], factor=${normalizationFactors[i].toFixed(3)}`);
-    });
+    // console.log(`📏 Variable normalization factors:`);
+    // variables.forEach((variable, i) => {
+    //   console.log(`   ${variable.name}: range=[${variable.min}, ${variable.max}], factor=${normalizationFactors[i].toFixed(3)}`);
+    // });
     
     // Evaluate initial objective
     let currentObjective = await this.evaluateObjective(problem, variables);
@@ -172,7 +172,7 @@ export class OptimizationEngine {
           bestObjective = newObjective.value;
         }
         
-        console.log(`✅ Iteration ${iteration + 1}: objective = ${newObjective.value.toExponential(3)} (Δ=${improvement.toExponential(2)}, ${(relativeImprovement*100).toFixed(2)}%), λ = ${lambda.toExponential(2)}, step = ${stepSize.toFixed(2)}`);
+        // console.log(`✅ Iteration ${iteration + 1}: objective = ${newObjective.value.toExponential(3)} ...`);
         
         // Check convergence
         if (Math.abs(improvement) < tolerance) {
@@ -181,7 +181,6 @@ export class OptimizationEngine {
         }
       } else {
         // Reject step - use more sophisticated lambda increase
-        const oldLambda = lambda;
         
         if (stuckCounter === 0) {
           // First rejection - moderate increase
@@ -195,7 +194,7 @@ export class OptimizationEngine {
         }
         
         stuckCounter++;
-        console.log(`❌ Iteration ${iteration + 1}: step rejected, λ: ${oldLambda.toExponential(2)} → ${lambda.toExponential(2)} (stuck: ${stuckCounter})`);
+        // console.log(`❌ Iteration ${iteration + 1}: step rejected, λ: ${oldLambda.toExponential(2)} → ${lambda.toExponential(2)} (stuck: ${stuckCounter})`);
       }
       
       convergenceHistory.push({
@@ -317,13 +316,8 @@ export class OptimizationEngine {
       
       // Clamp to bounds and warn about boundary hits
       const clampedValue = Math.max(variable.min, Math.min(variable.max, newValue));
-      const hitBoundary = (newValue <= variable.min || newValue >= variable.max);
       
-      // Log significant updates for debugging
-      if (Math.abs(actualDelta) > normalizationFactors[i] * 0.01) {
-        const boundaryWarning = hitBoundary ? ' ⚠️ HIT BOUNDARY' : '';
-        console.log(`   ${variable.name}: ${variable.current.toFixed(4)} → ${clampedValue.toFixed(4)} (Δ=${actualDelta.toFixed(4)})${boundaryWarning}`);
-      }
+      // Per-variable step logging removed
       
       return { ...variable, current: clampedValue };
     });

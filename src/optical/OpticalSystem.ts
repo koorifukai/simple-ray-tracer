@@ -135,7 +135,7 @@ export class OpticalSystemParser {
               trainData.normal[1] || 0,
               trainData.normal[2] || 0
             ).normalize();
-            console.log(`  Normal vector specified: [${normal.x.toFixed(2)}, ${normal.y.toFixed(2)}, ${normal.z.toFixed(2)}]`);
+            // console.log(`  Normal vector specified: [${normal.x.toFixed(2)}, ${normal.y.toFixed(2)}, ${normal.z.toFixed(2)}]`);
           } else if (trainData.angles && Array.isArray(trainData.angles)) {
             // Convert angles to normal vector (same logic as surfaces.ts)
             // angles[0]: Azimuth (rotation about Z-axis)
@@ -167,9 +167,9 @@ export class OpticalSystemParser {
       });
     }
 
-    console.log(`\n=== Reference Summary ===`);
-    console.log(`Optical train elements: ${opticalTrainElements.length}`);
-    console.log(`Referenced lights: [${Array.from(referencedLights).join(', ')}]`);
+    // console.log(`\n=== Reference Summary ===`);
+    // console.log(`Optical train elements: ${opticalTrainElements.length}`);
+    // console.log(`Referenced lights: [${Array.from(referencedLights).join(', ')}]`);
 
     // Parse display settings
     if (data.display_settings) {
@@ -200,7 +200,7 @@ export class OpticalSystemParser {
         Object.entries(surfaceGroup).forEach(([key, surfaceData]: [string, any]) => {
           if (surfaceData.sid !== undefined) {
             surfaceTemplates.set(surfaceData.sid.toString(), { key, data: surfaceData });
-            console.log(`Surface template: sid ${surfaceData.sid} → "${key}" template`);
+            // console.log(`Surface template: sid ${surfaceData.sid} → "${key}" template`);
           }
         });
       });
@@ -212,7 +212,7 @@ export class OpticalSystemParser {
       data.assemblies.forEach((assembly: any) => {
         if (assembly.aid !== undefined) {
           assemblyTemplates.set(assembly.aid.toString(), assembly);
-          console.log(`Assembly template: aid ${assembly.aid}`);
+          // console.log(`Assembly template: aid ${assembly.aid}`);
         }
       });
     }
@@ -225,7 +225,7 @@ export class OpticalSystemParser {
         Object.entries(sourceGroup).forEach(([key, sourceData]: [string, any]) => {
           if (sourceData.lid !== undefined) {
             lidToKeyMap.set(sourceData.lid.toString(), key);
-            console.log(`Light source mapping: lid ${sourceData.lid} → key "${key}"`);
+            // console.log(`Light source mapping: lid ${sourceData.lid} → key "${key}"`);  
           }
         });
       });
@@ -294,9 +294,7 @@ export class OpticalSystemParser {
         }
         
         // console.log(`Creating assembly "${element.trainName}" from aid ${aid} template`);
-        if (element.dial !== undefined) {
-          console.log(`  Assembly dial: ${element.dial}°`);
-        }
+        // dial logging removed
         
         const assemblySurfaces = Surfaces.OpticalSurfaceFactory.createAssemblySurfaces(
           template, 
@@ -311,7 +309,7 @@ export class OpticalSystemParser {
         surfaceCounter += assemblySurfaces.length;
         
         system.surfaces.push(...assemblySurfaces);
-        console.log(`  Added ${assemblySurfaces.length} surfaces from assembly "${element.trainName}"`);
+        // console.log(`  Added ${assemblySurfaces.length} surfaces from assembly "${element.trainName}"`);  
       }
       // Skip 'light' type elements as they don't create surfaces
     }
@@ -443,16 +441,7 @@ export class OpticalSystemParser {
       results.push({ source: lightSource, rayPaths });
     });
     
-    // Log ray accountability statistics
-    const accountability = RayTracer.getRayAccountability();
-    const systemStats = this.getSystemRayAccountability(system);
-    
-    console.log('📊 RAY ACCOUNTABILITY SUMMARY:');
-    console.log(`   Light Sources: ${systemStats.systemTotals.totalSources}`);
-    console.log(`   Total System Rays: ${systemStats.systemTotals.totalSystemRays}`);
-    if (accountability.totalBranchedRays > 0) {
-      console.log(`   Branching Events: ${accountability.branchingEvents}`);
-    }
+    // Ray accountability summary logging removed
     
     return results;
   }
@@ -532,7 +521,7 @@ export class OpticalSystemParser {
     });
 
     // Summary log removed - user is confident with IOR lookup
-    console.log(`🏆 Wavelength tables ready - O(1) runtime material access!`);
+    // console.log(`🏆 Wavelength tables ready - O(1) runtime material access!`);
   }
   
   /**

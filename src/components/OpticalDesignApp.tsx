@@ -263,7 +263,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
         
         // Use VariableParser for proper substitution
         processedYaml = VariableParser.substituteVariables(yamlInput, variableMap);
-        console.log('🔄 Variable substitution completed');
+        // console.log('🔄 Variable substitution completed');
       }
       
       // STEP 3: Parse the final YAML once
@@ -300,7 +300,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
       
       // Only update if the processed YAML has actually changed
       if (result.processedYaml !== lastRayTracedYamlRef.current) {
-        console.log('🔄 YAML content changed - updating visualization');
+        // console.log('🔄 YAML content changed - updating visualization');
         
         // Parse the system once here and pass it down
         OpticalSystemParser.parseYAML(result.processedYaml).then(system => {
@@ -373,7 +373,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
       // When auto-update is off, still check optimization settings
       const result = processYamlForVisualization(yamlToProcess);
       setHasOptimizationSettings(result.hasOptimization);
-      console.log('⏸️ Auto-update paused - YAML syntax valid but ray tracing not updated');
+      // console.log('⏸️ Auto-update paused - YAML syntax valid but ray tracing not updated');
     } else {
       setHasOptimizationSettings(false);
       setParsedData(null);
@@ -636,9 +636,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
     const newAnalysisType = event.target.value as 'None' | 'System Overview' | 'Spot Diagram' | 'Ray Hit Map' | 'zemax2yaml' | 'Convergence History' | 'Recentre At' | 'Animate It';
     
     // Check if we have existing data before switching
-    const collector = RayIntersectionCollector.getInstance();
-    const existingData = collector.getAvailableSurfaces();
-    console.log(`🔄 Analysis type change: ${analysisType} → ${newAnalysisType}, existing data: ${existingData.length} surfaces`);
+    // console.log(`🔄 Analysis type change: ${analysisType} → ${newAnalysisType}`);
     
     setAnalysisType(newAnalysisType);
     // Don't reset selectedSurface/selectedLight — retain index across panel switches
@@ -816,7 +814,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
         });
       });
       
-      console.log(`📊 OpticalDesignApp: Available light sources for spot diagram:`, lightSources);
+      // console.log(`📊 OpticalDesignApp: Available light sources for spot diagram:`, lightSources);
     }
     
     return lightSources;
@@ -1277,7 +1275,12 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
                   </div>
                 ) : analysisType === 'Recentre At' ? (
                   <div className="recentre-analysis-panel" style={{ height: '100%' }}>
-                    <RecentrePanel parsedData={parsedData} parsedSystem={parsedSystem} />
+                    <RecentrePanel parsedData={parsedData} parsedSystem={parsedSystem} yamlContent={yamlContent} onYamlChange={(newYaml) => {
+                      setYamlContent(newYaml);
+                      if (autoUpdate) {
+                        setTimeout(() => executeRayTraceUpdate(newYaml), 100);
+                      }
+                    }} />
                   </div>
                 ) : analysisType === 'Animate It' ? (
                   <div className="animate-analysis-panel" style={{ height: '100%' }}>

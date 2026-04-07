@@ -1,7 +1,6 @@
 /**
- * Recentre Panel - Generates a new YAML script with a selected surface
- * moved to [0,0,0] facing [-1,0,0] (default orientation).
- * All other elements are rigidly transformed to follow.
+ * Recentre Panel - Generates transformed optical_trains & light_sources YAML
+ * with a selected surface moved to [0,0,0] facing a chosen target direction.
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
@@ -12,6 +11,8 @@ import * as yaml from 'js-yaml';
 interface RecentrePanelProps {
   parsedData: any;
   parsedSystem: OpticalSystem | null;
+  yamlContent: string;
+  onYamlChange: (newYaml: string) => void;
 }
 
 /** Convert optical_train angles [azimuth, elevation] to normal vector (surface convention: default [-1,0,0]) */
@@ -46,13 +47,13 @@ function roundArr(arr: number[], decimals: number = 6): number[] {
 
 /**
  * Compute the rigid-body transform that moves surfacePosition → origin
- * and rotates surfaceNormal → [-1,0,0].
+ * and rotates surfaceNormal → targetDir.
  *
  * For any world point P:   P' = R * (P - P_s)
  * For any world vector V:  V' = R * V
  */
-function buildRecentreTransform(surfacePosition: Vector3, surfaceNormal: Vector3) {
-  const target = new Vector3(-1, 0, 0);
+function buildRecentreTransform(surfacePosition: Vector3, surfaceNormal: Vector3, targetDir: Vector3) {
+  const target = targetDir.normalize();
   const n = surfaceNormal.normalize();
 
   let R: Matrix4;
@@ -92,8 +93,9 @@ function buildRecentreTransform(surfacePosition: Vector3, surfaceNormal: Vector3
  * Generate a new YAML string with the coordinate system recentred
  * on the chosen surface.
  */
-function generateRecentredYaml(parsedData: any, surfacePosition: Vector3, surfaceNormal: Vector3): string {
-  const T = buildRecentreTransform(surfacePosition, surfaceNormal);
+/** Return only the transformed optical_trains and light_sources sections as YAML text. */
+function generateRecentredYaml(parsedData: any, surfacePosition: Vector3, surfaceNormal: Vector3, targetDir: Vector3): string {
+  const T = buildRecentreTransform(surfacePosition, surfaceNormal, targetDir);
 
   // Deep-clone so we don't mutate the live data
   const out: any = JSON.parse(JSON.stringify(parsedData));
@@ -156,18 +158,103 @@ function generateRecentredYaml(parsedData: any, surfacePosition: Vector3, surfac
     }
   }
 
-  return yaml.dump(out, {
+  // Only output the two affected sections
+  const partial: any = {};
+  if (out.optical_trains) partial.optical_trains = out.optical_trains;
+  if (out.light_sources) partial.light_sources = out.light_sources;
+
+  return yaml.dump(partial, {
     lineWidth: -1,       // no line wrapping
-    flowLevel: 2,        // inline after depth 2 (keeps {key: val} style)
+    flowLevel: 3,        // inline arrays but keep structure indented
+    indent: 2,           // match typical source indentation
     noRefs: true,
     sortKeys: false,
     quotingType: '"'
   });
 }
 
+// ─── Text-level YAML section helpers ─────────────────────────────────────
+
+/**
+ * Extract top-level YAML sections from text into a map.
+ * e.g. "optical_trains:\n  - …\nlight_sources:\n  - …" →
+ *   { optical_trains: "optical_trains:\n  - …\n", light_sources: "light_sources:\n  - …\n" }
+ */
+function extractTopLevelSections(text: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  // Match top-level keys: non-indented lines starting with a word followed by ':'
+  const lines = text.split('\n');
+  let currentKey: string | null = null;
+  let currentLines: string[] = [];
+
+  for (const line of lines) {
+    const m = line.match(/^([a-zA-Z_]\w*):\s*/);
+    if (m) {
+      // Flush previous section
+      if (currentKey !== null) {
+        result[currentKey] = currentLines.join('\n') + '\n';
+      }
+      currentKey = m[1];
+      currentLines = [line];
+    } else if (currentKey !== null) {
+      currentLines.push(line);
+    }
+  }
+  if (currentKey !== null) {
+    // Trim trailing empty lines then add single newline
+    while (currentLines.length > 0 && currentLines[currentLines.length - 1].trim() === '') {
+      currentLines.pop();
+    }
+    result[currentKey] = currentLines.join('\n') + '\n';
+  }
+  return result;
+}
+
+/**
+ * In `sourceYaml`, find the top-level section `sectionKey:` and replace
+ * its entire block (key line + all indented/continuation lines until the
+ * next top-level key or EOF) with `replacement`.
+ * Returns the modified YAML text. If the section isn't found, appends it.
+ */
+function replaceTopLevelSection(sourceYaml: string, sectionKey: string, replacement: string): string {
+  const lines = sourceYaml.split('\n');
+  const startPattern = new RegExp(`^${sectionKey}:\\s*`);
+
+  let sectionStart = -1;
+  let sectionEnd = lines.length; // default: to EOF
+
+  for (let i = 0; i < lines.length; i++) {
+    if (sectionStart === -1) {
+      if (startPattern.test(lines[i])) {
+        sectionStart = i;
+      }
+    } else {
+      // We're inside the section — look for the next top-level key
+      if (/^[a-zA-Z_]\w*:\s*/.test(lines[i])) {
+        sectionEnd = i;
+        break;
+      }
+    }
+  }
+
+  if (sectionStart === -1) {
+    // Section not found — append
+    return sourceYaml.trimEnd() + '\n' + replacement;
+  }
+
+  // Remove trailing blank lines from replacement before inserting
+  const cleanReplacement = replacement.trimEnd();
+
+  const before = lines.slice(0, sectionStart);
+  const after = lines.slice(sectionEnd);
+
+  // Preserve a blank line separator between sections if the original had one
+  return [...before, cleanReplacement, ...after].join('\n');
+}
+
 // ─── Component ───────────────────────────────────────────────────────────
 
-export const RecentrePanel: React.FC<RecentrePanelProps> = ({ parsedData, parsedSystem }) => {
+export const RecentrePanel: React.FC<RecentrePanelProps> = ({ parsedData, parsedSystem, yamlContent, onYamlChange }) => {
   const [selectedSurfaceIdx, setSelectedSurfaceIdx] = useState<number | null>(null);
   const [yamlOutput, setYamlOutput] = useState('');
 
@@ -187,12 +274,12 @@ export const RecentrePanel: React.FC<RecentrePanelProps> = ({ parsedData, parsed
     }));
   }, [parsedSystem]);
 
-  const handleRecentre = useCallback(() => {
+  const handleRecentre = useCallback((targetDir: Vector3) => {
     if (selectedSurfaceIdx === null || !parsedData) return;
     const surf = surfaceList[selectedSurfaceIdx];
     if (!surf) return;
 
-    const result = generateRecentredYaml(parsedData, surf.position, surf.normal);
+    const result = generateRecentredYaml(parsedData, surf.position, surf.normal, targetDir);
     setYamlOutput(result);
   }, [selectedSurfaceIdx, parsedData, surfaceList]);
 
@@ -200,6 +287,26 @@ export const RecentrePanel: React.FC<RecentrePanelProps> = ({ parsedData, parsed
     if (!yamlOutput) return;
     try { await navigator.clipboard.writeText(yamlOutput); } catch { /* ignore */ }
   }, [yamlOutput]);
+
+  /**
+   * Surgically replace only the optical_trains and light_sources top-level
+   * sections in the raw YAML text, leaving everything else byte-for-byte intact.
+   */
+  const handleApply = useCallback(() => {
+    if (!yamlOutput || !yamlContent) return;
+
+    // Extract the replacement text for each section from yamlOutput
+    const newSections = extractTopLevelSections(yamlOutput);
+
+    let result = yamlContent;
+    for (const sectionKey of ['optical_trains', 'light_sources']) {
+      const replacement = newSections[sectionKey];
+      if (!replacement) continue;
+      result = replaceTopLevelSection(result, sectionKey, replacement);
+    }
+
+    onYamlChange(result);
+  }, [yamlOutput, yamlContent, onYamlChange]);
 
   return (
     <div className="recentre-panel">
@@ -225,13 +332,24 @@ export const RecentrePanel: React.FC<RecentrePanelProps> = ({ parsedData, parsed
           )}
         </div>
         {surfaceList.length > 0 && (
-          <button
-            className="menu-button recentre-button"
-            disabled={selectedSurfaceIdx === null}
-            onClick={handleRecentre}
-          >
-            Recentre
-          </button>
+          <div className="recentre-buttons-row">
+            <button
+              className="menu-button recentre-button"
+              disabled={selectedSurfaceIdx === null}
+              onClick={() => handleRecentre(new Vector3(-1, 0, 0))}
+              title="Recentre with surface normal → [-1,0,0]"
+            >
+              Recentre X−
+            </button>
+            <button
+              className="menu-button recentre-button"
+              disabled={selectedSurfaceIdx === null}
+              onClick={() => handleRecentre(new Vector3(0, 0, 1))}
+              title="Recentre with surface normal → [0,0,1]"
+            >
+              Recentre Z+
+            </button>
+          </div>
         )}
       </div>
 
@@ -239,11 +357,18 @@ export const RecentrePanel: React.FC<RecentrePanelProps> = ({ parsedData, parsed
       <div className="recentre-yaml-output-container">
         <div className="recentre-yaml-header">
           <label>Recentred YAML</label>
-          {yamlOutput && (
-            <button className="copy-button" onClick={handleCopy} title="Copy to clipboard">
-              📋 Copy
-            </button>
-          )}
+          <div className="recentre-yaml-header-buttons">
+            {yamlOutput && (
+              <>
+                <button className="copy-button" onClick={handleApply} title="Apply to source YAML">
+                  ✅ Apply
+                </button>
+                <button className="copy-button" onClick={handleCopy} title="Copy to clipboard">
+                  📋 Copy
+                </button>
+              </>
+            )}
+          </div>
         </div>
         <textarea
           className="yaml-textarea"
@@ -278,10 +403,15 @@ export const RecentrePanel: React.FC<RecentrePanelProps> = ({ parsedData, parsed
           background-color: var(--bg-secondary);
           min-height: 0;
         }
+        .recentre-buttons-row {
+          display: flex;
+          gap: 4px;
+          padding: 6px 8px;
+        }
         .recentre-button {
-          margin: 8px;
-          padding: 6px 12px;
-          font-size: 12px;
+          flex: 1;
+          padding: 6px 4px;
+          font-size: 11px;
           border: 1px solid #555;
           background: #333;
           color: #fff;
@@ -289,6 +419,7 @@ export const RecentrePanel: React.FC<RecentrePanelProps> = ({ parsedData, parsed
           border-radius: 3px;
           text-align: center;
           transition: background 0.2s;
+          white-space: nowrap;
         }
         .recentre-button:hover:not(:disabled) {
           background: #444;
@@ -317,6 +448,10 @@ export const RecentrePanel: React.FC<RecentrePanelProps> = ({ parsedData, parsed
           font-size: 13px;
           font-weight: 600;
           color: var(--text-primary);
+        }
+        .recentre-yaml-header-buttons {
+          display: flex;
+          gap: 4px;
         }
         .recentre-yaml-output-container .yaml-textarea {
           flex: 1;
