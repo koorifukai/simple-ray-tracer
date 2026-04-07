@@ -46,56 +46,56 @@ function roundArr(arr: number[], decimals: number = 6): number[] {
 }
 
 /**
- * Compute the rigid-body transform that moves surfacePosition → origin
- * and rotates surfaceNormal → targetDir.
+ * Build the recentre 4×4 matrix from the surface's existing forwardTransform.
  *
- * For any world point P:   P' = R * (P - P_s)
- * For any world vector V:  V' = R * V
+ * The stored forwardTransform (World→Local) already encodes:
+ *   - Surface orientation (normal alignment via two-stage Rodrigues)
+ *   - Surface dial rotation
+ *   - Assembly-level dial and orientation (for assembly surfaces)
+ *
+ * Its rotation part maps world normal → local default [-1,0,0].
+ * Its translation points to the curvature centre, not the vertex, so we
+ * extract only the rotation and pair it with vertex-centred translation.
+ *
+ * For targetDir == [-1,0,0] (Recentre X−):
+ *   M = R_fwd · T(−vertex)
+ *
+ * For targetDir == [0,0,1] (Recentre Z+) or any other direction:
+ *   M = R_extra · R_fwd · T(−vertex)
+ *   where R_extra rotates [-1,0,0] → targetDir.
  */
-function buildRecentreTransform(surfacePosition: Vector3, surfaceNormal: Vector3, targetDir: Vector3) {
+function buildRecentreMatrix(forwardTransform: Matrix4, vertex: Vector3, targetDir: Vector3): Matrix4 {
+  // Extract rotation part only (World→Local), discarding the CoC translation
+  const R = forwardTransform.getRotationMatrix();
+
+  // Vertex-centred transform: P' = R * (P − vertex)
+  const T_neg = Matrix4.translation(-vertex.x, -vertex.y, -vertex.z);
+  let M = R.multiply(T_neg);
+
+  // If target is not the local default [-1,0,0], compose an extra rotation
   const target = targetDir.normalize();
-  const n = surfaceNormal.normalize();
+  const localDefault = new Vector3(-1, 0, 0);
+  const dot = localDefault.dot(target);
 
-  let R: Matrix4;
-  const dot = n.dot(target);
-
-  if (Math.abs(dot - 1.0) < 1e-10) {
-    R = new Matrix4(); // identity – already aligned
-  } else if (Math.abs(dot + 1.0) < 1e-10) {
-    // Opposite direction → 180° around Z
-    R = Matrix4.rotationFromAxisAngle(new Vector3(0, 0, 1), Math.PI);
-  } else {
-    const axis = n.cross(target).normalize();
-    const angle = Math.acos(Math.max(-1, Math.min(1, dot)));
-    R = Matrix4.rotationFromAxisAngle(axis, angle);
+  if (Math.abs(dot - 1.0) > 1e-10) {
+    let R_extra: Matrix4;
+    if (Math.abs(dot + 1.0) < 1e-10) {
+      // 180° flip
+      R_extra = Matrix4.rotationFromAxisAngle(new Vector3(0, 0, 1), Math.PI);
+    } else {
+      const axis = localDefault.cross(target).normalize();
+      const angle = Math.acos(Math.max(-1, Math.min(1, dot)));
+      R_extra = Matrix4.rotationFromAxisAngle(axis, angle);
+    }
+    M = R_extra.multiply(M);
   }
 
-  return {
-    /** Transform a position: P' = R(P - P_s) */
-    point(p: number[]): number[] {
-      const shifted = new Vector3(
-        p[0] - surfacePosition.x,
-        p[1] - surfacePosition.y,
-        p[2] - surfacePosition.z
-      );
-      const out = R.transformPointV3(shifted);
-      return [out.x, out.y, out.z];
-    },
-    /** Transform a direction vector: V' = R(V) */
-    vector(v: number[]): number[] {
-      const out = R.transformVectorV3(new Vector3(v[0], v[1], v[2]));
-      return [out.x, out.y, out.z];
-    }
-  };
+  return M;
 }
 
-/**
- * Generate a new YAML string with the coordinate system recentred
- * on the chosen surface.
- */
 /** Return only the transformed optical_trains and light_sources sections as YAML text. */
-function generateRecentredYaml(parsedData: any, surfacePosition: Vector3, surfaceNormal: Vector3, targetDir: Vector3): string {
-  const T = buildRecentreTransform(surfacePosition, surfaceNormal, targetDir);
+function generateRecentredYaml(parsedData: any, forwardTransform: Matrix4, surfacePosition: Vector3, targetDir: Vector3): string {
+  const M = buildRecentreMatrix(forwardTransform, surfacePosition, targetDir);
 
   // Deep-clone so we don't mutate the live data
   const out: any = JSON.parse(JSON.stringify(parsedData));
@@ -110,9 +110,9 @@ function generateRecentredYaml(parsedData: any, surfacePosition: Vector3, surfac
         if (el.aid !== undefined || el.sid !== undefined) {
           // Position
           if (el.position) {
-            el.position = roundArr(T.point(el.position));
+            el.position = roundArr(M.transformPoint(el.position[0], el.position[1], el.position[2]));
           } else {
-            el.position = roundArr(T.point([0, 0, 0]));
+            el.position = roundArr(M.transformPoint(0, 0, 0));
           }
 
           // Direction → always express as "normal" vector after recentre
@@ -124,7 +124,7 @@ function generateRecentredYaml(parsedData: any, surfacePosition: Vector3, surfac
           } else {
             curNormal = [-1, 0, 0]; // default surface facing
           }
-          el.normal = roundArr(T.vector(curNormal));
+          el.normal = roundArr(M.transformVector(curNormal[0], curNormal[1], curNormal[2]));
           delete el.angles;
         }
         // lid references have no position/direction – leave untouched
@@ -140,7 +140,7 @@ function generateRecentredYaml(parsedData: any, surfacePosition: Vector3, surfac
 
         // Position
         if (src.position) {
-          src.position = roundArr(T.point(src.position));
+          src.position = roundArr(M.transformPoint(src.position[0], src.position[1], src.position[2]));
         }
 
         // Direction → always express as "vector" after recentre
@@ -152,7 +152,7 @@ function generateRecentredYaml(parsedData: any, surfacePosition: Vector3, surfac
         } else {
           curVec = [1, 0, 0]; // default light direction
         }
-        src.vector = roundArr(T.vector(curVec));
+        src.vector = roundArr(M.transformVector(curVec[0], curVec[1], curVec[2]));
         delete src.angles;
       }
     }
@@ -270,7 +270,7 @@ export const RecentrePanel: React.FC<RecentrePanelProps> = ({ parsedData, parsed
         ? `Assem: ${s.assemblyId}, Surf: ${s.id}`
         : `Surf: ${s.id}`,
       position: s.position,
-      normal: s.normal || new Vector3(-1, 0, 0)
+      forwardTransform: s.forwardTransform
     }));
   }, [parsedSystem]);
 
@@ -279,7 +279,7 @@ export const RecentrePanel: React.FC<RecentrePanelProps> = ({ parsedData, parsed
     const surf = surfaceList[selectedSurfaceIdx];
     if (!surf) return;
 
-    const result = generateRecentredYaml(parsedData, surf.position, surf.normal, targetDir);
+    const result = generateRecentredYaml(parsedData, surf.forwardTransform, surf.position, targetDir);
     setYamlOutput(result);
   }, [selectedSurfaceIdx, parsedData, surfaceList]);
 
