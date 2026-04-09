@@ -143,12 +143,16 @@ export class OpticalSystemParser {
             const azimuthRad = (trainData.angles[0] || 0) * Math.PI / 180;
             const elevationRad = (trainData.angles[1] || 0) * Math.PI / 180;
             
+            console.log(`[OpticalTrain] ${trainName}: angles=[${trainData.angles[0]}, ${trainData.angles[1]}], azimuth=${azimuthRad.toFixed(6)}rad, elev=${elevationRad.toFixed(6)}rad`);
+            
             // Convert spherical coordinates to Cartesian normal vector
             normal = new Vector3(
               -Math.cos(elevationRad) * Math.cos(azimuthRad),  // X component
               -Math.cos(elevationRad) * Math.sin(azimuthRad),  // Y component  
               Math.sin(elevationRad)                           // Z component
             ).normalize();
+            
+            console.log(`[OpticalTrain] ${trainName}: computed normal=(${normal.x.toFixed(6)}, ${normal.y.toFixed(6)}, ${normal.z.toFixed(6)})`);
           }
           
           if (trainData.lid !== undefined) {

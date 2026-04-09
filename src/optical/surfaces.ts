@@ -152,8 +152,10 @@ export class OpticalSurfaceFactory {
       // Convert angles to normal vector (EUREKA ang2vec equivalent)
       // angles[0]: Azimuth (rotation about Z-axis, tilts surface left/right in XY plane)
       // angles[1]: Elevation (tilts surface up/down in elevation plane)
+      console.log(`[SurfaceParsing] Surface ${surface.id}: angles raw = [${surfaceData.angles[0]}, ${surfaceData.angles[1]}]`);
       const azimuthRad = (surfaceData.angles[0] || 0) * Math.PI / 180;    // Rotation about Z-axis
       const elevationRad = (surfaceData.angles[1] || 0) * Math.PI / 180;  // Elevation angle
+      console.log(`[SurfaceParsing] Surface ${surface.id}: azimuthRad = ${azimuthRad}, elevationRad = ${elevationRad}`);
       
       // Convert spherical coordinates to Cartesian normal vector
       // Starting from default backward normal [-1,0,0]
@@ -162,6 +164,7 @@ export class OpticalSurfaceFactory {
         -Math.cos(elevationRad) * Math.sin(azimuthRad),  // Y component  
         Math.sin(elevationRad)                           // Z component
       ).normalize();
+      console.log(`[SurfaceParsing] Surface ${surface.id}: computed normal = (${surface.normal.x.toFixed(4)}, ${surface.normal.y.toFixed(4)}, ${surface.normal.z.toFixed(4)})`);
     }
 
     // Apply transformation hierarchy following EUREKA calc_mat methodology

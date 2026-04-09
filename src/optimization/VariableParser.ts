@@ -1,6 +1,7 @@
 /**
  * Variable Parser for Optimization System
  * Handles detection and substitution of optimization variables (V1-V4) in YAML content
+ * Supports expressions like: V1, V1*3, V1+30, V4-15, V2/2
  */
 
 import * as yaml from 'js-yaml';
@@ -11,6 +12,14 @@ import type {
   VariableReference, 
   VariableMap 
 } from './OptimizationTypes';
+
+// Regex to match variable expressions: V1, V1*3, V1+30.5, V4-15, V2/2
+// Captures: (1) variable name, (2) operator (optional), (3) operand (optional)
+const VARIABLE_EXPR_REGEX = /^(V[1-4])([+\-*/])?([\d.]+)?$/;
+
+// Regex to find variable expressions in text (for substitution)
+// Matches: V1, V1*3, V1+30.5, V4-15, V2/2
+const VARIABLE_EXPR_GLOBAL_REGEX = /\b(V[1-4])([+\-*/][\d.]+)?\b/g;
 
 export class VariableParser {
   
@@ -67,17 +76,54 @@ export class VariableParser {
   }
   
   /**
+   * Parse a variable expression and return its components
+   * @param expr Expression like "V1", "V1*3", "V1+30"
+   * @returns { variable, operator, operand } or null if not a valid expression
+   */
+  private static parseVariableExpression(expr: string): { variable: string; operator?: string; operand?: number } | null {
+    const match = expr.match(VARIABLE_EXPR_REGEX);
+    if (!match) return null;
+    
+    const [, variable, operator, operandStr] = match;
+    const operand = operandStr ? parseFloat(operandStr) : undefined;
+    
+    return { variable, operator, operand };
+  }
+  
+  /**
+   * Evaluate a variable expression with the given variable value
+   * @param varValue Current value of the base variable
+   * @param operator Operator (+, -, *, /)
+   * @param operand Numeric operand
+   * @returns Evaluated result
+   */
+  private static evaluateExpression(varValue: number, operator?: string, operand?: number): number {
+    if (!operator || operand === undefined) {
+      return varValue;
+    }
+    
+    switch (operator) {
+      case '+': return varValue + operand;
+      case '-': return varValue - operand;
+      case '*': return varValue * operand;
+      case '/': return operand !== 0 ? varValue / operand : varValue;
+      default: return varValue;
+    }
+  }
+  
+  /**
    * Recursively find all variable references in the YAML data
+   * Now supports expressions like V1*3, V1+30, etc.
    */
   private static findVariableReferences(data: any, path: string[] = []): VariableReference[] {
     const references: VariableReference[] = [];
     
     if (typeof data === 'string') {
-      // Check if this string is a variable reference (V1, V2, V3, V4)
-      const match = data.match(/^(V[1-4])$/);
-      if (match) {
+      // Check if this string contains a variable expression (V1, V1*3, V1+30, etc.)
+      const parsed = this.parseVariableExpression(data);
+      if (parsed) {
         references.push({
-          variableName: match[1],
+          variableName: parsed.variable,
           path: [...path],
           originalValue: data
         });
@@ -127,33 +173,56 @@ export class VariableParser {
   /**
    * Substitute variables in YAML content with current values
    * Preserves optimization_settings section unchanged
+   * Now supports expressions like V1*3, V1+30, V4-15, V2/2
    */
   static substituteVariables(yamlContent: string, variableMap: VariableMap): string {
-    let substitutedContent = yamlContent;
+    // Split content to preserve optimization_settings
+    const optimizationStart = yamlContent.indexOf('optimization_settings:');
     
-    // Replace each variable with its current value, but skip optimization_settings section
-    Object.entries(variableMap).forEach(([varName, value]) => {
-      // Split content to preserve optimization_settings
-      const optimizationStart = substitutedContent.indexOf('optimization_settings:');
+    let beforeOptimization: string;
+    let afterOptimization: string;
+    
+    if (optimizationStart !== -1) {
+      beforeOptimization = yamlContent.substring(0, optimizationStart);
+      afterOptimization = yamlContent.substring(optimizationStart);
+    } else {
+      beforeOptimization = yamlContent;
+      afterOptimization = '';
+    }
+    
+    console.log('[VariableSub] Substituting variables:', variableMap);
+    
+    // Replace variable expressions with evaluated values
+    let expressionCount = 0;
+    const processedBefore = beforeOptimization.replace(VARIABLE_EXPR_GLOBAL_REGEX, (match, varName, operatorAndOperand) => {
+      const varValue = variableMap[varName];
       
-      if (optimizationStart !== -1) {
-        // Process content before optimization_settings
-        const beforeOptimization = substitutedContent.substring(0, optimizationStart);
-        const afterOptimization = substitutedContent.substring(optimizationStart);
-        
-        // Only substitute in the part before optimization_settings
-        const regex = new RegExp(`\\b${varName}\\b`, 'g');
-        const processedBefore = beforeOptimization.replace(regex, value.toString());
-        
-        substitutedContent = processedBefore + afterOptimization;
-      } else {
-        // No optimization_settings found, substitute everywhere
-        const regex = new RegExp(`\\b${varName}\\b`, 'g');
-        substitutedContent = substitutedContent.replace(regex, value.toString());
+      if (varValue === undefined) {
+        // Variable not in map, leave unchanged
+        return match;
       }
+      
+      let result: number;
+      
+      if (operatorAndOperand) {
+        // Parse operator and operand from the combined string (e.g., "+30", "*3")
+        const operator = operatorAndOperand[0];
+        const operand = parseFloat(operatorAndOperand.substring(1));
+        result = this.evaluateExpression(varValue, operator, operand);
+        console.log(`[VariableSub] ${match} = ${varName}(${varValue}) ${operator} ${operand} = ${result}`);
+      } else {
+        // Simple variable reference
+        result = varValue;
+        console.log(`[VariableSub] ${match} = ${result}`);
+      }
+      
+      expressionCount++;
+      return result.toString();
     });
     
-    return substitutedContent;
+    console.log(`[VariableSub] Total ${expressionCount} expressions substituted`);
+    
+    return processedBefore + afterOptimization;
   }
   
   /**

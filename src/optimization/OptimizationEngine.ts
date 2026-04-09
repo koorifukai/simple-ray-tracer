@@ -267,11 +267,15 @@ export class OptimizationEngine {
     normalizationFactors: number[]
   ): Promise<number[]> {
     const gradient: number[] = [];
-    const h = 1e-4; // Finite difference step size in normalized space
+    // Increased step size for better gradient estimation, especially for angle variables
+    // Previous value of 1e-4 was too small - with range of 40, step was only 0.004 degrees
+    // Now with 0.01, step is 0.4 degrees, which produces meaningful normal changes
+    const h = 0.01; // Finite difference step size in normalized space (1% of range)
     
     for (let i = 0; i < variables.length; i++) {
       // Calculate step size in actual variable space
       const actualStepSize = h * normalizationFactors[i];
+      console.log(`[Gradient] Variable ${variables[i].name}: step = ${actualStepSize.toFixed(4)} (h=${h}, range=${normalizationFactors[i]})`);
       
       // Forward perturbation: x + h
       const forwardVariables = [...variables];
@@ -295,9 +299,11 @@ export class OptimizationEngine {
       
       // Central difference: (f(x+h) - f(x-h)) / (2h)
       const centralDifference = (forwardObjective.value - backwardObjective.value) / (2 * h);
+      console.log(`[Gradient] ${variables[i].name}: forward=${forwardObjective.value.toFixed(4)}, backward=${backwardObjective.value.toFixed(4)}, gradient=${centralDifference.toFixed(6)}`);
       gradient.push(centralDifference);
     }
     
+    console.log(`[Gradient] Final gradient: [${gradient.map(g => g.toFixed(6)).join(', ')}]`);
     return gradient;
   }
   
