@@ -1,7 +1,8 @@
 /**
  * Variable Parser for Optimization System
  * Handles detection and substitution of optimization variables (V1-V4) in YAML content
- * Supports expressions like: V1, V1*3, V1+30, V4-15, V2/2
+ * Supports complex expressions like: V1, V1*3, V1+30, V1*-1, 180-V1, V1*-1+180, 0-V1
+ * Rule: Each expression uses exactly ONE variable (V1-V4) but can have multiple operations
  */
 
 import * as yaml from 'js-yaml';
@@ -13,13 +14,19 @@ import type {
   VariableMap 
 } from './OptimizationTypes';
 
-// Regex to match variable expressions: V1, V1*3, V1+30.5, V4-15, V2/2
-// Captures: (1) variable name, (2) operator (optional), (3) operand (optional)
-const VARIABLE_EXPR_REGEX = /^(V[1-4])([+\-*/])?([\d.]+)?$/;
+// Regex to detect if a string contains a variable (V1, V2, V3, or V4)
+const HAS_VARIABLE_REGEX = /V[1-4]/;
 
-// Regex to find variable expressions in text (for substitution)
-// Matches: V1, V1*3, V1+30.5, V4-15, V2/2
-const VARIABLE_EXPR_GLOBAL_REGEX = /\b(V[1-4])([+\-*/][\d.]+)?\b/g;
+// Regex to extract the variable name from an expression
+const EXTRACT_VARIABLE_REGEX = /V[1-4]/;
+
+// Regex to match a complete variable expression in text
+// Matches patterns like: V1, V1*3, V1+30, V1*-1, 180-V1, V1*-1+180, 0-V1
+// This captures: optional prefix (number and operator), variable, optional suffix (operators and numbers)
+const VARIABLE_EXPR_GLOBAL_REGEX = /(?:[\d.]+[+\-*/])?V[1-4](?:[+\-*/][\d.\-]+)*/g;
+
+// Safe math expression regex - only allows digits, operators, decimal, parentheses, whitespace, and minus for negatives
+const SAFE_MATH_REGEX = /^[\d\s+\-*/.()]+$/;
 
 export class VariableParser {
   
@@ -76,57 +83,81 @@ export class VariableParser {
   }
   
   /**
-   * Parse a variable expression and return its components
-   * @param expr Expression like "V1", "V1*3", "V1+30"
-   * @returns { variable, operator, operand } or null if not a valid expression
+   * Check if a string is a variable expression
+   * @param expr Expression to check
+   * @returns true if the expression contains a variable (V1-V4)
    */
-  private static parseVariableExpression(expr: string): { variable: string; operator?: string; operand?: number } | null {
-    const match = expr.match(VARIABLE_EXPR_REGEX);
-    if (!match) return null;
-    
-    const [, variable, operator, operandStr] = match;
-    const operand = operandStr ? parseFloat(operandStr) : undefined;
-    
-    return { variable, operator, operand };
+  private static isVariableExpression(expr: string): boolean {
+    return HAS_VARIABLE_REGEX.test(expr);
   }
   
   /**
-   * Evaluate a variable expression with the given variable value
-   * @param varValue Current value of the base variable
-   * @param operator Operator (+, -, *, /)
-   * @param operand Numeric operand
-   * @returns Evaluated result
+   * Extract the base variable name from an expression
+   * @param expr Expression like "V1*-1+180" or "180-V1"
+   * @returns Variable name (V1, V2, V3, or V4) or null
    */
-  private static evaluateExpression(varValue: number, operator?: string, operand?: number): number {
-    if (!operator || operand === undefined) {
-      return varValue;
+  private static extractVariableName(expr: string): string | null {
+    const match = expr.match(EXTRACT_VARIABLE_REGEX);
+    return match ? match[0] : null;
+  }
+  
+  /**
+   * Safely evaluate a numeric expression (no variables, just numbers and operators)
+   * @param expr Expression like "10*-1+180" 
+   * @returns Evaluated result or null if invalid
+   */
+  private static safeEvaluateNumeric(expr: string): number | null {
+    // Validate expression only contains safe characters
+    if (!SAFE_MATH_REGEX.test(expr)) {
+      console.warn(`[VariableParser] Unsafe expression rejected: ${expr}`);
+      return null;
     }
     
-    switch (operator) {
-      case '+': return varValue + operand;
-      case '-': return varValue - operand;
-      case '*': return varValue * operand;
-      case '/': return operand !== 0 ? varValue / operand : varValue;
-      default: return varValue;
+    try {
+      // Use Function constructor for safe evaluation (no access to scope)
+      const result = Function(`"use strict"; return (${expr})`)();
+      if (typeof result === 'number' && isFinite(result)) {
+        return result;
+      }
+      return null;
+    } catch (e) {
+      console.warn(`[VariableParser] Failed to evaluate expression: ${expr}`, e);
+      return null;
     }
+  }
+  
+  /**
+   * Evaluate a variable expression by substituting the variable value
+   * @param expr Expression like "V1*-1+180" or "180-V1"
+   * @param varValue The value of the variable
+   * @returns Evaluated numeric result
+   */
+  private static evaluateVariableExpression(expr: string, varValue: number): number | null {
+    // Replace the variable with its value (wrapped in parentheses for safety)
+    const numericExpr = expr.replace(/V[1-4]/, `(${varValue})`);
+    
+    // Evaluate the resulting numeric expression
+    return this.safeEvaluateNumeric(numericExpr);
   }
   
   /**
    * Recursively find all variable references in the YAML data
-   * Now supports expressions like V1*3, V1+30, etc.
+   * Supports complex expressions like V1*-1, 180-V1, V1*-1+180, etc.
    */
   private static findVariableReferences(data: any, path: string[] = []): VariableReference[] {
     const references: VariableReference[] = [];
     
     if (typeof data === 'string') {
-      // Check if this string contains a variable expression (V1, V1*3, V1+30, etc.)
-      const parsed = this.parseVariableExpression(data);
-      if (parsed) {
-        references.push({
-          variableName: parsed.variable,
-          path: [...path],
-          originalValue: data
-        });
+      // Check if this string contains a variable expression
+      if (this.isVariableExpression(data)) {
+        const varName = this.extractVariableName(data);
+        if (varName) {
+          references.push({
+            variableName: varName,
+            path: [...path],
+            originalValue: data
+          });
+        }
       }
     } else if (Array.isArray(data)) {
       data.forEach((item, index) => {
@@ -173,7 +204,7 @@ export class VariableParser {
   /**
    * Substitute variables in YAML content with current values
    * Preserves optimization_settings section unchanged
-   * Now supports expressions like V1*3, V1+30, V4-15, V2/2
+   * Supports complex expressions like: V1*-1, 180-V1, V1*-1+180, 0-V1
    */
   static substituteVariables(yamlContent: string, variableMap: VariableMap): string {
     // Split content to preserve optimization_settings
@@ -192,35 +223,40 @@ export class VariableParser {
     
     console.log('[VariableSub] Substituting variables:', variableMap);
     
-    // Replace variable expressions with evaluated values
+    // Replace variable expressions with evaluated numeric values
     let expressionCount = 0;
-    const processedBefore = beforeOptimization.replace(VARIABLE_EXPR_GLOBAL_REGEX, (match, varName, operatorAndOperand) => {
-      const varValue = variableMap[varName];
-      
-      if (varValue === undefined) {
-        // Variable not in map, leave unchanged
+    let failedCount = 0;
+    
+    const processedBefore = beforeOptimization.replace(VARIABLE_EXPR_GLOBAL_REGEX, (match) => {
+      // Extract the variable name from the expression
+      const varName = this.extractVariableName(match);
+      if (!varName) {
+        console.warn(`[VariableSub] Could not extract variable from: ${match}`);
         return match;
       }
       
-      let result: number;
-      
-      if (operatorAndOperand) {
-        // Parse operator and operand from the combined string (e.g., "+30", "*3")
-        const operator = operatorAndOperand[0];
-        const operand = parseFloat(operatorAndOperand.substring(1));
-        result = this.evaluateExpression(varValue, operator, operand);
-        console.log(`[VariableSub] ${match} = ${varName}(${varValue}) ${operator} ${operand} = ${result}`);
-      } else {
-        // Simple variable reference
-        result = varValue;
-        console.log(`[VariableSub] ${match} = ${result}`);
+      const varValue = variableMap[varName];
+      if (varValue === undefined) {
+        // Variable not in map, leave unchanged
+        console.log(`[VariableSub] Variable ${varName} not in map, skipping: ${match}`);
+        return match;
       }
       
+      // Evaluate the expression
+      const result = this.evaluateVariableExpression(match, varValue);
+      
+      if (result === null) {
+        console.warn(`[VariableSub] Failed to evaluate: ${match} with ${varName}=${varValue}`);
+        failedCount++;
+        return match;
+      }
+      
+      console.log(`[VariableSub] ${match} = ${result} (${varName}=${varValue})`);
       expressionCount++;
       return result.toString();
     });
     
-    console.log(`[VariableSub] Total ${expressionCount} expressions substituted`);
+    console.log(`[VariableSub] Total ${expressionCount} expressions substituted${failedCount > 0 ? `, ${failedCount} failed` : ''}`);
     
     return processedBefore + afterOptimization;
   }
