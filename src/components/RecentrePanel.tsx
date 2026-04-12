@@ -257,6 +257,7 @@ function replaceTopLevelSection(sourceYaml: string, sectionKey: string, replacem
 export const RecentrePanel: React.FC<RecentrePanelProps> = ({ parsedData, parsedSystem, yamlContent, onYamlChange }) => {
   const [selectedSurfaceIdx, setSelectedSurfaceIdx] = useState<number | null>(null);
   const [yamlOutput, setYamlOutput] = useState('');
+  const [customVec, setCustomVec] = useState('');
 
   // Build surface list from parsedSystem
   const surfaceList = useMemo(() => {
@@ -282,6 +283,14 @@ export const RecentrePanel: React.FC<RecentrePanelProps> = ({ parsedData, parsed
     const result = generateRecentredYaml(parsedData, surf.forwardTransform, surf.position, targetDir);
     setYamlOutput(result);
   }, [selectedSurfaceIdx, parsedData, surfaceList]);
+
+  const handleCustomGo = useCallback(() => {
+    const parts = customVec.split(/[\s,]+/).map(Number).filter(v => !isNaN(v));
+    if (parts.length < 2 || parts.length > 3) return;
+    const vec = new Vector3(parts[0], parts[1], parts[2] ?? 0);
+    if (vec.length() < 1e-12) return;
+    handleRecentre(vec.normalize());
+  }, [customVec, handleRecentre]);
 
   const handleCopy = useCallback(async () => {
     if (!yamlOutput) return;
@@ -332,24 +341,44 @@ export const RecentrePanel: React.FC<RecentrePanelProps> = ({ parsedData, parsed
           )}
         </div>
         {surfaceList.length > 0 && (
-          <div className="recentre-buttons-row">
-            <button
-              className="menu-button recentre-button"
-              disabled={selectedSurfaceIdx === null}
-              onClick={() => handleRecentre(new Vector3(-1, 0, 0))}
-              title="Recentre with surface normal → [-1,0,0]"
-            >
-              Recentre X−
-            </button>
-            <button
-              className="menu-button recentre-button"
-              disabled={selectedSurfaceIdx === null}
-              onClick={() => handleRecentre(new Vector3(0, 0, 1))}
-              title="Recentre with surface normal → [0,0,1]"
-            >
-              Recentre Z+
-            </button>
-          </div>
+          <>
+            <div className="recentre-buttons-row">
+              <button
+                className="menu-button recentre-button"
+                disabled={selectedSurfaceIdx === null}
+                onClick={() => handleRecentre(new Vector3(-1, 0, 0))}
+                title="Recentre with surface normal → [-1,0,0]"
+              >
+                X−
+              </button>
+              <button
+                className="menu-button recentre-button"
+                disabled={selectedSurfaceIdx === null}
+                onClick={() => handleRecentre(new Vector3(0, 0, 1))}
+                title="Recentre with surface normal → [0,0,1]"
+              >
+                Z+
+              </button>
+            </div>
+            <div className="recentre-custom-row">
+              <input
+                className="recentre-vec-input"
+                type="text"
+                placeholder="Any vec"
+                value={customVec}
+                onChange={e => setCustomVec(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleCustomGo(); }}
+              />
+              <button
+                className="menu-button recentre-button recentre-go-button"
+                disabled={selectedSurfaceIdx === null || !customVec.trim()}
+                onClick={handleCustomGo}
+                title="Recentre with custom target vector"
+              >
+                Go
+              </button>
+            </div>
+          </>
         )}
       </div>
 
@@ -406,7 +435,30 @@ export const RecentrePanel: React.FC<RecentrePanelProps> = ({ parsedData, parsed
         .recentre-buttons-row {
           display: flex;
           gap: 4px;
-          padding: 6px 8px;
+          padding: 6px 8px 2px;
+        }
+        .recentre-custom-row {
+          display: flex;
+          gap: 4px;
+          padding: 2px 8px 6px;
+        }
+        .recentre-vec-input {
+          flex: 1;
+          min-width: 0;
+          padding: 4px 6px;
+          font-size: 11px;
+          border: 1px solid #555;
+          background: #222;
+          color: #fff;
+          border-radius: 3px;
+          font-family: monospace;
+        }
+        .recentre-vec-input::placeholder {
+          color: #777;
+        }
+        .recentre-go-button {
+          flex: 0 0 auto;
+          padding: 4px 10px;
         }
         .recentre-button {
           flex: 1;

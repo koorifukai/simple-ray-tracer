@@ -153,10 +153,11 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
   const [rayStats, setRayStats] = useState<{
     totalRays: number;
     totalIntersections: number;
-    intersectionRate: number;
+    avgIntersectionsPerRay: number;
     surfaceCount: number;
     wavelengthCount: number;
     lightSourceCount: number;
+    medianPhysicalLength: number | null;
   } | null>(null);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1128,22 +1129,38 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
                         </div>
                         <div className="stat-card">
                           <div className="stat-label">Light Sources</div>
-                          <div className="stat-value">{rayStats.lightSourceCount}</div>
+                          <div className="stat-value">{parsedSystem?.lightSources?.length ?? rayStats.lightSourceCount}</div>
                         </div>
                         <div className="stat-card">
-                          <div className="stat-label">Surfaces</div>
+                          <div className="stat-label">Total Surfaces</div>
+                          <div className="stat-value">{parsedSystem?.surfaces?.length ?? '—'}</div>
+                        </div>
+                        <div className="stat-card">
+                          <div className="stat-label">Surfaces Hit</div>
                           <div className="stat-value">{rayStats.surfaceCount}</div>
                         </div>
-                        {rayStats.intersectionRate > 0 && (
-                          <div className="stat-card">
-                            <div className="stat-label">Hit Rate</div>
-                            <div className="stat-value">{(rayStats.intersectionRate * 100).toFixed(1)}%</div>
-                          </div>
-                        )}
+                        <div className="stat-card">
+                          <div className="stat-label">Wavelengths</div>
+                          <div className="stat-value">{rayStats.wavelengthCount}</div>
+                        </div>
                         <div className="stat-card">
                           <div className="stat-label">Total Intersections</div>
                           <div className="stat-value">{rayStats.totalIntersections.toLocaleString()}</div>
                         </div>
+                        {rayStats.avgIntersectionsPerRay > 0 && (
+                          <div className="stat-card">
+                            <div className="stat-label">Avg Hits / Ray</div>
+                            <div className="stat-value">{rayStats.avgIntersectionsPerRay.toFixed(2)}</div>
+                          </div>
+                        )}
+                        {rayStats.medianPhysicalLength !== null && (
+                          <div className="stat-card">
+                            <div className="stat-label">Physical Length</div>
+                            <div className="stat-value" title="Median cumulative physical path length at last intersection">
+                              {rayStats.medianPhysicalLength.toFixed(3)}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <div className="no-stats">

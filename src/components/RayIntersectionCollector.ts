@@ -215,7 +215,13 @@ export class RayIntersectionCollector {
     // Update statistics
     this.intersectionData.totalIntersections++;
     this.intersectionData.wavelengths.add(ray.wavelength);
-    this.intersectionData.lightSources.add(ray.lightId); // Preserve full light ID
+    // Store ancestral (base) light ID to count physical light sources correctly.
+    // Branched rays encode generation in lightId as: generation*1000 + surface + 0.ancestralLID
+    const _lidGeneration = Math.floor(ray.lightId / 1000);
+    const ancestralLID = _lidGeneration === 0
+      ? Math.floor(ray.lightId)
+      : Math.round((ray.lightId - Math.floor(ray.lightId)) * 10);
+    this.intersectionData.lightSources.add(ancestralLID);
   }
   
   /**
@@ -324,18 +330,35 @@ export class RayIntersectionCollector {
   getStatistics(): {
     totalRays: number;
     totalIntersections: number;
-    intersectionRate: number;
+    avgIntersectionsPerRay: number;
     surfaceCount: number;
     wavelengthCount: number;
     lightSourceCount: number;
+    medianPhysicalLength: number | null;
   } {
+    // Collect all cumulative physical distances across every intersection
+    const distances: number[] = [];
+    for (const surfaceData of this.intersectionData.surfaces.values()) {
+      for (const pt of surfaceData.intersectionPoints) {
+        distances.push(pt.cumulativePhysicalDistance);
+      }
+    }
+    let medianPhysicalLength: number | null = null;
+    if (distances.length > 0) {
+      distances.sort((a, b) => a - b);
+      const mid = Math.floor(distances.length / 2);
+      medianPhysicalLength = distances.length % 2 === 1
+        ? distances[mid]
+        : (distances[mid - 1] + distances[mid]) / 2;
+    }
     return {
       totalRays: this.intersectionData.totalRays,
       totalIntersections: this.intersectionData.totalIntersections,
-      intersectionRate: this.intersectionData.totalRays > 0 ? this.intersectionData.totalIntersections / this.intersectionData.totalRays : 0,
+      avgIntersectionsPerRay: this.intersectionData.totalRays > 0 ? this.intersectionData.totalIntersections / this.intersectionData.totalRays : 0,
       surfaceCount: this.intersectionData.surfaces.size,
       wavelengthCount: this.intersectionData.wavelengths.size,
-      lightSourceCount: this.intersectionData.lightSources.size
+      lightSourceCount: this.intersectionData.lightSources.size,
+      medianPhysicalLength
     };
   }
 }
