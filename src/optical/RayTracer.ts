@@ -360,16 +360,6 @@ export class RayTracer {
     // 2. Calculate intersection in local coordinates (where surface apex is at origin)
     const intersection = this.calculateIntersection(localRay, surface);
     
-    if (useSimplifiedLog) {
-      if (intersection.isValid) {
-        this.log('simplified', `Intersection: (${intersection.point.x.toFixed(3)}, ${intersection.point.y.toFixed(3)}, ${intersection.point.z.toFixed(3)})`);
-      } else {
-        this.log('simplified', `Intersection: MISS`);
-      }
-    } else {
-      this.log('surface', `Intersection:`, intersection);
-    }
-    
     // 3. Check if ray actually hits the surface geometry and aperture
     const rayHitsSurface = intersection.isValid && 
                           localRay.direction.dot(intersection.normal) < 0 && 
@@ -749,10 +739,6 @@ export class RayTracer {
             }
           }
           
-          if (this.logConfig.intersection) {
-            this.log('intersection', `OPL Calculation (Blocked): Segment distance ${distanceFromLast.toFixed(4)} * n1 ${n1.toFixed(4)} (λ=${currentRay.wavelength}nm)`);
-          }
-          
           intersectionRay.opticalPathLength = currentRay.opticalPathLength + (distanceFromLast * n1);
           
           rayPath.push(intersectionRay);
@@ -816,10 +802,6 @@ export class RayTracer {
                 n1 = surface.n1 || 1.0;
               }
             }
-          }
-          
-          if (this.logConfig.intersection) {
-            this.log('intersection', `OPL Calculation (Hit): Segment distance ${distanceFromLast.toFixed(4)} * n1 ${n1.toFixed(4)} (λ=${currentRay.wavelength}nm)`);
           }
           
           intersectionRay.opticalPathLength = currentRay.opticalPathLength + (distanceFromLast * n1);
@@ -1167,10 +1149,6 @@ export class RayTracer {
                 }
               }
               
-              if (this.logConfig.intersection) {
-                this.log('intersection', `OPL Calculation (Aperture YZ): Segment distance ${dist.toFixed(4)} * n1 ${n1.toFixed(4)} (λ=${lastRay.wavelength}nm)`);
-              }
-              
               apertureEndRay.opticalPathLength = lastRay.opticalPathLength + dist * n1;
               
               rayPath.push(apertureEndRay);
@@ -1221,10 +1199,6 @@ export class RayTracer {
                     n2 = aperture.n2 || 1.0;
                   }
                 }
-              }
-              
-              if (this.logConfig.intersection) {
-                this.log('intersection', `OPL Calculation (Aperture Away): Segment distance ${extensionLength.toFixed(4)} * n2 ${n2.toFixed(4)} (λ=${lastRay.wavelength}nm)`);
               }
               
               finalRay.opticalPathLength = lastRay.opticalPathLength + extensionLength * n2;

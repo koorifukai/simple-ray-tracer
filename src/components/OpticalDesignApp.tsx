@@ -5,7 +5,7 @@ import type { EmptyPlot3DHandle } from '../visualization/EmptyPlot3D';
 import { IntersectionPlot } from './IntersectionPlot';
 import { RayIntersectionCollector } from './RayIntersectionCollector';
 import { OpticalSystemParser } from '../optical/OpticalSystem';
-import { ConvergenceHistory } from './ConvergenceHistory';
+import { OptimizationPanel } from './ConvergenceHistory';
 import { Zemax2YamlPanel } from './Zemax2YamlPanel';
 import { RecentrePanel } from './RecentrePanel';
 import { AnimatePanel } from './AnimatePanel';
@@ -122,7 +122,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
   const [privacyMode, setPrivacyMode] = useState(false);
   const [lastRayTracedYaml, setLastRayTracedYaml] = useState(initialProcessedResult.processedYaml);
   const lastRayTracedYamlRef = useRef(initialProcessedResult.processedYaml);
-  const [analysisType, setAnalysisType] = useState<'None' | 'System Overview' | 'Spot Diagram' | 'Ray Hit Map' | 'zemax2yaml' | 'Convergence History' | 'Recentre At' | 'Animate It'>('None');
+  const [analysisType, setAnalysisType] = useState<'None' | 'System Overview' | 'Spot Diagram' | 'Ray Hit Map' | 'zemax2yaml' | 'Optimization' | 'Recentre At' | 'Animate It'>('None');
   const [, setRefreshTrigger] = useState(0); // Incremented to signal updates; the value itself is unused
   const [selectedSurface, setSelectedSurface] = useState<string>('');
   const [selectedLight, setSelectedLight] = useState<string>(''); // For spot diagram light source selection
@@ -634,7 +634,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
   }, [yamlContent, isYamlValid, isOptimizing]);
 
   const handleAnalysisChange = useCallback((event: React.ChangeEvent<HTMLSelectElement>) => {
-    const newAnalysisType = event.target.value as 'None' | 'System Overview' | 'Spot Diagram' | 'Ray Hit Map' | 'zemax2yaml' | 'Convergence History' | 'Recentre At' | 'Animate It';
+    const newAnalysisType = event.target.value as 'None' | 'System Overview' | 'Spot Diagram' | 'Ray Hit Map' | 'zemax2yaml' | 'Optimization' | 'Recentre At' | 'Animate It';
     
     // Check if we have existing data before switching
     // console.log(`🔄 Analysis type change: ${analysisType} → ${newAnalysisType}`);
@@ -999,7 +999,7 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
                 <option value="Spot Diagram">Spot Diagram</option>
                 <option value="Ray Hit Map">Ray Hit Map</option>
                 <option value="zemax2yaml">Zemax2YAML</option>
-                <option value="Convergence History">Convergence History</option>
+                <option value="Optimization">Optimization</option>
                 <option value="Recentre At">Recentre At</option>
                 <option value="Animate It">Animate It</option>
               </select>
@@ -1276,15 +1276,23 @@ export const OpticalDesignApp: React.FC<OpticalDesignAppProps> = () => {
                       )}
                     </div>
                   </div>
-                ) : analysisType === 'Convergence History' ? (
+                ) : analysisType === 'Optimization' ? (
                   <div className="convergence-analysis-panel">
-                    {optimizationResult && optimizationResult.convergenceHistory ? (
-                      <ConvergenceHistory convergenceHistory={optimizationResult.convergenceHistory} />
-                    ) : (
-                      <div className="placeholder-content">
-                        <p>No optimization data available. Run optimization to see convergence history.</p>
-                      </div>
-                    )}
+                    <OptimizationPanel
+                      yamlContent={yamlContent}
+                      optimizationResult={optimizationResult}
+                      onRunPreview={(substitutedYaml) => {
+                        // Update 3D plot with substituted YAML without touching the editor
+                        OpticalSystemParser.parseYAML(substitutedYaml).then(system => {
+                          setParsedSystem(system);
+                          setRefreshTrigger(prev => prev + 1);
+                        }).catch(() => {});
+                        setParsedData(yaml.load(substitutedYaml) as any);
+                        setLastRayTracedYaml(substitutedYaml);
+                        lastRayTracedYamlRef.current = substitutedYaml;
+                        setRefreshTrigger(prev => prev + 1);
+                      }}
+                    />
                   </div>
                 ) : analysisType === 'zemax2yaml' ? (
                   <div className="zemax2yaml-analysis-panel">

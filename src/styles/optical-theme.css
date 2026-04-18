@@ -882,6 +882,91 @@ input:checked + .toggle-slider:before {
   background-color: #555;
 }
 
+/* Manual Evaluation Section inside Optimization Panel */
+.manual-eval-section {
+  background: #1e2a1e;
+  border: 1px solid #3a5a3a;
+  border-radius: 4px;
+  padding: 6px 10px;
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+
+.manual-eval-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+
+.manual-var-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #00bcd4;
+  font-family: monospace;
+  white-space: nowrap;
+}
+
+.manual-var-number {
+  background: #1a1a1a;
+  border: 1px solid #444;
+  border-radius: 3px;
+  color: #e0e0e0;
+  font-size: 11px;
+  padding: 2px 4px;
+  width: 72px;
+  text-align: right;
+  font-family: monospace;
+}
+
+.manual-var-number::-webkit-outer-spin-button,
+.manual-var-number::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.manual-var-number[type=number] {
+  -moz-appearance: textfield;
+}
+
+.manual-var-number:focus {
+  outline: none;
+  border-color: #00bcd4;
+}
+
+.manual-var-number:disabled {
+  color: #444;
+  border-color: #2a2a2a;
+  background: #141414;
+}
+
+.manual-objective-label {
+  font-size: 11px;
+  color: #777;
+  margin-left: 4px;
+  white-space: nowrap;
+}
+
+.manual-objective-value {
+  font-size: 12px;
+  font-weight: 700;
+  color: #ffeb3b;
+  font-family: monospace;
+  white-space: nowrap;
+}
+
+.manual-objective-evaluating {
+  font-size: 11px;
+  color: #888;
+  font-style: italic;
+}
+
+.manual-run-btn {
+  margin-left: 8px;
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
 /* Optimization convergence history styling */
 .convergence-panel {
   margin-top: 20px;

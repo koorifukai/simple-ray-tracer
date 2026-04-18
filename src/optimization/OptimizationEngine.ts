@@ -75,24 +75,17 @@ export class OptimizationEngine {
   private static async runLevenbergMarquardt(problem: OptimizationProblem): Promise<OptimizationResult> {
     const maxIterations = problem.settings.iterations;
     const tolerance = 1e-6;
-    const lambda_initial = 0.01;    // Start with higher damping (more conservative)
-    const lambda_factor = 2.5;      // More moderate lambda changes for stability
-    
+    const lambda_factor = 2.5;
+
     let variables = [...problem.variables];
-    let lambda = lambda_initial;
     let convergenceHistory: ConvergencePoint[] = [];
-    
+
     // Create normalization factors for variables based on their ranges
     const normalizationFactors = variables.map(variable => {
       const range = variable.max - variable.min;
-      return range > 0 ? range : 1; // Avoid division by zero
+      return range > 0 ? range : 1;
     });
-    
-    // console.log(`📏 Variable normalization factors:`);
-    // variables.forEach((variable, i) => {
-    //   console.log(`   ${variable.name}: range=[${variable.min}, ${variable.max}], factor=${normalizationFactors[i].toFixed(3)}`);
-    // });
-    
+
     // Evaluate initial objective
     let currentObjective = await this.evaluateObjective(problem, variables);
     convergenceHistory.push({
@@ -100,48 +93,59 @@ export class OptimizationEngine {
       objective: currentObjective.value,
       variables: Object.fromEntries(variables.map(v => [v.name, v.current]))
     });
-    
-    // Initial objective calculated
-    
+
     let iteration = 0;
     let bestVariables = [...variables];
     let bestObjective = currentObjective.value;
-    let stuckCounter = 0; // Track consecutive rejected steps
-    
+    let stuckCounter = 0;
+
+    // Compute initial gradient + Hessian to set lambda scale
+    const { gradient: initGrad, hessian: initHessian } =
+      await this.calculateGradientAndHessian(problem, variables, normalizationFactors, currentObjective.value);
+    const maxDiag = Math.max(...initHessian.map((row, i) => row[i]));
+    // Scale-aware initial lambda: 1% of max curvature (tau=0.01 standard LM init)
+    let lambda = Math.max(0.01 * maxDiag, 1e-4);
+
+    let firstIterGrad = initGrad;
+    let firstIterHessian = initHessian;
+    let gradientNeedsRecompute = false; // Reuse initial gradient/hessian for iteration 0
+
     for (iteration = 0; iteration < maxIterations; iteration++) {
-      // Calculate normalized gradient using finite differences
-      const gradient = await this.calculateNormalizedGradient(problem, variables, normalizationFactors);
-      
-      // Calculate Hessian approximation (Gauss-Newton) in normalized space
-      const hessian = await this.calculateHessianApproximation(problem, variables, gradient);
-      
+      let gradient: number[];
+      let hessian: number[][];
+
+      if (gradientNeedsRecompute) {
+        const result = await this.calculateGradientAndHessian(
+          problem, variables, normalizationFactors, currentObjective.value);
+        gradient = result.gradient;
+        hessian = result.hessian;
+      } else {
+        gradient = firstIterGrad;
+        hessian = firstIterHessian;
+        gradientNeedsRecompute = true;
+      }
+
       // Solve LM update: (H + λI)δ = -g in normalized space
       const normalizedDelta = this.solveLMUpdate(hessian, gradient, lambda);
+
       
-      // Try step with line search if we've been stuck
+      // Line search: up to 6 halvings for a better chance of finding a descent step
       let stepAccepted = false;
       let stepSize = 1.0;
       let newVariables = variables;
       let newObjective = currentObjective;
-      
-      // Line search to find acceptable step size
-      for (let lineSearchIter = 0; lineSearchIter < 3; lineSearchIter++) {
-        // Apply scaled update
+
+      for (let lineSearchIter = 0; lineSearchIter < 6; lineSearchIter++) {
         const scaledDelta = normalizedDelta.map(delta => delta * stepSize);
         const candidateVariables = this.applyNormalizedUpdate(variables, scaledDelta, normalizationFactors);
-        
-        // Evaluate candidate
         const candidateObjective = await this.evaluateObjective(problem, candidateVariables);
-        
+
         if (candidateObjective.valid && candidateObjective.value < currentObjective.value) {
-          // Accept this step size
           newVariables = candidateVariables;
           newObjective = candidateObjective;
           stepAccepted = true;
           break;
         }
-        
-        // Reduce step size for next attempt
         stepSize *= 0.5;
       }
       
@@ -194,18 +198,31 @@ export class OptimizationEngine {
         }
         
         stuckCounter++;
-        // console.log(`❌ Iteration ${iteration + 1}: step rejected, λ: ${oldLambda.toExponential(2)} → ${lambda.toExponential(2)} (stuck: ${stuckCounter})`);
+
+        // Stagnation restart: after 7 consecutive rejections, jump to best + small random perturbation
+        if (stuckCounter >= 7 && bestObjective < 1000.0) {
+          variables = bestVariables.map(v => {
+            const range = v.max - v.min;
+            const perturb = (Math.random() - 0.5) * 0.05 * range; // ±2.5% of range
+            return { ...v, current: Math.max(v.min, Math.min(v.max, v.current + perturb)) };
+          });
+          currentObjective = await this.evaluateObjective(problem, variables);
+          lambda = Math.max(0.01 * maxDiag, 1e-4); // Reset lambda
+          stuckCounter = 0;
+          gradientNeedsRecompute = true;
+          console.log(`🔄 Stagnation restart at iter ${iteration + 1}, restarting from best + perturbation`);
+        }
       }
-      
+
       convergenceHistory.push({
         iteration: iteration + 1,
         objective: currentObjective.value,
         variables: Object.fromEntries(variables.map(v => [v.name, v.current]))
       });
-      
+
       // Emergency stop for very high damping (likely stuck)
-      if (lambda > 1e8) {
-        console.log(`⚠️ High damping detected, stopping optimization`);
+      if (lambda > 1e10) {
+        console.log(`⚠️ High damping detected (λ=${lambda.toExponential(2)}), stopping optimization`);
         break;
       }
     }
@@ -258,130 +275,113 @@ export class OptimizationEngine {
   }
   
   /**
-   * Calculate normalized gradient using central finite differences for better accuracy
-   * Uses (f(x+h) - f(x-h))/(2h) instead of forward differences
+   * Calculate gradient and full Hessian in one pass.
+   *
+   * Gradient:  central differences  g_i = (f(x+h_i) – f(x–h_i)) / (2h)
+   * Diagonal:  proper 2nd derivative H_ii = (f(x+h_i) – 2f(x) + f(x–h_i)) / h²  (reuses same evals)
+   * Off-diag:  3-point mixed formula  H_ij ≈ (f(x+h_i+h_j) – f(x+h_i) – f(x+h_j) + f(x)) / h²
+   *            (one extra eval per variable pair; for n=4 that is 6 extra evaluations)
    */
-  private static async calculateNormalizedGradient(
-    problem: OptimizationProblem, 
+  private static async calculateGradientAndHessian(
+    problem: OptimizationProblem,
     variables: OptimizationVariable[],
-    normalizationFactors: number[]
-  ): Promise<number[]> {
-    const gradient: number[] = [];
-    // Increased step size for better gradient estimation, especially for angle variables
-    // Previous value of 1e-4 was too small - with range of 40, step was only 0.004 degrees
-    // Now with 0.01, step is 0.4 degrees, which produces meaningful normal changes
-    const h = 0.01; // Finite difference step size in normalized space (1% of range)
-    
-    for (let i = 0; i < variables.length; i++) {
-      // Calculate step size in actual variable space
-      const actualStepSize = h * normalizationFactors[i];
-      console.log(`[Gradient] Variable ${variables[i].name}: step = ${actualStepSize.toFixed(4)} (h=${h}, range=${normalizationFactors[i]})`);
-      
-      // Forward perturbation: x + h
-      const forwardVariables = [...variables];
-      forwardVariables[i] = { 
-        ...forwardVariables[i], 
-        current: Math.min(forwardVariables[i].max, forwardVariables[i].current + actualStepSize)
-      };
-      
-      // Backward perturbation: x - h  
-      const backwardVariables = [...variables];
-      backwardVariables[i] = { 
-        ...backwardVariables[i], 
-        current: Math.max(backwardVariables[i].min, backwardVariables[i].current - actualStepSize)
-      };
-      
-      // Evaluate both perturbations
-      const [forwardObjective, backwardObjective] = await Promise.all([
-        this.evaluateObjective(problem, forwardVariables),
-        this.evaluateObjective(problem, backwardVariables)
+    normalizationFactors: number[],
+    currentObjectiveValue: number
+  ): Promise<{ gradient: number[]; hessian: number[][] }> {
+    const n = variables.length;
+    const h = 0.01; // 1 % of normalised range
+
+    const fwdValues: number[] = new Array(n);
+    const bwdValues: number[] = new Array(n);
+
+    // 2n evaluations (forward + backward for each variable)
+    for (let i = 0; i < n; i++) {
+      const step = h * normalizationFactors[i];
+      const fwd = [...variables];
+      fwd[i] = { ...fwd[i], current: Math.min(fwd[i].max, fwd[i].current + step) };
+      const bwd = [...variables];
+      bwd[i] = { ...bwd[i], current: Math.max(bwd[i].min, bwd[i].current - step) };
+
+      const [fo, bo] = await Promise.all([
+        this.evaluateObjective(problem, fwd),
+        this.evaluateObjective(problem, bwd)
       ]);
-      
-      // Central difference: (f(x+h) - f(x-h)) / (2h)
-      const centralDifference = (forwardObjective.value - backwardObjective.value) / (2 * h);
-      console.log(`[Gradient] ${variables[i].name}: forward=${forwardObjective.value.toFixed(4)}, backward=${backwardObjective.value.toFixed(4)}, gradient=${centralDifference.toFixed(6)}`);
-      gradient.push(centralDifference);
+      fwdValues[i] = fo.value;
+      bwdValues[i] = bo.value;
     }
-    
-    console.log(`[Gradient] Final gradient: [${gradient.map(g => g.toFixed(6)).join(', ')}]`);
-    return gradient;
+
+    // Build gradient and diagonal Hessian (zero extra evaluations)
+    const gradient: number[] = [];
+    const hessian: number[][] = Array.from({ length: n }, () => new Array(n).fill(0));
+
+    for (let i = 0; i < n; i++) {
+      gradient.push((fwdValues[i] - bwdValues[i]) / (2 * h));
+      const d2 = (fwdValues[i] - 2 * currentObjectiveValue + bwdValues[i]) / (h * h);
+      hessian[i][i] = Math.max(Math.abs(d2), 1e-6);
+    }
+
+    // Off-diagonal cross-derivatives: one additional eval per pair
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const stepI = h * normalizationFactors[i];
+        const stepJ = h * normalizationFactors[j];
+
+        // f(x + h_i + h_j)
+        const bothFwd = variables.map((v, k) => {
+          if (k === i) return { ...v, current: Math.min(v.max, v.current + stepI) };
+          if (k === j) return { ...v, current: Math.min(v.max, v.current + stepJ) };
+          return v;
+        });
+        const bfo = await this.evaluateObjective(problem, bothFwd);
+
+        // H_ij ≈ (f(x+h_i+h_j) – f(x+h_i) – f(x+h_j) + f(x)) / (h²)
+        const cross = (bfo.value - fwdValues[i] - fwdValues[j] + currentObjectiveValue) / (h * h);
+
+        // Cap off-diagonal to preserve positive semi-definiteness
+        const maxOff = 0.5 * Math.sqrt(hessian[i][i] * hessian[j][j]);
+        const capped = Math.max(-maxOff, Math.min(maxOff, cross));
+        hessian[i][j] = capped;
+        hessian[j][i] = capped;
+      }
+    }
+
+    return { gradient, hessian };
   }
-  
+
   /**
-   * Apply normalized parameter update with denormalization and bounds checking
+   * Apply normalised parameter update with denormalisation and bounds checking
    */
   private static applyNormalizedUpdate(
-    variables: OptimizationVariable[], 
+    variables: OptimizationVariable[],
     normalizedDelta: number[],
     normalizationFactors: number[]
   ): OptimizationVariable[] {
     return variables.map((variable, i) => {
-      // Denormalize the update step
       const actualDelta = normalizedDelta[i] * normalizationFactors[i];
       const newValue = variable.current + actualDelta;
-      
-      // Clamp to bounds and warn about boundary hits
       const clampedValue = Math.max(variable.min, Math.min(variable.max, newValue));
-      
-      // Per-variable step logging removed
-      
       return { ...variable, current: clampedValue };
     });
   }
-  
-  /**
-   * Calculate Hessian approximation using BFGS-like update
-   * More sophisticated than simple diagonal but still stable
-   */
-  private static async calculateHessianApproximation(
-    _problem: OptimizationProblem,
-    variables: OptimizationVariable[],
-    gradient: number[]
-  ): Promise<number[][]> {
-    const n = variables.length;
-    const hessian: number[][] = Array(n).fill(0).map(() => Array(n).fill(0));
-    
-    // Use improved diagonal approximation with gradient magnitude scaling
-    for (let i = 0; i < n; i++) {
-      // Scale diagonal based on gradient magnitude for better conditioning
-      const gradMagnitude = Math.abs(gradient[i]);
-      hessian[i][i] = Math.max(gradMagnitude, 1e-6); // Ensure positive definite
-    }
-    
-    // Add small off-diagonal coupling terms based on gradient correlation
-    for (let i = 0; i < n; i++) {
-      for (let j = i + 1; j < n; j++) {
-        // Small coupling term proportional to product of gradients
-        const coupling = 0.1 * Math.sign(gradient[i] * gradient[j]) * 
-                        Math.sqrt(Math.abs(gradient[i] * gradient[j]));
-        hessian[i][j] = coupling;
-        hessian[j][i] = coupling; // Symmetric
-      }
-    }
-    
-    return hessian;
-  }
-  
+
   /**
    * Solve Levenberg-Marquardt update equation: (H + λI)δ = -g
    */
   private static solveLMUpdate(hessian: number[][], gradient: number[], lambda: number): number[] {
-    const A = hessian.map((row, i) => 
+    const A = hessian.map((row, i) =>
       row.map((val, j) => i === j ? val + lambda : val)
     );
     const b = gradient.map(g => -g);
-    
-    // Simple Gauss elimination (could be improved with LU decomposition)
     return this.solveLinearSystem(A, b);
   }
-  
+
   /**
    * Simple linear system solver using Gauss elimination
    */
   private static solveLinearSystem(A: number[][], b: number[]): number[] {
     const n = A.length;
     const augmented = A.map((row, i) => [...row, b[i]]);
-    
+
     // Forward elimination
     for (let i = 0; i < n; i++) {
       // Find pivot
@@ -392,7 +392,7 @@ export class OptimizationEngine {
         }
       }
       [augmented[i], augmented[maxRow]] = [augmented[maxRow], augmented[i]];
-      
+
       // Make all rows below this one 0 in current column
       for (let k = i + 1; k < n; k++) {
         const factor = augmented[k][i] / augmented[i][i];
@@ -401,7 +401,7 @@ export class OptimizationEngine {
         }
       }
     }
-    
+
     // Back substitution
     const x = new Array(n).fill(0);
     for (let i = n - 1; i >= 0; i--) {
