@@ -48,9 +48,11 @@ assemblies:
 
 surfaces:
   - focus:
-      {sid: 0, shape: plano, height: 50, width: 50, mode: absorption}
+      {sid: 0, shape: plano, height: 100, width: 100, mode: absorption}
     stop:
       {sid: 1, shape: plano, height: 6, width: 3, mode: aperture}
+    split:
+      {sid: 2, shape: plano, height: 50, width: 50, mode: transmission_diffraction, grating_lpmm: 600, order: 1}
 
 light_sources:
   - l1:
@@ -69,18 +71,26 @@ optical_trains:
      {lid: 2}
     l:
      {aid: 0, position: [0,0,0], angles: [0,0]}
+    ss:
+     {sid: 2, position: [133,0,0], angles: [0,0]}
     s:
-     {sid: 0, position: [V1,0,0], angles: [0,0]}
+     {sid: 0, position: [162.96,0,0], angles: [0,0]}
+
 optimization_settings:
   iterations: 20
   V1: [120,140,20]
-  V2: [15,25,5]
-  V3: [80,90,5]
-  V4: [-25,-15,5]
+  #V2: [15,25,5]
+  #V3: [80,90,5]
+  #V4: [-25,-15,5]
   obj: -1
   mode: aberrations
   #mode: angle
-  param: None`;
+  param: None
+
+sequence_settings:
+  step: 30
+  A1: [0, 90]
+  A2: [-10, 10]`;
 
 interface OpticalDesignAppProps {}
 

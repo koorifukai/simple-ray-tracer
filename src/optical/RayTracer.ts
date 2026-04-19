@@ -44,6 +44,10 @@ export interface RayTraceResult {
   // Partial surface coefficients
   transmissionCoeff?: number;
   reflectionCoeff?: number;
+  // Diffraction results (for mode: 'transmission_diffraction' or 'reflection_diffraction')
+  diffractedPlus?: Ray;   // +m order diffracted ray
+  diffractedMinus?: Ray;  // -m order diffracted ray
+  diffractionOrder?: number; // The diffraction order used
 }
 
 /**
@@ -463,6 +467,18 @@ export class RayTracer {
       if (useSimplifiedLog) {
         this.log('simplified', `Output ray:  (${result.reflected.position.x.toFixed(3)}, ${result.reflected.position.y.toFixed(3)}, ${result.reflected.position.z.toFixed(3)}) → (${result.reflected.direction.x.toFixed(3)}, ${result.reflected.direction.y.toFixed(3)}, ${result.reflected.direction.z.toFixed(3)})`);
       }
+    }
+    
+    // Transform diffracted rays back to global coordinates
+    if (result.diffractedPlus) {
+      result.diffractedPlus = this.transformRayToGlobal(result.diffractedPlus, surface);
+      // Also update transmitted since it points to the same ray
+      result.transmitted = result.diffractedPlus;
+    }
+    if (result.diffractedMinus) {
+      result.diffractedMinus = this.transformRayToGlobal(result.diffractedMinus, surface);
+      // Also update reflected since it points to the same ray
+      result.reflected = result.diffractedMinus;
     }
 
     // Transform intersection back to global coordinates
@@ -969,6 +985,112 @@ export class RayTracer {
         }
         
         return allPaths;
+      }
+
+      // *** CRITICAL: Handle diffraction surface branching (±m orders) ***
+      if ((surface.mode === 'transmission_diffraction' || surface.mode === 'reflection_diffraction') 
+          && result.diffractedPlus && result.diffractedMinus) {
+        
+        if (!isFirstTrace) {
+          this.log('ray', `Diffraction surface: creating +${result.diffractionOrder} and -${result.diffractionOrder} order rays`);
+        }
+        
+        // CORRECTED LID ENCODING: [generation*1000 + surface_number + 0.ancestral_light_id]
+        const originalLightId = currentRay.lightId;
+        const surfaceOrder = surface.numericalId || i;
+        
+        // Extract current generation and calculate next generation
+        const currentGeneration = Math.floor(originalLightId / 1000);
+        const nextGeneration = currentGeneration + 1;
+        
+        // Extract ancestral LID from current ray
+        let ancestralLID: number;
+        if (currentGeneration === 0) {
+          ancestralLID = originalLightId;
+        } else {
+          const remainder = originalLightId - (currentGeneration * 1000);
+          const decimalPart = remainder - Math.floor(remainder);
+          ancestralLID = Math.round(decimalPart * 10);
+        }
+        
+        // Generate shadow LID for minus order ray
+        const shadowLightId = nextGeneration * 1000 + surfaceOrder + (ancestralLID / 10);
+        
+        // Plus order keeps original LID, minus order gets shadow LID
+        const plusRayForTracing = new Ray(
+          result.diffractedPlus!.position,
+          result.diffractedPlus!.direction,
+          result.diffractedPlus!.wavelength,
+          originalLightId,  // Keep original LID
+          result.diffractedPlus!.intensity,
+          result.diffractedPlus!.startsAt
+        );
+        const lastPathRay = rayPath.length > 0 ? rayPath[rayPath.length - 1] : currentRay;
+        plusRayForTracing.pathLength = lastPathRay.pathLength;
+        plusRayForTracing.opticalPathLength = lastPathRay.opticalPathLength;
+        
+        const minusRayForTracing = this.createFreshBranchedRay(
+          result.diffractedMinus!, originalLightId, shadowLightId, false, i + 1
+        );
+        
+        // Continue tracing +m order ray through remaining surfaces
+        const plusPaths = this.traceRayWithBranching(
+          plusRayForTracing,
+          surfaces,
+          i + 1,
+          false
+        );
+        
+        // Continue tracing -m order ray through remaining surfaces
+        const minusPaths = this.traceRayWithBranching(
+          minusRayForTracing,
+          surfaces,
+          i + 1,
+          false
+        );
+        
+        const allPaths: Ray[][] = [];
+        
+        // Process +m order paths
+        for (const plusPath of plusPaths) {
+          if (plusPath.length === 0) continue;
+          const pathLID = plusPath[0].lightId;
+          if (this.lidEquals(pathLID, originalLightId)) {
+            allPaths.push([...rayPath, ...plusPath.slice(1)]);
+          } else {
+            allPaths.push(plusPath);
+          }
+        }
+        
+        // Process -m order paths
+        for (const minusPath of minusPaths) {
+          if (minusPath.length === 0) continue;
+          const pathLID = minusPath[0].lightId;
+          if (this.lidEquals(pathLID, originalLightId)) {
+            allPaths.push([...rayPath, ...minusPath.slice(1)]);
+          } else {
+            allPaths.push(minusPath);
+          }
+        }
+        
+        return allPaths;
+      }
+      
+      // Handle diffraction with only one valid order (other is evanescent)
+      if ((surface.mode === 'transmission_diffraction' || surface.mode === 'reflection_diffraction') 
+          && (result.diffractedPlus || result.diffractedMinus)) {
+        const singleDiffracted = result.diffractedPlus || result.diffractedMinus;
+        const oldRefractiveIndex = (currentRay as any)._currentRefractiveIndex;
+        currentRay = singleDiffracted!;
+        if (rayPath.length > 0) {
+          currentRay.pathLength = rayPath[rayPath.length - 1].pathLength;
+          currentRay.opticalPathLength = rayPath[rayPath.length - 1].opticalPathLength;
+        }
+        if ((currentRay as any)._currentRefractiveIndex === undefined) {
+          (currentRay as any)._currentRefractiveIndex = oldRefractiveIndex;
+        }
+        lastSuccessfulRayDirection = singleDiffracted!.direction;
+        continue;
       }
 
       // Handle single ray continuation (transmitted or reflected)
@@ -1804,6 +1926,15 @@ export class RayTracer {
           };
         }
       
+      case 'transmission_diffraction':
+      case 'reflection_diffraction':
+        // Diffraction grating: rays split into ±m orders
+        // For order=0: single 0th order ray (straight through for transmission, reflection for reflection)
+        // For order=1: +1 and -1 diffracted rays (no 0th order)
+        // For order=2: +2 and -2 diffracted rays, etc.
+        const diffractionResult = this.calculateDiffraction(ray, intersection, surface, mode === 'reflection_diffraction');
+        return diffractionResult;
+      
       case 'inactive':
       default:
         return {
@@ -1843,6 +1974,163 @@ export class RayTracer {
     }
     
     return reflectedRay;
+  }
+
+  /**
+   * Calculate diffracted rays using the grating equation
+   * 
+   * Physics: 1D diffraction grating with lines along local Z axis
+   * Dispersion occurs in local Y direction
+   * 
+   * Grating equation (in terms of direction cosines):
+   *   k_y_out = k_y_in + (m × λ) / d
+   *   k_z_out = k_z_in (unchanged - parallel to grating lines)
+   *   k_x_out = ±√(1 - k_y_out² - k_z_out²)
+   * 
+   * Where:
+   *   d = 1/grating_lpmm (mm)
+   *   λ = wavelength (mm)
+   *   m = diffraction order (+m or -m)
+   *   + for transmission, - for reflection (in k_x)
+   * 
+   * @param ray - Incident ray (in LOCAL coordinates)
+   * @param intersection - Intersection result with local normal
+   * @param surface - Optical surface with grating properties
+   * @param isReflection - true for reflection_diffraction, false for transmission_diffraction
+   * @returns RayTraceResult with diffractedPlus and/or diffractedMinus rays
+   */
+  private static calculateDiffraction(
+    ray: Ray,
+    intersection: RayIntersection,
+    surface: OpticalSurface,
+    isReflection: boolean
+  ): RayTraceResult {
+    const order = surface.order ?? 1;  // Default to ±1 orders
+    const gratingLpmm = surface.grating_lpmm ?? 600;  // Default 600 lp/mm
+    
+    // Convert units: wavelength from nm to mm, grating spacing in mm
+    const wavelength_mm = ray.wavelength * 1e-6;  // nm → mm
+    const d_mm = 1.0 / gratingLpmm;  // Grating spacing in mm
+    
+    // Get incident direction (normalized, in local coordinates)
+    const incident = ray.direction.normalize();
+    const k_x_in = incident.x;
+    const k_y_in = incident.y;
+    const k_z_in = incident.z;
+    
+    // Handle order = 0 (0th order only)
+    if (order === 0) {
+      let k_x_out: number;
+      if (isReflection) {
+        // Reflection: reverse x component (like a mirror)
+        k_x_out = -k_x_in;
+      } else {
+        // Transmission: pass straight through
+        k_x_out = k_x_in;
+      }
+      
+      const zeroOrderRay = new Ray(
+        intersection.point,
+        new Vector3(k_x_out, k_y_in, k_z_in).normalize(),
+        ray.wavelength,
+        ray.lightId,
+        ray.intensity,
+        ray.startsAt
+      );
+      
+      return {
+        ray,
+        intersection,
+        transmitted: zeroOrderRay,  // Use transmitted for single ray case
+        isBlocked: false,
+        diffractionOrder: 0
+      };
+    }
+    
+    // Calculate ±m diffracted rays
+    const results: { plus?: Ray; minus?: Ray } = {};
+    
+    for (const m of [order, -order]) {
+      // Grating equation: k_y_out = k_y_in + (m × λ) / d
+      const k_y_out = k_y_in + (m * wavelength_mm) / d_mm;
+      const k_z_out = k_z_in;  // Unchanged (parallel to grating lines)
+      
+      // Check for evanescent wave (no real solution)
+      const k_perp_squared = k_y_out * k_y_out + k_z_out * k_z_out;
+      if (k_perp_squared >= 1.0) {
+        // This order is evanescent - skip
+        RayTracer.log('intersection', `  Diffraction order ${m} is evanescent (k_perp² = ${k_perp_squared.toFixed(4)} ≥ 1)`);
+        continue;
+      }
+      
+      // Calculate k_x_out from normalization
+      const k_x_magnitude = Math.sqrt(1.0 - k_perp_squared);
+      
+      // Determine sign of k_x_out based on transmission vs reflection
+      let k_x_out: number;
+      if (isReflection) {
+        // Reflection: ray goes back (opposite to incident x direction if incident was positive)
+        k_x_out = k_x_in > 0 ? -k_x_magnitude : k_x_magnitude;
+      } else {
+        // Transmission: ray continues forward (same sign as incident x direction)
+        k_x_out = k_x_in > 0 ? k_x_magnitude : -k_x_magnitude;
+      }
+      
+      const diffractedDirection = new Vector3(k_x_out, k_y_out, k_z_out).normalize();
+      
+      const diffractedRay = new Ray(
+        intersection.point,
+        diffractedDirection,
+        ray.wavelength,
+        ray.lightId,
+        ray.intensity,
+        ray.startsAt
+      );
+      
+      // Log diffraction info
+      const angleOut = Math.asin(k_y_out) * 180 / Math.PI;
+      RayTracer.log('intersection', 
+        `  🌈 Diffraction [${surface.id}]: m=${m}, λ=${ray.wavelength}nm, ` +
+        `k_y_in=${k_y_in.toFixed(4)} → k_y_out=${k_y_out.toFixed(4)}, θ_out=${angleOut.toFixed(1)}°`
+      );
+      
+      if (m > 0) {
+        results.plus = diffractedRay;
+      } else {
+        results.minus = diffractedRay;
+      }
+    }
+    
+    // Build result
+    const hasPlus = results.plus !== undefined;
+    const hasMinus = results.minus !== undefined;
+    
+    if (!hasPlus && !hasMinus) {
+      // Both orders are evanescent - ray is blocked
+      return {
+        ray,
+        intersection,
+        isBlocked: true,
+        diffractionOrder: order
+      };
+    }
+    
+    // Return diffracted rays
+    // For branching compatibility, we use transmitted/reflected for the two orders
+    // This allows the existing partial surface branching logic to handle diffraction
+    return {
+      ray,
+      intersection,
+      diffractedPlus: results.plus,
+      diffractedMinus: results.minus,
+      // Also map to transmitted/reflected for branching compatibility
+      transmitted: results.plus,
+      reflected: results.minus,
+      transmissionCoeff: 0.5,  // Equal split between orders
+      reflectionCoeff: 0.5,
+      isBlocked: false,
+      diffractionOrder: order
+    };
   }
 
   /**

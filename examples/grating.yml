@@ -1,0 +1,38 @@
+# Diffraction Grating Demo
+# Demonstrates transmission diffraction with polychromatic light
+# Grating lines run along Z (vertical), dispersion in Y (horizontal)
+
+display_settings:
+  show_grid: True
+  density_for_intensity: True
+
+surfaces:
+  - screen:
+      {sid: 0, shape: plano, height: 100, width: 100, mode: absorption}
+
+assemblies:
+  - aid: 0
+    # Transmission diffraction grating: 600 lines/mm, ±1 orders
+    grating:
+      {relative: 0, shape: plano, height: 40, width: 40, mode: transmission_diffraction, grating_lpmm: 600, order: 1}
+
+light_sources:
+  # Polychromatic source: RGB wavelengths
+  - red:
+      {lid: 0, position: [-20,0,0], vector: [1,0,0], number: 3, wavelength: 633, type: linear, param: 5}
+    green:
+      {lid: 1, position: [-20,0,0], vector: [1,0,0], number: 3, wavelength: 532, type: linear, param: 5}
+    blue:
+      {lid: 2, position: [-20,0,0], vector: [1,0,0], number: 3, wavelength: 488, type: linear, param: 5}
+
+optical_trains:
+  - red:
+      {lid: 0}
+    green:
+      {lid: 1}
+    blue:
+      {lid: 2}
+    grating:
+      {aid: 0, position: [0,0,0], angles: [0,0], dial: 0}
+    screen:
+      {sid: 0, position: [60,0,0], angles: [0,0], dial: 0}

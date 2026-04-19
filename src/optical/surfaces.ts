@@ -13,7 +13,7 @@ export type SurfaceShape = 'spherical' | 'aspherical' | 'plano' | 'cylindrical' 
 /**
  * Surface interaction modes (matching EUREKA methodology)
  */
-export type SurfaceMode = 'inactive' | 'refraction' | 'reflection' | 'partial' | 'absorption' | 'diffuse' | 'aperture' | 'stop' | 'block' | 'reflect' | 'mirror' | 'refract';
+export type SurfaceMode = 'inactive' | 'refraction' | 'reflection' | 'partial' | 'absorption' | 'diffuse' | 'aperture' | 'stop' | 'block' | 'reflect' | 'mirror' | 'refract' | 'transmission_diffraction' | 'reflection_diffraction';
 
 /**
  * Basic optical surface definition
@@ -59,6 +59,10 @@ export interface OpticalSurface {
   
   // Partial surface properties (for mode: 'partial')
   transmission?: number; // Transmission coefficient (0-1) for partial surfaces
+  
+  // Diffraction grating properties (for mode: 'transmission_diffraction' or 'reflection_diffraction')
+  grating_lpmm?: number;  // Grating lines per mm
+  order?: number;         // Diffraction order: 0 = 0th only, 1 = ±1, 2 = ±2, etc.
   
   // Wavelength selection properties
   sel?: string;          // Wavelength selection: 'o532' (only 532nm), 'x633' (exclude 633nm)
@@ -139,6 +143,14 @@ export class OpticalSurfaceFactory {
     // Wavelength selection properties
     if (surfaceData.sel !== undefined) {
       surface.sel = surfaceData.sel;
+    }
+    
+    // Diffraction grating properties
+    if (surfaceData.grating_lpmm !== undefined) {
+      surface.grating_lpmm = surfaceData.grating_lpmm;
+    }
+    if (surfaceData.order !== undefined) {
+      surface.order = Math.floor(surfaceData.order); // Ensure integer order
     }
 
     // Normal vector (explicit direction specification or angles)
@@ -395,6 +407,8 @@ export class OpticalSurfaceFactory {
         n2_material: surfaceData.n2_material,
         transmission: surfaceData.transmission !== undefined ? Math.max(0, Math.min(1, surfaceData.transmission)) : undefined,
         sel: surfaceData.sel,
+        grating_lpmm: surfaceData.grating_lpmm,
+        order: surfaceData.order !== undefined ? Math.floor(surfaceData.order) : undefined,
         transform: localTransform,
         forwardTransform: new Matrix4().identity(), // Will be computed later
         inverseTransform: new Matrix4().identity(), // Will be computed later
