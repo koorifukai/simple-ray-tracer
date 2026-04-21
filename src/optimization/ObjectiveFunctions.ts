@@ -52,6 +52,19 @@ export class ObjectiveFunctions {
           const rayResults = ObjectiveFunctions.traceSystemRaysForAngleMode(system, settings.obj);
           return ObjectiveFunctions.evaluateAngle(rayResults, targetAngleFromNormal);
         }
+        case 'centering': {
+          const targetSurface = ObjectiveFunctions.getTargetSurface(system, settings.obj);
+          if (!targetSurface) {
+            return {
+              value: 1000.0,
+              valid: false,
+              details: 'Target surface not found'
+            };
+          }
+          const axisParam = typeof settings.param === 'string' ? settings.param.toUpperCase() : 'YZ';
+          const rayResults = ObjectiveFunctions.traceSystemRays(system, targetSurface);
+          return ObjectiveFunctions.evaluateCentering(rayResults, targetSurface, axisParam);
+        }
         default:
           throw new Error(`Unknown optimization mode: ${settings.mode}`);
       }
@@ -468,91 +481,160 @@ export class ObjectiveFunctions {
       };
     }
     
-    console.log(`[AngleMode] ✅ ${validIntersections.length}/${totalRays} valid intersections, target angle = ${targetAngleDegrees.toFixed(1)}°`);
+    const targetAngleClamped = Math.max(0, Math.min(90, targetAngleDegrees));
+    console.log(`[AngleMode] ✅ ${validIntersections.length}/${totalRays} valid intersections, target angle = ${targetAngleClamped.toFixed(1)}°`);
     
-    const targetCos = Math.cos(targetAngleDegrees * Math.PI / 180);
+    const targetCos = Math.cos(targetAngleClamped * Math.PI / 180);
     console.log(`[AngleMode] Target cos(angle) = ${targetCos.toFixed(4)}`);
     
-    // Calculate angles for each ray using surface normals directly (both in global coordinates)
-    const angles = validIntersections.map((intersection, i) => {
+    // Calculate cosines for each ray using surface normals directly (both in global coordinates)
+    const stats = validIntersections.map((intersection, i) => {
       // Get normalized ray direction and surface normal (both in global coordinates)
-      const rayDir = intersection.ray.direction.normalize();
+      // rayDir needs to be explicitly converted to our local Vector3 type for the dot product
+      const rayDirRaw = intersection.ray.direction.normalize();
+      const rayDir = new Vector3(rayDirRaw.x, rayDirRaw.y, rayDirRaw.z);
       const surfaceNormal = intersection.normal.normalize();
       
-      // Calculate angle between ray direction and surface normal
-      // Use -rayDir to get the "incident" direction (toward surface)
-      const incidentRayDir = new Vector3(-rayDir.x, -rayDir.y, -rayDir.z);
-      const actualCos = surfaceNormal.dot(incidentRayDir);
-      
-      // Clamp to valid range for acos
-      const clampedCos = Math.min(1, Math.max(-1, actualCos));
+      // Calculate dot product. Use Math.abs because normal might point "with" or "against" the ray,
+      // and we just want the intersection angle between 0 and 90 degrees (cos from 1 to 0)
+      const actualCos = Math.abs(surfaceNormal.dot(rayDir));
       
       // Cosine deviation from target cosine  
       const cosDeviation = actualCos - targetCos;
       
-      // For logging, also calculate the actual angle in degrees
-      const actualAngleRad = Math.acos(clampedCos);
-      const actualAngleDeg = actualAngleRad * 180 / Math.PI;
-      
-      // Calculate angular deviation in degrees for better understanding
-      const angularDeviationDeg = Math.abs(actualAngleDeg - targetAngleDegrees);
-      
       // Log first few ray calculations
       if (i < 3) {
         console.log(`[AngleMode] Ray ${i}: rayDir=(${rayDir.x.toFixed(6)}, ${rayDir.y.toFixed(6)}, ${rayDir.z.toFixed(6)}), normal=(${surfaceNormal.x.toFixed(6)}, ${surfaceNormal.y.toFixed(6)}, ${surfaceNormal.z.toFixed(6)})`);
-        console.log(`[AngleMode] Ray ${i}: incidentDir=(${incidentRayDir.x.toFixed(6)}, ${incidentRayDir.y.toFixed(6)}, ${incidentRayDir.z.toFixed(6)}), actualCos=${actualCos.toFixed(6)}, actualAngle=${actualAngleDeg.toFixed(3)}°, deviation=${angularDeviationDeg.toFixed(3)}°`);
+        console.log(`[AngleMode] Ray ${i}: actualCos=${actualCos.toFixed(6)}, cosDeviation=${cosDeviation.toFixed(6)}`);
       }
       
-      return { cosDeviation, actualAngleDeg, actualAngleRad, actualCos, angularDeviationDeg };
+      return { actualCos, cosDeviation };
     });
     
-    // Use RMS angular deviation as objective (more intuitive than cosine deviation)
-    const angularDeviations = angles.map(item => item.angularDeviationDeg);
-    const meanSquaredAngularDeviation = angularDeviations.reduce(
-      (sum: number, dev: number) => sum + dev * dev, 0
-    ) / angularDeviations.length;
-    const rmsAngularDeviation = Math.sqrt(meanSquaredAngularDeviation);
+    // Use RMS cosine deviation as objective
+    const meanSquaredCosDeviation = stats.reduce(
+      (sum, item) => sum + item.cosDeviation * item.cosDeviation, 0
+    ) / stats.length;
+    const rmsCosDeviation = Math.sqrt(meanSquaredCosDeviation);
     
-    // Use RMS angular deviation directly as objective (no scaling needed)
-    let objective = rmsAngularDeviation;
+    let objective = rmsCosDeviation;
     
     // Add penalty for rays that miss the target surface
     const missedRayFraction = (totalRays - validIntersections.length) / totalRays;
     if (missedRayFraction > 0) {
-      const MISSED_RAY_PENALTY = 90.0; // Heavy penalty in degrees for missed rays
+      const MISSED_RAY_PENALTY = 2.0; // Penalty in cosine units (max difference is 1, so 2 is strong)
       const missedRayPenalty = missedRayFraction * MISSED_RAY_PENALTY;
       objective += missedRayPenalty;
-      // console.log(`⚠️  ${validIntersections.length}/${totalRays} rays hit target (${(missedRayFraction*100).toFixed(1)}% missed), adding penalty: ${missedRayPenalty.toFixed(3)}°`);
     }
     
-    const actualAngles = angles.map(item => item.actualAngleDeg);
-    const avgActualAngle = actualAngles.reduce((sum: number, angle: number) => sum + angle, 0) / actualAngles.length;
-    const actualCosAngles = angles.map(item => item.actualCos);
-    const avgActualCos = actualCosAngles.reduce((sum: number, cos: number) => sum + cos, 0) / actualCosAngles.length;
-    const cosDeviations = angles.map(item => item.cosDeviation);
-    const avgCosDeviation = cosDeviations.reduce((sum: number, dev: number) => sum + dev, 0) / cosDeviations.length;
-    const avgAngularDeviation = angularDeviations.reduce((sum: number, dev: number) => sum + dev, 0) / angularDeviations.length;
-    const maxAngularDeviation = Math.max(...angularDeviations);
+    const avgActualCos = stats.reduce((sum, item) => sum + item.actualCos, 0) / stats.length;
+    const avgCosDeviation = stats.reduce((sum, item) => sum + item.cosDeviation, 0) / stats.length;
     
-    console.log(`[AngleMode] 📐 Summary: avgAngle=${avgActualAngle.toFixed(1)}°, avgDeviation=${avgAngularDeviation.toFixed(1)}°, rmsDeviation=${rmsAngularDeviation.toFixed(3)}°, maxDeviation=${maxAngularDeviation.toFixed(1)}°`);
-    console.log(`[AngleMode] 📐 Final objective = ${objective.toFixed(3)}° (rms=${rmsAngularDeviation.toFixed(3)}° + missedPenalty=${(objective - rmsAngularDeviation).toFixed(3)}°)`);
+    console.log(`[AngleMode] 📐 Summary: avgCos=${avgActualCos.toFixed(4)}, avgCosDev=${avgCosDeviation.toFixed(4)}, rmsCosDev=${rmsCosDeviation.toFixed(6)}`);
+    console.log(`[AngleMode] 📐 Final objective = ${objective.toFixed(6)} (rms=${rmsCosDeviation.toFixed(6)} + missedPenalty=${(objective - rmsCosDeviation).toFixed(6)})`);
     
     return {
-      value: objective, // Use RMS angular deviation as objective
+      value: objective, // Use RMS cosine deviation as objective
       valid: true,
       rayCount: validIntersections.length,
       details: {
         totalRays,
         validIntersections: validIntersections.length,
-        targetAngleDegrees,
+        targetAngleDegrees: targetAngleClamped,
         targetCos,
-        avgActualAngleDegrees: avgActualAngle,
-        avgActualCos: avgActualCos,
-        avgCosDeviation: avgCosDeviation,
-        avgAngularDeviation: avgAngularDeviation,
-        rmsAngularDeviation: rmsAngularDeviation,
-        maxAngularDeviation: maxAngularDeviation,
-        meanSquaredAngularDeviation: meanSquaredAngularDeviation
+        avgActualCos,
+        avgCosDeviation,
+        rmsCosDeviation,
+        meanSquaredCosDeviation
+      }
+    };
+  }
+
+  /**
+   * Evaluate centering mode (minimize distance from surface center in local coordinates)
+   * axisParam: 'Y', 'Z', or 'YZ' (default)
+   */
+  private static evaluateCentering(
+    rayResults: Array<{
+      sourceRays: Ray[];
+      tracedPaths: Ray[][];
+      targetIntersections: Array<{ point: Vector3; normal: Vector3; ray: Ray; valid: boolean }>;
+    }>,
+    targetSurface: OpticalSurface,
+    axisParam: string
+  ): ObjectiveResult {
+    let validIntersections: Array<{ point: Vector3 }> = [];
+    let totalRays = 0;
+    
+    // Collect all valid intersections
+    rayResults.forEach(result => {
+      totalRays += result.sourceRays.length;
+      result.targetIntersections.forEach(intersection => {
+        if (intersection.valid) {
+          validIntersections.push(intersection);
+        }
+      });
+    });
+    
+    if (validIntersections.length === 0) {
+      console.log(`[CenteringMode] ❌ No valid intersections found`);
+      return {
+        value: 10000.0, // STRONGER penalty for missing rays
+        valid: false,
+        rayCount: 0,
+        details: 'No rays reaching target surface'
+      };
+    }
+    
+    let useY = axisParam.includes('Y');
+    let useZ = axisParam.includes('Z');
+    if (!useY && !useZ) {
+      // Default to YZ if param is invalid or missing
+      useY = true;
+      useZ = true;
+      axisParam = 'YZ';
+    }
+    
+    // Transform all points to local surface coordinates and compute squared distance
+    let sumSquaredDistances = 0;
+    
+    validIntersections.forEach(intersection => {
+      // Convert global hit point to surface local coordinates
+      const localPoint = targetSurface.forwardTransform.transformPointV3(intersection.point);
+      
+      let sqDist = 0;
+      if (useY) sqDist += localPoint.y * localPoint.y;
+      if (useZ) sqDist += localPoint.z * localPoint.z;
+      
+      sumSquaredDistances += sqDist;
+    });
+    
+    const meanSquaredDistance = sumSquaredDistances / validIntersections.length;
+    const rmsDistance = Math.sqrt(meanSquaredDistance);
+    
+    let objective = rmsDistance;
+    
+    // Add penalty for rays that miss the target surface
+    const missedRayFraction = (totalRays - validIntersections.length) / totalRays;
+    if (missedRayFraction > 0) {
+      const MISSED_RAY_PENALTY = 50.0; // Moderate physical penalty for missed rays (generic length units)
+      const missedRayPenalty = missedRayFraction * MISSED_RAY_PENALTY;
+      objective += missedRayPenalty;
+    }
+    
+    console.log(`[CenteringMode] 🎯 Summary: axis=${axisParam}, validHits=${validIntersections.length}/${totalRays}, rmsDistance=${rmsDistance.toFixed(6)}`);
+    console.log(`[CenteringMode] 🎯 Final objective = ${objective.toFixed(6)} (rms=${rmsDistance.toFixed(6)} + missedPenalty=${(objective - rmsDistance).toFixed(6)})`);
+    
+    return {
+      value: objective,
+      valid: true,
+      rayCount: validIntersections.length,
+      details: {
+        totalRays,
+        validIntersections: validIntersections.length,
+        axisParam,
+        rmsDistance,
+        meanSquaredDistance
       }
     };
   }

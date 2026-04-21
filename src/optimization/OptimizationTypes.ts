@@ -21,8 +21,8 @@ export interface OptimizationSettings {
   iterations: number;
   variables: { [key: string]: [number, number, number] }; // V1: [min, max, unused]
   obj: number;         // Target surface index (-1 = last, -2 = second-to-last)
-  mode: 'aberrations' | 'angle';
-  param?: any;         // Additional parameters (e.g., target angle for angle mode)
+  mode: 'aberrations' | 'angle' | 'centering';
+  param?: any;         // Additional parameters (e.g., target angle for angle mode, or 'Y', 'Z' for centering)
 }
 
 /**

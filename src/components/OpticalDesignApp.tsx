@@ -85,6 +85,7 @@ optimization_settings:
   obj: -1
   mode: aberrations
   #mode: angle
+  #mode: centering
   param: None
 
 sequence_settings:
