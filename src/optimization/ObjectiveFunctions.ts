@@ -202,7 +202,7 @@ export class ObjectiveFunctions {
   ): Array<{
     sourceRays: Ray[];
     tracedPaths: Ray[][];
-    targetIntersections: Array<{ point: Vector3; normal: Vector3; ray: Ray; valid: boolean }>;
+    targetIntersections: Array<{ point: Vector3; normal: Vector3; ray: Ray; incidentDirection: Vector3; valid: boolean }>;
   }> {
     ObjectiveFunctions.evaluationCounter++;
     
@@ -212,7 +212,7 @@ export class ObjectiveFunctions {
     const results: Array<{
       sourceRays: Ray[];
       tracedPaths: Ray[][];
-      targetIntersections: Array<{ point: Vector3; normal: Vector3; ray: Ray; valid: boolean }>;
+      targetIntersections: Array<{ point: Vector3; normal: Vector3; ray: Ray; incidentDirection: Vector3; valid: boolean }>;
     }> = [];
     
     const orderedSurfaces = OpticalSystemParser.getSurfacesInOrder(system);
@@ -227,7 +227,7 @@ export class ObjectiveFunctions {
       const source = lightSource as any;
       const sourceRays = source.generateRays(source.numberOfRays);
       const tracedPaths: Ray[][] = [];
-      const targetIntersections: Array<{ point: Vector3; normal: Vector3; ray: Ray; valid: boolean }> = [];
+      const targetIntersections: Array<{ point: Vector3; normal: Vector3; ray: Ray; incidentDirection: Vector3; valid: boolean }> = [];
       
       RayTracer.resetFirstRayTracking();
       
@@ -283,14 +283,23 @@ export class ObjectiveFunctions {
             const isAbsorptionSurface = targetSurfaceData.surface.mode === 'absorption';
             const isValidHit = hit.isValid && (isAbsorptionSurface || !hit.wasBlocked);
             
-            // Use the FINAL ray segment from traced paths
+            // Use the incident direction stored in the collector hit record — this is the ray
+            // direction approaching THIS specific target surface, not the last surface overall.
+            // (Using finalRaySegment.direction was wrong for any obj != -1 and all branching systems.)
+            const incidentDir = new Vector3(
+              hit.incidentDirection.x,
+              hit.incidentDirection.y,
+              hit.incidentDirection.z
+            );
+            
+            // Keep a representative Ray object for the intersection record (uses the already-computed legacyPaths).
             const finalPath = legacyPaths.length > 0 ? legacyPaths[legacyPaths.length - 1] : [];
             const finalRaySegment = finalPath.length > 0 ? finalPath[finalPath.length - 1] : ray;
             
             if (shouldLog) {
               console.log(`[AngleMode] Ray ${rayIndex}: Hit point=(${hit.hitPoint.x.toFixed(3)}, ${hit.hitPoint.y.toFixed(3)}, ${hit.hitPoint.z.toFixed(3)})`);
               console.log(`[AngleMode] Ray ${rayIndex}: Hit normal=(${hit.hitNormal.x.toFixed(6)}, ${hit.hitNormal.y.toFixed(6)}, ${hit.hitNormal.z.toFixed(6)})`);
-              console.log(`[AngleMode] Ray ${rayIndex}: Final ray dir=(${finalRaySegment.direction.x.toFixed(6)}, ${finalRaySegment.direction.y.toFixed(6)}, ${finalRaySegment.direction.z.toFixed(6)})`);
+              console.log(`[AngleMode] Ray ${rayIndex}: Incident dir at target=(${incidentDir.x.toFixed(6)}, ${incidentDir.y.toFixed(6)}, ${incidentDir.z.toFixed(6)})`);
               console.log(`[AngleMode] Ray ${rayIndex}: isValidHit=${isValidHit}, isAbsorption=${isAbsorptionSurface}, wasBlocked=${hit.wasBlocked}`);
             }
             
@@ -298,6 +307,7 @@ export class ObjectiveFunctions {
               point: new Vector3(hit.hitPoint.x, hit.hitPoint.y, hit.hitPoint.z),
               normal: new Vector3(hit.hitNormal.x, hit.hitNormal.y, hit.hitNormal.z),
               ray: finalRaySegment,
+              incidentDirection: incidentDir,
               valid: isValidHit
             });
           } else {
@@ -454,11 +464,11 @@ export class ObjectiveFunctions {
     rayResults: Array<{
       sourceRays: Ray[];
       tracedPaths: Ray[][];
-      targetIntersections: Array<{ point: Vector3; normal: Vector3; ray: Ray; valid: boolean }>;
+      targetIntersections: Array<{ point: Vector3; normal: Vector3; ray: Ray; incidentDirection: Vector3; valid: boolean }>;
     }>,
     targetAngleDegrees: number = 0
   ): ObjectiveResult {
-    let validIntersections: Array<{ point: Vector3; normal: Vector3; ray: Ray }> = [];
+    let validIntersections: Array<{ point: Vector3; normal: Vector3; ray: Ray; incidentDirection: Vector3 }> = [];
     let totalRays = 0;
     
     // Collect all valid intersections with ray directions
@@ -489,10 +499,9 @@ export class ObjectiveFunctions {
     
     // Calculate cosines for each ray using surface normals directly (both in global coordinates)
     const stats = validIntersections.map((intersection, i) => {
-      // Get normalized ray direction and surface normal (both in global coordinates)
-      // rayDir needs to be explicitly converted to our local Vector3 type for the dot product
-      const rayDirRaw = intersection.ray.direction.normalize();
-      const rayDir = new Vector3(rayDirRaw.x, rayDirRaw.y, rayDirRaw.z);
+      // Use the incident direction at the target surface (stored directly from the collector).
+      // This is the direction approaching that specific surface, not the last overall segment.
+      const rayDir = intersection.incidentDirection.normalize();
       const surfaceNormal = intersection.normal.normalize();
       
       // Calculate dot product. Use Math.abs because normal might point "with" or "against" the ray,
