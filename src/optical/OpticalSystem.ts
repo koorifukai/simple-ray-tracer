@@ -326,10 +326,12 @@ export class OpticalSystemParser {
   }
 
   /**
-   * Get all surfaces in order along optical axis
+   * Get all surfaces in optical-train order.
+   * system.surfaces is already built in optical-train order by the THIRD PASS of parseData,
+   * so no re-sorting is needed. Sorting by X was wrong for folded/reflective systems.
    */
   static getSurfacesInOrder(system: OpticalSystem): OpticalSurface[] {
-    return system.surfaces.slice().sort((a, b) => a.position.x - b.position.x);
+    return system.surfaces.slice();
   }
 
   /**

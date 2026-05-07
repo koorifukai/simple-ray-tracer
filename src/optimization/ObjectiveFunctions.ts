@@ -276,39 +276,41 @@ export class ObjectiveFunctions {
           }
           
           if (targetSurfaceData && targetSurfaceData.intersectionPoints.length > 0) {
-            // Get the last intersection on this target surface
-            const hit = targetSurfaceData.intersectionPoints[targetSurfaceData.intersectionPoints.length - 1];
-            
-            // For absorption surfaces, accept rays even if marked as "blocked"
+            // Collect ALL intersections on this surface — covers every LID/branch that hit it.
+            // (Previously only the last one was taken, silently dropping branched-ray contributions.)
             const isAbsorptionSurface = targetSurfaceData.surface.mode === 'absorption';
-            const isValidHit = hit.isValid && (isAbsorptionSurface || !hit.wasBlocked);
-            
-            // Use the incident direction stored in the collector hit record — this is the ray
-            // direction approaching THIS specific target surface, not the last surface overall.
-            // (Using finalRaySegment.direction was wrong for any obj != -1 and all branching systems.)
-            const incidentDir = new Vector3(
-              hit.incidentDirection.x,
-              hit.incidentDirection.y,
-              hit.incidentDirection.z
-            );
-            
-            // Keep a representative Ray object for the intersection record (uses the already-computed legacyPaths).
             const finalPath = legacyPaths.length > 0 ? legacyPaths[legacyPaths.length - 1] : [];
             const finalRaySegment = finalPath.length > 0 ? finalPath[finalPath.length - 1] : ray;
-            
+
             if (shouldLog) {
-              console.log(`[AngleMode] Ray ${rayIndex}: Hit point=(${hit.hitPoint.x.toFixed(3)}, ${hit.hitPoint.y.toFixed(3)}, ${hit.hitPoint.z.toFixed(3)})`);
-              console.log(`[AngleMode] Ray ${rayIndex}: Hit normal=(${hit.hitNormal.x.toFixed(6)}, ${hit.hitNormal.y.toFixed(6)}, ${hit.hitNormal.z.toFixed(6)})`);
-              console.log(`[AngleMode] Ray ${rayIndex}: Incident dir at target=(${incidentDir.x.toFixed(6)}, ${incidentDir.y.toFixed(6)}, ${incidentDir.z.toFixed(6)})`);
-              console.log(`[AngleMode] Ray ${rayIndex}: isValidHit=${isValidHit}, isAbsorption=${isAbsorptionSurface}, wasBlocked=${hit.wasBlocked}`);
+              console.log(`[AngleMode] Ray ${rayIndex}: ${targetSurfaceData.intersectionPoints.length} hit(s) on target surface`);
             }
-            
-            targetIntersections.push({
-              point: new Vector3(hit.hitPoint.x, hit.hitPoint.y, hit.hitPoint.z),
-              normal: new Vector3(hit.hitNormal.x, hit.hitNormal.y, hit.hitNormal.z),
-              ray: finalRaySegment,
-              incidentDirection: incidentDir,
-              valid: isValidHit
+
+            targetSurfaceData.intersectionPoints.forEach((hit, hitIdx) => {
+              const isValidHit = hit.isValid && (isAbsorptionSurface || !hit.wasBlocked);
+
+              // incidentDirection from the collector is the direction approaching THIS surface,
+              // stored at recordHit time as currentRay.direction (before refraction/reflection).
+              const incidentDir = new Vector3(
+                hit.incidentDirection.x,
+                hit.incidentDirection.y,
+                hit.incidentDirection.z
+              );
+
+              if (shouldLog && hitIdx < 3) {
+                console.log(`[AngleMode] Ray ${rayIndex} hit[${hitIdx}]: point=(${hit.hitPoint.x.toFixed(3)}, ${hit.hitPoint.y.toFixed(3)}, ${hit.hitPoint.z.toFixed(3)})`);
+                console.log(`[AngleMode] Ray ${rayIndex} hit[${hitIdx}]: normal=(${hit.hitNormal.x.toFixed(6)}, ${hit.hitNormal.y.toFixed(6)}, ${hit.hitNormal.z.toFixed(6)})`);
+                console.log(`[AngleMode] Ray ${rayIndex} hit[${hitIdx}]: incidentDir=(${incidentDir.x.toFixed(6)}, ${incidentDir.y.toFixed(6)}, ${incidentDir.z.toFixed(6)})`);
+                console.log(`[AngleMode] Ray ${rayIndex} hit[${hitIdx}]: isValidHit=${isValidHit}, isAbsorption=${isAbsorptionSurface}, wasBlocked=${hit.wasBlocked}`);
+              }
+
+              targetIntersections.push({
+                point: new Vector3(hit.hitPoint.x, hit.hitPoint.y, hit.hitPoint.z),
+                normal: new Vector3(hit.hitNormal.x, hit.hitNormal.y, hit.hitNormal.z),
+                ray: finalRaySegment,
+                incidentDirection: incidentDir,
+                valid: isValidHit
+              });
             });
           } else {
             if (shouldLog) console.log(`[AngleMode] Ray ${rayIndex}: No intersection data for target surface`);

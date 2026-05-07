@@ -1,0 +1,41 @@
+assemblies:
+  - aid: 0
+    s1:
+      {relative: 0, angles: [-135,0], shape: plano,  semidia: 20,  mode: reflection}
+
+surfaces:
+  - focus:
+      {sid: 0, shape: plano, height: 100, width: 100, mode: absorption}
+    mir:
+      {sid: 1, shape: plano, semidia: 20, mode: reflection}
+
+light_sources:
+  - l1:
+      {lid: 0, position: [-409.5,-95,-23.75], vector: [0,0,1], number: 5, wavelength: 633, type: linear, param: 5}
+    l2:
+      {lid: 1, position: [-409.5,-95,-23.75], vector: [0,0,1], number: 5, wavelength: 532, type: linear, param: 2}
+
+optical_trains:
+  - r: 
+     {lid: 0}
+    g: 
+     {lid: 1}
+    m1:
+     {sid: 1, position: [-409.5,-95,21.3], angles: [0,-45]}
+    ss:
+     {aid: 0, position: [-469.5,-95,21.3], angles: [0,0]}
+    s:
+     {sid: 1, position: [-469.5,0,21.3], angles: [135,0]}
+    sss:
+     {sid: 0, position: [72.5,0,0], angles: [0,V1]}
+
+optimization_settings:
+  iterations: 20
+  V1: [0,30,20]
+  #V2: [15,25,5]
+  #V3: [80,90,5]
+  #V4: [-25,-15,5]
+  obj: -1
+  mode: angle
+  #mode: centering
+  param: None
